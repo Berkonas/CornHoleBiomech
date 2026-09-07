@@ -14,6 +14,7 @@ from .comparison import (
     assert_compatible_views,
     build_reference_set,
     compare_normalized,
+    path_rmse,
     similarity_score,
 )
 from .config import merged_config, validate_config
@@ -30,8 +31,9 @@ from .export import (
 )
 from .filtering import lowpass_zero_phase
 from .kinematics import calculate_kinematics
-from .models import CorrectionSet, PoseSequence, TrialContext, utc_now
+from .models import BoardPoint, CorrectionSet, PoseSequence, TrialContext, TrialOutcome, utc_now
 from .normalization import normalized_event_timing, resample_curve
+from .outcomes import outcome_summary
 from .pose import analyze_pose
 from .quality import quality_summary
 from .serialization import canonical_hash, json_ready, write_json
@@ -300,6 +302,7 @@ def compare_trial(
         "Prototype reference similarity - single reference trial"
         if len(references) == 1 else f"Prototype reference similarity - reference set of {len(references)} trials"
     )
+    tau = np.asarray(test_payload["tau"], float)
     result = {
         "schema_version": 1,
         "test_trial_id": test_payload["trial_id"],
@@ -308,11 +311,16 @@ def compare_trial(
         "label": label,
         "raw_metrics": metrics,
         "similarity": score,
+        "curves": {
+            "tau": tau,
+            "test": test_values,
+            "reference_mean": {name: values["mean"] for name, values in reference_set.items()},
+            "reference_sd": {name: values["sd"] for name, values in reference_set.items()},
+        },
         "claim_scope": "reference_similarity_not_performance_quality",
         "timing_method": "time_preserving_no_dynamic_time_warping",
     }
     write_json(output / "comparison.json", result)
-    tau = np.asarray(test_payload["tau"], float)
     field = "elbow_angle_deg"
     if field in test_values and field in reference_set:
         plot_comparison(
@@ -327,10 +335,17 @@ def analyze_relationships(
     analysis_dirs: list[str | Path],
     outcome_records: dict[str, dict[str, Any]],
     output_path: str | Path,
+    comparison_dirs: list[str | Path] | None = None,
     minimum_trials: int = 8,
 ) -> dict[str, Any]:
     """Analyze selected movement features against outcome within one athlete."""
+    comparison_by_trial: dict[str, dict[str, Any]] = {}
+    for directory in comparison_dirs or []:
+        comparison = _load_json(Path(directory) / "comparison.json", None)
+        if comparison is not None:
+            comparison_by_trial[comparison["test_trial_id"]] = comparison
     rows: list[dict[str, Any]] = []
+    normalized_by_trial: dict[str, dict[str, Any]] = {}
     athlete_ids: set[str] = set()
     for directory in analysis_dirs:
         result = _load_json(Path(directory) / "results.json", None)
@@ -338,11 +353,32 @@ def analyze_relationships(
             continue
         athlete_ids.add(result["athlete_id"])
         outcome = outcome_records.get(result["trial_id"], {})
+        if outcome and "spatial_error" not in outcome:
+            def point(value: dict[str, Any] | None) -> BoardPoint | None:
+                return None if value is None else BoardPoint(**value)
+            parsed = TrialOutcome(
+                intended_target=outcome.get("intended_target", "Hole center"),
+                score_category=int(outcome.get("score_category", 0)),
+                throw_type=outcome.get("throw_type", "Standard"),
+                notes=outcome.get("notes", ""),
+                intended_point=point(outcome.get("intended_point")),
+                first_contact_point=point(outcome.get("first_contact_point")),
+                final_resting_point=point(outcome.get("final_resting_point")),
+            )
+            outcome = outcome_summary(parsed)
         row = {"trial_id": result["trial_id"], "score_category": outcome.get("score_category")}
         row.update(result.get("summaries", {}))
+        comparison = comparison_by_trial.get(result["trial_id"], {})
+        row["reference_similarity_score"] = comparison.get("similarity", {}).get("overall")
+        row["wrist_reference_deviation_arm_lengths"] = comparison.get("raw_metrics", {}).get(
+            "wrist_path_rmse_arm_lengths"
+        )
         spatial = outcome.get("spatial_error") or {}
         row["radial_error_inches"] = spatial.get("radial_error_inches")
         rows.append(row)
+        normalized = _load_json(Path(directory) / "normalized.json", None)
+        if normalized is not None:
+            normalized_by_trial[result["trial_id"]] = normalized
     if len(athlete_ids) > 1:
         raise ValueError("Initial relationship analysis is within-person; provide one athlete at a time")
     outcomes = [row.get("radial_error_inches") for row in rows]
@@ -351,12 +387,30 @@ def analyze_relationships(
         outcome_name = "score_category"
     else:
         outcome_name = "radial_error_inches"
+    wrist_paths = {
+        trial_id: np.asarray(value.get("values", {}).get("wrist_path_arm_lengths"), float)
+        for trial_id, value in normalized_by_trial.items()
+        if value.get("values", {}).get("wrist_path_arm_lengths") is not None
+    }
+    if wrist_paths:
+        shapes = {path.shape for path in wrist_paths.values()}
+        if len(shapes) == 1:
+            with np.errstate(invalid="ignore"):
+                athlete_mean_wrist = np.nanmean(np.stack(list(wrist_paths.values())), axis=0)
+            for row in rows:
+                path = wrist_paths.get(row["trial_id"])
+                row["wrist_path_deviation_from_athlete_mean_arm_lengths"] = (
+                    path_rmse(path, athlete_mean_wrist) if path is not None else None
+                )
     feature_names = (
         "elbow_angle_deg_at_release",
         "elbow_angle_deg_rom",
         "trunk_inclination_deg_at_release",
         "movement_duration_seconds",
         "release_timing_cycle",
+        "reference_similarity_score",
+        "wrist_reference_deviation_arm_lengths",
+        "wrist_path_deviation_from_athlete_mean_arm_lengths",
     )
     relationships = {
         name: relationship([row.get(name) for row in rows], outcomes, minimum_trials)
@@ -366,6 +420,28 @@ def analyze_relationships(
         name: grouped_summary([row.get(name) for row in rows], [row.get("score_category") for row in rows])
         for name in feature_names
     }
+    consistency: dict[str, dict[str, Any]] = {}
+    units = {
+        "elbow_angle_deg_at_release": "degrees",
+        "elbow_angle_deg_rom": "degrees",
+        "trunk_inclination_deg_at_release": "degrees",
+        "movement_duration_seconds": "seconds",
+        "release_timing_cycle": "movement cycle fraction",
+        "reference_similarity_score": "0-100 reference similarity index",
+        "wrist_reference_deviation_arm_lengths": "arm lengths",
+        "wrist_path_deviation_from_athlete_mean_arm_lengths": "arm lengths",
+    }
+    for name in feature_names:
+        values = np.asarray([row.get(name) for row in rows if row.get(name) is not None], float)
+        values = values[np.isfinite(values)]
+        consistency[name] = {
+            "n": int(values.size),
+            "mean": float(np.mean(values)) if values.size else None,
+            "standard_deviation": float(np.std(values, ddof=1)) if values.size > 1 else None,
+            "median": float(np.median(values)) if values.size else None,
+            "range": float(np.ptp(values)) if values.size else None,
+            "units": units[name],
+        }
     result = {
         "schema_version": 1,
         "athlete_id": next(iter(athlete_ids), None),
@@ -373,6 +449,8 @@ def analyze_relationships(
         "outcome_variable": outcome_name,
         "relationships": relationships,
         "grouped_by_score": groups,
+        "within_athlete_consistency": consistency,
+        "data_rows": rows,
         "claim_scope": "within_athlete_observational_association_not_causation",
     }
     write_json(output_path, result)

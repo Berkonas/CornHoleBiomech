@@ -81,6 +81,7 @@ def parser() -> argparse.ArgumentParser:
         "relationships", help="Estimate within-athlete movement/outcome relationships"
     )
     relationships.add_argument("--analysis", action="append", required=True)
+    relationships.add_argument("--comparison", action="append", default=[])
     relationships.add_argument("--outcomes", required=True)
     relationships.add_argument("--output", required=True)
     relationships.add_argument("--minimum-trials", type=int, default=8)
@@ -170,7 +171,9 @@ def handle_batch(args: argparse.Namespace) -> dict[str, Any]:
 def handle_relationships(args: argparse.Namespace) -> dict[str, Any]:
     outcomes = load_json(args.outcomes, {})
     return analyze_relationships(
-        args.analysis, outcomes, args.output, minimum_trials=args.minimum_trials
+        args.analysis, outcomes, args.output,
+        comparison_dirs=args.comparison,
+        minimum_trials=args.minimum_trials,
     )
 
 
@@ -210,4 +213,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

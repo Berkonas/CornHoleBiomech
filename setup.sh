@@ -40,4 +40,4 @@ if [[ ! -f "$MEDIAPIPE_MODEL" ]]; then
   shasum -a 256 "$MEDIAPIPE_MODEL" > "$MEDIAPIPE_MODEL.sha256"
 fi
 print "Installed Cornhole Biomechanics Lab scientific engine."
-print "Verify: $PROJECT_DIR/.venv/bin/python -m cornhole_biomech probe"
+print "Verify: PYTHONPATH=\"$PROJECT_DIR/python\" \"$PROJECT_DIR/.venv/bin/python\" -m cornhole_biomech probe"

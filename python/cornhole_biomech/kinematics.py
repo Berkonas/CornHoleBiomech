@@ -60,9 +60,23 @@ def calculate_kinematics(
 ) -> KinematicResult:
     """Calculate interpretable projected 2D metrics from filtered image points.
 
+    Definitions and units:
+    - elbow_angle_deg: unsigned shoulder-elbow-wrist planar angle, degrees.
+    - upper_arm_orientation_deg: shoulder-to-elbow direction from +x, degrees.
+    - forearm_orientation_deg: elbow-to-wrist direction from +x, degrees.
+    - arm_to_trunk_deg: unsigned upper-arm versus hip-to-shoulder angle, degrees.
+    - trunk_inclination_deg: signed trunk displacement from image vertical,
+      degrees; positive is toward the target after direction reflection.
+    - wrist/elbow_path_arm_lengths: throwing-shoulder-relative position divided
+      by median upper-arm plus forearm length, dimensionless arm lengths.
+    - *_velocity_deg_s: derivative of the already-filtered angle, degrees/second.
+    - *_rom: finite maximum minus minimum projected angle, degrees.
+
     Image y is flipped upward and x is reflected into a common target-forward
-    direction for orientations and normalized paths. No quantity here estimates
-    axial shoulder/forearm/wrist rotation.
+    direction for orientations and normalized paths. Joint points are markerless
+    image estimates rather than anatomical ground truth. Perspective and
+    out-of-plane motion remain. No quantity here estimates axial
+    shoulder/forearm/wrist rotation or a true 3D joint orientation.
     """
     lookup = {name: index for index, name in enumerate(landmarks)}
     required = {
@@ -141,4 +155,3 @@ def calculate_kinematics(
         arm_length_pixels=float(arm_length),
         warnings=warnings,
     )
-

@@ -7,7 +7,7 @@ import pytest
 
 from cornhole_biomech.models import BoardPoint, PointEstimate, PoseFrame, PoseSequence, TrialContext, TrialOutcome
 from cornhole_biomech.outcomes import board_point_from_normalized, outcome_summary, point_errors
-from cornhole_biomech.pipeline import analyze_trial
+from cornhole_biomech.pipeline import analyze_relationships, analyze_trial, compare_trial
 from cornhole_biomech.statistics import INSUFFICIENT_MESSAGE, relationship
 
 
@@ -83,3 +83,86 @@ def test_pipeline_exports_reproducible_package_from_imported_pose(tmp_path):
     assert manifest["analysis_configuration"]["filter"]["cutoff_hz"] == 6.0
     assert result["results"]["claim_scope"].startswith("projected_2d")
 
+
+def test_comparison_exports_curves_for_native_plot_and_ghost_arm(tmp_path):
+    tau = np.linspace(0, 1, 101).tolist()
+    reference = tmp_path / "reference"
+    test = tmp_path / "test"
+    reference.mkdir()
+    test.mkdir()
+    base = np.linspace(80, 140, 101)
+    wrist = np.column_stack((np.linspace(0, 1, 101), np.zeros(101)))
+    elbow = 0.5 * wrist
+    for directory, trial_id, offset in ((reference, "R1", 0), (test, "T1", 3)):
+        payload = {
+            "trial_id": trial_id,
+            "athlete_id": "A1",
+            "camera_view": "side",
+            "tau": tau,
+            "event_timing": {"release": 0.5},
+            "values": {
+                "elbow_angle_deg": (base + offset).tolist(),
+                "wrist_path_arm_lengths": wrist.tolist(),
+                "elbow_path_arm_lengths": elbow.tolist(),
+            },
+        }
+        (directory / "normalized.json").write_text(json.dumps(payload))
+    output = tmp_path / "comparison"
+    result = compare_trial(test, [reference], output)
+    assert result["curves"]["test"]["elbow_angle_deg"][0] == pytest.approx(83)
+    assert result["curves"]["reference_mean"]["elbow_path_arm_lengths"][50][0] == pytest.approx(0.25)
+    assert (output / "comparison_elbow_angle.png").exists()
+
+
+def test_relationships_use_raw_board_outcomes_and_separate_consistency_features(tmp_path):
+    analysis_dirs = []
+    comparison_dirs = []
+    outcomes = {}
+    for index in range(8):
+        trial_id = f"T{index}"
+        analysis = tmp_path / f"analysis-{index}"
+        analysis.mkdir()
+        analysis_dirs.append(analysis)
+        summary = {
+            "trial_id": trial_id,
+            "athlete_id": "A1",
+            "summaries": {
+                "elbow_angle_deg_at_release": 100 + index,
+                "elbow_angle_deg_rom": 30 + index,
+                "trunk_inclination_deg_at_release": 5 + index,
+                "movement_duration_seconds": 0.8 + index / 100,
+                "release_timing_cycle": 0.5 + index / 100,
+            },
+        }
+        (analysis / "results.json").write_text(json.dumps(summary))
+        wrist = np.column_stack((np.linspace(0, 1, 101), np.full(101, index / 100)))
+        (analysis / "normalized.json").write_text(json.dumps({
+            "trial_id": trial_id,
+            "athlete_id": "A1",
+            "camera_view": "side",
+            "values": {"wrist_path_arm_lengths": wrist.tolist()},
+        }))
+        comparison = tmp_path / f"comparison-{index}"
+        comparison.mkdir()
+        comparison_dirs.append(comparison)
+        (comparison / "comparison.json").write_text(json.dumps({
+            "test_trial_id": trial_id,
+            "similarity": {"overall": 90 - index},
+            "raw_metrics": {"wrist_path_rmse_arm_lengths": index / 100},
+        }))
+        outcomes[trial_id] = {
+            "intended_target": "Hole center",
+            "score_category": 1,
+            "throw_type": "Standard",
+            "intended_point": {"x_inches": 12, "y_inches": 39},
+            "first_contact_point": {"x_inches": 12 + index, "y_inches": 39},
+        }
+    output = tmp_path / "relationships.json"
+    result = analyze_relationships(
+        analysis_dirs, outcomes, output, comparison_dirs=comparison_dirs, minimum_trials=8
+    )
+    assert result["outcome_variable"] == "radial_error_inches"
+    assert result["relationships"]["reference_similarity_score"]["n"] == 8
+    assert result["within_athlete_consistency"]["elbow_angle_deg_at_release"]["standard_deviation"] > 0
+    assert result["data_rows"][4]["radial_error_inches"] == pytest.approx(4)
+    assert result["data_rows"][4]["wrist_path_deviation_from_athlete_mean_arm_lengths"] is not None
