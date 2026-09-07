@@ -31,6 +31,15 @@ struct ResultsView: View {
                 }
                 consistencySection(results)
                 relationshipSection(results)
+                if let root = store.projectURL, let athleteID {
+                    let directory = root.appendingPathComponent("relationships/\(athleteID.uuidString)")
+                    HStack {
+                        Button("Show Relationship Files") { store.reveal(directory) }
+                        Button("Export Relationship Analysis…") {
+                            store.exportFolder(at: directory, suggestedName: "Relationships-\(athleteID.uuidString.prefix(8))-export")
+                        }
+                    }
+                }
             } else {
                 ResearchCard(title: "Three different questions", symbol: "square.split.2x2") {
                     Text("A. Reference similarity: how close was a trial to the coach-selected pattern?")

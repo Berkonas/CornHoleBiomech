@@ -53,7 +53,7 @@ Board coordinates use inches on the board surface: origin at the lower-left corn
 
 ### Landmark definitions
 
-Required points are left/right shoulder, elbow, wrist, and hip. A markerless point is the model's image estimate of a landmark, not a ground-truth joint center. Mid-shoulder and mid-hip are confidence-weighted means only when both bilateral points are usable. Throwing-side shoulder/elbow/wrist supply arm measures. Opposite-side landmarks provide trunk context and quality checks.
+Required points are left/right shoulder, elbow, wrist, and hip. A markerless point is the model's image estimate of a landmark, not a ground-truth joint center. Mid-shoulder and mid-hip are arithmetic means only when both bilateral points remain usable after confidence masking/correction. Throwing-side shoulder/elbow/wrist supply arm measures. Opposite-side landmarks provide trunk context and quality checks.
 
 ### Angles and trajectories
 
@@ -80,7 +80,7 @@ theta = atan2(abs(u_x v_y - u_y v_x), u dot v)
 | Movement duration | corrected end time minus corrected start time | seconds | Precision limited by frame interval. |
 | Angular velocity | time derivative of filtered, gap-limited angle samples | degrees/second | Not reported when sampling/filter/coverage quality fails. |
 | Event timing | event time relative to corrected movement interval | percent cycle and frame | No claim of sub-frame precision. |
-| Throw-to-throw variability | pointwise SD/median absolute deviation of time-normalized curves | native units | Within-athlete repeatability, not criterion validity. |
+| Throw-to-throw variability | feature SD/range and wrist-path RMSE from the athlete's normalized mean path | native units or arm lengths | Within-athlete repeatability, not criterion validity. |
 
 ### Missingness, confidence, and correction
 
@@ -97,7 +97,7 @@ Automatic candidates are motion start, peak backswing, forward swing onset, rele
 
 ### Filtering
 
-Default: fourth-order low-pass Butterworth, represented as second-order sections and applied forward/backward (zero phase), cutoff 6 Hz for video at 60 fps or higher. For lower frame rates the cutoff is capped below 0.45 times sampling frequency. Filtering is skipped with a warning when a valid continuous sequence is too short. This is a starting setting, not a universal truth. The advanced panel exposes filter type/order/cutoff/gap limit; exports record the effective values. Pilot work should compare raw and filtered traces, run cutoff sensitivity (for example 4/6/8 Hz), and use residual/frequency analysis on representative trials.
+Default: fourth-order low-pass Butterworth, represented as second-order sections and applied forward/backward (zero phase), cutoff 6 Hz for video at 60 fps or higher. Configuration validation requires the cutoff to remain below Nyquist; the low-level filter also defensively caps it at 45% of sampling frequency. Filtering is skipped with a warning when a valid continuous sequence is too short. This is a starting setting, not a universal truth. The advanced panel exposes filter type/order/cutoff/gap limit; exports record the effective values. Pilot work should compare raw and filtered traces, run cutoff sensitivity (for example 4/6/8 Hz), and use residual/frequency analysis on representative trials.
 
 ### Time and body-size normalization
 

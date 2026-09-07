@@ -173,20 +173,26 @@ final class ProjectStore: ObservableObject {
             errorMessage = "Analyze this trial before exporting it."
             return
         }
+        exportFolder(at: analysis, suggestedName: "Trial-\(trial.shortID)-export")
+    }
+
+    func exportFolder(at source: URL, suggestedName: String) {
         let panel = NSSavePanel()
-        panel.title = "Export Trial Analysis"
-        panel.nameFieldStringValue = "Trial-\(trial.shortID)-export"
+        panel.title = "Export Research Artifacts"
+        panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         do {
             guard !fileManager.fileExists(atPath: destination.path) else {
                 throw ProjectStoreError.fileAlreadyExists(destination.lastPathComponent)
             }
-            try fileManager.copyItem(at: analysis, to: destination)
+            try fileManager.copyItem(at: source, to: destination)
             NSWorkspace.shared.activateFileViewerSelecting([destination])
-            notice = "Exported \(trial.originalFilename)."
+            notice = "Exported \(source.lastPathComponent)."
         } catch { errorMessage = error.localizedDescription }
     }
+
+    func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 
     func updateSettings(_ settings: AnalysisSettings) throws {
         project?.analysisSettings = settings

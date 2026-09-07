@@ -40,6 +40,12 @@ struct CompareView: View {
                     testLabel: test.originalFilename
                 )
                 if let curves = comparison.curves { ComparisonCurvesView(curves: curves) }
+                HStack {
+                    Button("Show Comparison Files") { if let comparisonURL { store.reveal(comparisonURL) } }
+                    Button("Export Comparison…") {
+                        if let comparisonURL { store.exportFolder(at: comparisonURL, suggestedName: "Comparison-\(test.shortID)-export") }
+                    }
+                }
                 HStack(alignment: .top, spacing: 16) {
                     similarityPanel(comparison)
                     rawMetricsPanel(comparison)

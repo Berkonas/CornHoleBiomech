@@ -70,6 +70,9 @@ final class AnalysisService: ObservableObject {
                 arguments += ["--events", events.path]
             }
             _ = try await run(arguments)
+            if let outcome = trial.outcome {
+                try await summarizeOutcome(outcome, analysisURL: output)
+            }
             try store.markAnalysisComplete(trialID: trial.id, relativePath: relativeOutput)
             stage = "Complete"
             detail = "Saved transparent JSON, CSV, plots, and annotated video."
@@ -194,8 +197,10 @@ final class AnalysisService: ObservableObject {
                 if !buffered.isEmpty,
                    let object = try? JSONSerialization.jsonObject(with: buffered) as? [String: Any] {
                     if object["type"] as? String == "progress", updateProgress {
-                        progress = object["fraction"] as? Double ?? progress
-                        stage = humanize(object["stage"] as? String ?? "Working")
+                        let rawStage = object["stage"] as? String ?? "working"
+                        let rawFraction = object["fraction"] as? Double ?? progress
+                        progress = rawStage == "detecting_pose" ? 0.04 + 0.40 * rawFraction : rawFraction
+                        stage = humanize(rawStage)
                         detail = object["message"] as? String ?? detail
                     } else if object["type"] as? String == "result" {
                         finalData = object["data"] as? [String: Any]

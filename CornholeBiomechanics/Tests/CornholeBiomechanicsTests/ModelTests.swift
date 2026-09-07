@@ -84,4 +84,22 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(relationship.dataRows?.first?.scoreCategory, 3)
         XCTAssertEqual(relationship.relationships["reference_similarity_score"]?.n, 8)
     }
+
+    @MainActor
+    func testCorrectionUndoPreservesSeparateRawPoseFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let raw = Data(#"{"fps":60,"width":100,"height":100,"frame_count":1,"backend":"test","model_name":"test","frames":[{"frame_index":0,"time_seconds":0,"landmarks":{"right_wrist":{"x":10,"y":20,"confidence":0.9}}}]}"#.utf8)
+        try raw.write(to: directory.appendingPathComponent("pose_raw.json"))
+        let originalRaw = try Data(contentsOf: directory.appendingPathComponent("pose_raw.json"))
+        let controller = TrialDataController()
+        controller.load(analysisURL: directory)
+        let undo = UndoManager()
+        controller.setCorrection(frame: 0, landmark: "right_wrist", x: 30, y: 40, undoManager: undo)
+        XCTAssertEqual(controller.correction(frame: 0, landmark: "right_wrist")?.x, 30)
+        undo.undo()
+        XCTAssertNil(controller.correction(frame: 0, landmark: "right_wrist"))
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("pose_raw.json")), originalRaw)
+    }
 }
