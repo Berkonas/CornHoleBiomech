@@ -46,7 +46,7 @@ Accessed 2026-09-06 unless noted. Software versions are review targets; the exac
 
 - Pagnon, D., & Kim, H. (2024). Sports2D: Compute 2D human pose and angles from a video or a webcam. *Journal of Open Source Software, 9*(101), 6849. https://doi.org/10.21105/joss.06849. Repository: https://github.com/davidpagnon/Sports2D. PyPI 0.8.34; reviewed HEAD `4392177d75dff43b4da60514d3766029201a5c5e`; BSD-3-Clause.
 - Pagnon, D., Domalain, M., & Reveret, L. (2022). Pose2Sim: An open-source Python package for multiview markerless kinematics. *Journal of Open Source Software, 7*(79), 4362. https://doi.org/10.21105/joss.04362. Repository: https://github.com/perfanalytics/pose2sim. PyPI 0.10.49; reviewed HEAD `65bbb056fecb3e6a7dd6064dc561bc065bc74bb6`; BSD-3-Clause.
-- Google. (2026). *MediaPipe Pose Landmarker*. https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/ Repository: https://github.com/google-ai-edge/mediapipe. PyPI 1.0.1; reviewed HEAD `c17b2a83e8944d2811889a2a08d629c20bcb6ed8`; Apache-2.0.
+- Google. (2026). *MediaPipe Pose Landmarker*. https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/ Repository: https://github.com/google-ai-edge/mediapipe. Tested PyPI 0.10.35 (the reviewed 1.0.1 build failed during macOS task-graph initialization); reviewed HEAD `c17b2a83e8944d2811889a2a08d629c20bcb6ed8`; Apache-2.0.
 - Jiang, T., Lu, P., Zhang, L., et al. (2023). RTMPose: Real-time multi-person pose estimation based on MMPose. arXiv:2303.07399. https://arxiv.org/abs/2303.07399. MMPose repository: https://github.com/open-mmlab/mmpose. Version 1.3.2; reviewed HEAD `759b39c13fea6ba094afc1fa932f51dc1b11cbf9`; Apache-2.0.
 - Mathis, A., Mamidanna, P., Cury, K. M., et al. (2018). DeepLabCut: Markerless pose estimation of user-defined body parts with deep learning. *Nature Neuroscience, 21*, 1281-1289. https://doi.org/10.1038/s41593-018-0209-y. Repository: https://github.com/DeepLabCut/DeepLabCut. Version 3.0.1; reviewed HEAD `53e95879b9a090ccd095c3f9c724e1ade4be8fb4`; LGPL-3.0-or-later.
 
@@ -59,4 +59,3 @@ Accessed 2026-09-06 unless noted. Software versions are review targets; the exac
 - Apple. (2026). `NavigationSplitView`. https://developer.apple.com/documentation/swiftui/navigationsplitview
 - Apple. (2026). `AVPlayer`. https://developer.apple.com/documentation/avfoundation/avplayer
 - YouTube. (2026). *Terms of Service*, Permissions and Restrictions. https://www.youtube.com/t/terms
-

@@ -1,0 +1,76 @@
+"""Versioned analysis configuration with explicit, reproducible defaults."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "schema_version": 1,
+    "confidence_threshold": 0.35,
+    "max_interpolation_gap_frames": 3,
+    "filter": {
+        "enabled": True,
+        "type": "butterworth_zero_phase",
+        "order": 4,
+        "cutoff_hz": 6.0,
+    },
+    "normalization_samples": 101,
+    "minimum_velocity_coverage": 0.80,
+    "minimum_relationship_trials": 8,
+    "similarity": {
+        "formula": "linear_to_zero_at_tolerance",
+        "components": {
+            "elbow_angle_mae_deg": {"tolerance": 15.0, "weight": 1.0},
+            "upper_arm_orientation_mae_deg": {"tolerance": 15.0, "weight": 0.75},
+            "forearm_orientation_mae_deg": {"tolerance": 15.0, "weight": 0.75},
+            "arm_to_trunk_mae_deg": {"tolerance": 15.0, "weight": 0.75},
+            "trunk_inclination_mae_deg": {"tolerance": 10.0, "weight": 0.75},
+            "wrist_path_rmse_arm_lengths": {"tolerance": 0.25, "weight": 1.0},
+            "release_timing_abs_difference_cycle": {"tolerance": 0.10, "weight": 0.75},
+        },
+        "status": "provisional_pilot_tolerances_not_population_norms",
+    },
+}
+
+
+def merged_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return defaults recursively updated by user overrides without mutating either."""
+    result = deepcopy(DEFAULT_CONFIG)
+
+    def merge(target: dict[str, Any], source: dict[str, Any]) -> None:
+        for key, value in source.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge(target[key], value)
+            else:
+                target[key] = deepcopy(value)
+
+    if overrides:
+        merge(result, overrides)
+    validate_config(result)
+    return result
+
+
+def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
+    """Reject settings that would create misleading or numerically invalid results."""
+    threshold = float(config["confidence_threshold"])
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("confidence_threshold must be between 0 and 1")
+    if int(config["max_interpolation_gap_frames"]) < 0:
+        raise ValueError("max_interpolation_gap_frames must be non-negative")
+    if int(config["normalization_samples"]) < 3:
+        raise ValueError("normalization_samples must be at least 3")
+    filt = config["filter"]
+    if filt["type"] not in {"butterworth_zero_phase", "none"}:
+        raise ValueError("filter.type must be butterworth_zero_phase or none")
+    if int(filt["order"]) < 1:
+        raise ValueError("filter.order must be positive")
+    if float(filt["cutoff_hz"]) <= 0:
+        raise ValueError("filter.cutoff_hz must be positive")
+    if fps is not None and float(filt["cutoff_hz"]) >= 0.5 * fps:
+        raise ValueError("filter.cutoff_hz must be below the Nyquist frequency")
+    for item in config["similarity"]["components"].values():
+        if float(item["tolerance"]) <= 0 or float(item["weight"]) < 0:
+            raise ValueError("similarity tolerances must be positive and weights non-negative")
+
