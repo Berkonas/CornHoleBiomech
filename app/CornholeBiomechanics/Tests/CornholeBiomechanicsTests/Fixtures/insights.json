@@ -1,0 +1,191 @@
+{
+  "athlete": "SYNTHETIC QA Athlete \u2014 repeated-throw software test",
+  "board_trials": [],
+  "coach_summary": "This throw scored 3 points. Select compatible reference throws and run a comparison to measure Reference Similarity. Across 9 comparable throws, this pilot index describes repeatability of elbow, trunk, wrist path and release timing. It does not rate technique quality.",
+  "consistency": {
+    "components": [
+      {
+        "name": "Elbow angle",
+        "score": 73.94789441117766,
+        "tolerance": 15.0,
+        "units": "degrees",
+        "variability": 3.9078158383233528,
+        "weight": 1.0
+      },
+      {
+        "name": "Trunk inclination",
+        "score": 100.0,
+        "tolerance": 10.0,
+        "units": "degrees",
+        "variability": 0.0,
+        "weight": 1.0
+      },
+      {
+        "name": "Wrist path",
+        "score": 86.74583315430127,
+        "tolerance": 0.25,
+        "units": "arm lengths",
+        "variability": 0.03313541711424682,
+        "weight": 1.0
+      },
+      {
+        "name": "Release timing",
+        "score": 91.01452919574056,
+        "tolerance": 0.1,
+        "units": "cycle fraction",
+        "variability": 0.008985470804259432,
+        "weight": 1.0
+      }
+    ],
+    "curves": {},
+    "equation": "100 \u00d7 mean(max(0, 1 \u2212 variability / tolerance)); waveform variability = RMS pointwise sample SD; wrist uses sqrt(mean(SDx\u00b2 + SDy\u00b2)); release uses sample SD. Four equally weighted components, pilot tolerances 15\u00b0, 10\u00b0, 0.25 arm lengths, 0.10 cycle.",
+    "message": "Across 9 comparable throws, this pilot index describes repeatability of elbow, trunk, wrist path and release timing. It does not rate technique quality.",
+    "minimum_trials": 5,
+    "n": 9,
+    "score": 87.92706419030488,
+    "tau": [],
+    "traces": []
+  },
+  "date": "2026-09-07T15:00:00Z",
+  "differences": [],
+  "excluded_trials": [],
+  "needs_reanalysis": false,
+  "outcome": {
+    "final_resting_point": {
+      "precision": "synthetic_qa",
+      "x_inches": 12.0,
+      "y_inches": 39.0
+    },
+    "first_contact_point": {
+      "precision": "synthetic_qa",
+      "x_inches": 12.0,
+      "y_inches": 39.0
+    },
+    "intended_point": {
+      "precision": "synthetic_qa",
+      "x_inches": 12,
+      "y_inches": 39
+    },
+    "intended_target": "Hole center",
+    "notes": "Not observed performance",
+    "precision_note": "Board coordinates are approximate manual clicks and must not be interpreted as instrument-level precision.",
+    "score_category": 3,
+    "spatial_error": {
+      "lateral_error_inches": 0.0,
+      "longitudinal_error_inches": 0.0,
+      "radial_error_inches": 0.0
+    },
+    "throw_type": "Synthetic QA"
+  },
+  "provenance": {
+    "analysis_id": "30025164b05f0f81ceff378f18a53631aaa64feaa59188fa5e99d7356056d865",
+    "backend": "synthetic_qa",
+    "camera_view": "side",
+    "configuration": {
+      "confidence_threshold": 0.35,
+      "filter": {
+        "cutoff_hz": 6.0,
+        "enabled": true,
+        "order": 4,
+        "type": "butterworth_zero_phase"
+      },
+      "max_interpolation_gap_frames": 3,
+      "minimum_relationship_trials": 8,
+      "minimum_velocity_coverage": 0.8,
+      "normalization_samples": 101,
+      "schema_version": 1,
+      "similarity": {
+        "components": {
+          "arm_to_trunk_mae_deg": {
+            "tolerance": 15.0,
+            "weight": 0.75
+          },
+          "elbow_angle_mae_deg": {
+            "tolerance": 15.0,
+            "weight": 1.0
+          },
+          "forearm_orientation_mae_deg": {
+            "tolerance": 15.0,
+            "weight": 0.75
+          },
+          "release_timing_abs_difference_cycle": {
+            "tolerance": 0.1,
+            "weight": 0.75
+          },
+          "trunk_inclination_mae_deg": {
+            "tolerance": 10.0,
+            "weight": 0.75
+          },
+          "upper_arm_orientation_mae_deg": {
+            "tolerance": 15.0,
+            "weight": 0.75
+          },
+          "wrist_path_rmse_arm_lengths": {
+            "tolerance": 0.25,
+            "weight": 1.0
+          }
+        },
+        "formula": "linear_to_zero_at_tolerance",
+        "status": "provisional_pilot_tolerances_not_population_norms"
+      },
+      "sports2d": {
+        "export_filter": "butterworth",
+        "mode": "balanced",
+        "person_ordering_method": "highest_likelihood",
+        "pose_model": "body_with_feet"
+      }
+    },
+    "model": "known_geometry",
+    "model_hash": null,
+    "sports2d_version": null
+  },
+  "quality": {
+    "average_pose_confidence": 0.9600000000000002,
+    "camera_view": "side",
+    "confidence_note": "Model confidence is not a calibrated physical position or angle error.",
+    "frame_rate_fps": 60.0,
+    "interpolated_sample_count": 0,
+    "low_confidence_landmark_counts": {
+      "left_elbow": 0,
+      "left_hip": 0,
+      "left_shoulder": 0,
+      "left_wrist": 0,
+      "right_elbow": 0,
+      "right_hip": 0,
+      "right_shoulder": 0,
+      "right_wrist": 0
+    },
+    "manual_correction_count": 0,
+    "missing_data_percentage": 0.0,
+    "release_confidence": 0.96,
+    "release_visibility": 1.0,
+    "resolution_pixels": {
+      "height": 480,
+      "width": 640
+    },
+    "score": 98.80000000000001,
+    "score_components": {
+      "mean_required_confidence": {
+        "score": 96.00000000000001,
+        "weight": 0.3
+      },
+      "raw_landmark_coverage": {
+        "score": 100.0,
+        "weight": 0.5
+      },
+      "release_window_visibility": {
+        "score": 100.0,
+        "weight": 0.2
+      }
+    },
+    "score_note": "Pilot tracking index: 50% raw coverage + 30% required-landmark confidence + 20% release-window visibility. Missing release component omitted. Manual correction does not inflate raw tracking confidence. FPS/view warnings remain separate.",
+    "usable_frame_percentage": 100.0,
+    "warnings": []
+  },
+  "relationships": null,
+  "schema_version": 1,
+  "similarity": null,
+  "trial_id": "EC5C02C3-2661-42E1-8A89-D60CC56E22D0",
+  "trial_name": "SYNTHETIC-QA-throw-01.mp4",
+  "warnings": []
+}

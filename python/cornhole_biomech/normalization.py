@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .filtering import _finite_runs
+
 import numpy as np
 
 
@@ -27,14 +29,15 @@ def resample_curve(
     flat = selected.reshape(len(selected), -1)
     output = np.full((samples, flat.shape[1]), np.nan)
     for column in range(flat.shape[1]):
-        valid = np.isfinite(flat[:, column])
-        if np.count_nonzero(valid) < 2:
-            continue
-        lo, hi = source_tau[valid][0], source_tau[valid][-1]
-        supported = (target_tau >= lo) & (target_tau <= hi)
-        output[supported, column] = np.interp(
-            target_tau[supported], source_tau[valid], flat[valid, column]
-        )
+        # Only adjacent supported samples may be interpolated. Long gaps that
+        # survived confidence/gap handling must remain missing in comparisons.
+        for first, last in _finite_runs(np.isfinite(flat[:, column])):
+            if last - first < 2:
+                continue
+            supported = (target_tau >= source_tau[first]) & (target_tau <= source_tau[last - 1])
+            output[supported, column] = np.interp(
+                target_tau[supported], source_tau[first:last], flat[first:last, column]
+            )
     return target_tau, output.reshape((samples,) + selected.shape[1:])
 
 

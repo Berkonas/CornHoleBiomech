@@ -8,6 +8,7 @@ from typing import Any
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 1,
+    "sports2d": {"pose_model": "body_with_feet", "mode": "balanced", "person_ordering_method": "highest_likelihood", "export_filter": "butterworth"},
     "confidence_threshold": 0.35,
     "max_interpolation_gap_frames": 3,
     "filter": {
@@ -68,7 +69,7 @@ def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
         raise ValueError("filter.order must be positive")
     if float(filt["cutoff_hz"]) <= 0:
         raise ValueError("filter.cutoff_hz must be positive")
-    if fps is not None and float(filt["cutoff_hz"]) >= 0.5 * fps:
+    if filt["enabled"] and fps is not None and float(filt["cutoff_hz"]) >= 0.5 * fps:
         raise ValueError("filter.cutoff_hz must be below the Nyquist frequency")
     for item in config["similarity"]["components"].values():
         if float(item["tolerance"]) <= 0 or float(item["weight"]) < 0:

@@ -55,7 +55,7 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--target-direction", choices=("left_to_right", "right_to_left"), required=True)
     analyze.add_argument("--source-url")
     analyze.add_argument("--source-attribution")
-    analyze.add_argument("--backend", choices=("rtmpose", "mediapipe"), default="rtmpose")
+    analyze.add_argument("--backend", choices=("sports2d", "rtmpose", "mediapipe"), default="sports2d")
     analyze.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     analyze.add_argument("--pose-input", help="Import a canonical pose_raw.json instead of inference")
     analyze.add_argument("--corrections")
@@ -90,16 +90,29 @@ def parser() -> argparse.ArgumentParser:
     outcome = commands.add_parser("outcome", help="Validate and summarize one outcome JSON file")
     outcome.add_argument("input")
     outcome.set_defaults(handler=handle_outcome)
+    insights = commands.add_parser("insights", help="Refresh trial insights and a self-contained local report")
+    insights.add_argument("--project", required=True)
+    insights.add_argument("--trial-id", required=True)
+    insights.set_defaults(handler=handle_insights)
     return root
+
+
+def handle_insights(args):
+    from .insights import generate_insights
+    generate_insights(args.project, args.trial_id)
+    return {"trial_id": args.trial_id, "status": "ready"}
 
 
 def handle_probe(args: argparse.Namespace) -> dict[str, Any]:
     del args
     packages = ("numpy", "scipy", "pandas", "matplotlib", "cv2", "rtmlib", "onnxruntime", "mediapipe")
+    from .sports2d_adapter import availability
     return {
+        "sports2d": availability(),
         "package_version": __version__,
         "python": sys.version.split()[0],
         "backends": {
+            "sports2d": availability()["available"] and availability()["supported"],
             "rtmpose": importlib.util.find_spec("rtmlib") is not None,
             "mediapipe": importlib.util.find_spec("mediapipe") is not None,
             "canonical_pose_import": True,

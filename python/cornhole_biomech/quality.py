@@ -28,7 +28,8 @@ def quality_summary(
         for j, name in enumerate(landmarks)
     }
     required_names = (
-        f"{throwing_side}_shoulder",
+        "left_shoulder",
+        "right_shoulder",
         f"{throwing_side}_elbow",
         f"{throwing_side}_wrist",
         "left_hip",

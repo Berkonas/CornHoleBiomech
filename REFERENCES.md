@@ -7,7 +7,7 @@ Accessed 2026-09-06 unless noted. Software versions are review targets; the exac
 - Zelik, K. E. (2026). *Project 1: Biomechanics of Human Movement (Fall 2026)*. Vanderbilt University. Local course handout, updated 2026-08-21.
 - Zelik, K. E. (2026). *ME 3890/5890 & BME 3890/8901 - Biomechanics of Human Movement - Fall 2026*. Vanderbilt University. Local syllabus, updated 2026-08-21.
 - Uchida, T. K., & Delp, S. L. (2021). *Biomechanics of Movement: The Science of Sports, Robotics, and Rehabilitation*. MIT Press. https://mitpress.mit.edu/9780262543397/biomechanics-of-movement/
-- `Design Books/DESIGN_RESEARCH.md`. Local working product-research document. Its principles were reviewed; the unofficial book files named there were not used as evidence.
+- `reference_materials/design/DESIGN_RESEARCH.md`. Local working product-research document. Its principles were reviewed; the unofficial book files named there were not used as evidence.
 
 ## Cornhole rules
 
@@ -44,7 +44,7 @@ Accessed 2026-09-06 unless noted. Software versions are review targets; the exac
 
 ## Open-source software reviewed
 
-- Pagnon, D., & Kim, H. (2024). Sports2D: Compute 2D human pose and angles from a video or a webcam. *Journal of Open Source Software, 9*(101), 6849. https://doi.org/10.21105/joss.06849. Repository: https://github.com/davidpagnon/Sports2D. PyPI 0.8.34; reviewed HEAD `4392177d75dff43b4da60514d3766029201a5c5e`; BSD-3-Clause.
+- Pagnon, D., & Kim, H. (2024). Sports2D: Compute 2D human pose and angles from a video or a webcam. *Journal of Open Source Software, 9*(101), 6849. https://doi.org/10.21105/joss.06849. Repository: https://github.com/davidpagnon/Sports2D. Pinned runtime **Sports2D 0.8.34**, PyPI installation (no vendored source checkout). Rechecked 2026-09-07; reviewed HEAD `4392177d75dff43b4da60514d3766029201a5c5e`; BSD-3-Clause.
 - Pagnon, D., Domalain, M., & Reveret, L. (2022). Pose2Sim: An open-source Python package for multiview markerless kinematics. *Journal of Open Source Software, 7*(79), 4362. https://doi.org/10.21105/joss.04362. Repository: https://github.com/perfanalytics/pose2sim. PyPI 0.10.49; reviewed HEAD `65bbb056fecb3e6a7dd6064dc561bc065bc74bb6`; BSD-3-Clause.
 - Google. (2026). *MediaPipe Pose Landmarker*. https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/ Repository: https://github.com/google-ai-edge/mediapipe. Tested PyPI 0.10.35 (the reviewed 1.0.1 build failed during macOS task-graph initialization); reviewed HEAD `c17b2a83e8944d2811889a2a08d629c20bcb6ed8`; Apache-2.0.
 - Jiang, T., Lu, P., Zhang, L., et al. (2023). RTMPose: Real-time multi-person pose estimation based on MMPose. arXiv:2303.07399. https://arxiv.org/abs/2303.07399. MMPose repository: https://github.com/open-mmlab/mmpose. Version 1.3.2; reviewed HEAD `759b39c13fea6ba094afc1fa932f51dc1b11cbf9`; Apache-2.0.
@@ -59,3 +59,12 @@ Accessed 2026-09-06 unless noted. Software versions are review targets; the exac
 - Apple. (2026). `NavigationSplitView`. https://developer.apple.com/documentation/swiftui/navigationsplitview
 - Apple. (2026). `AVPlayer`. https://developer.apple.com/documentation/avfoundation/avplayer
 - YouTube. (2026). *Terms of Service*, Permissions and Restrictions. https://www.youtube.com/t/terms
+
+## Second-pass integration sources
+
+- Sports2D 0.8.34 public Python configuration and processing API: https://github.com/davidpagnon/Sports2D/blob/4392177d75dff43b4da60514d3766029201a5c5e/Sports2D/Sports2D.py
+- Stable package: https://pypi.org/project/sports2d/0.8.34/
+- BSD-3-Clause license: https://github.com/davidpagnon/Sports2D/blob/4392177d75dff43b4da60514d3766029201a5c5e/LICENSE
+- Pose2Sim 0.10.49 `common.angle_dict` and `fixed_angles` were inspected from the installed pinned dependency to audit angle conventions.
+
+The installed distribution, model hashes and exact analysis configuration are recorded per trial. The reviewed Git commit identifies inspected upstream source; it is not misreported as a PyPI installation commit.

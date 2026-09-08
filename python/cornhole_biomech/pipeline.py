@@ -34,7 +34,8 @@ from .kinematics import calculate_kinematics
 from .models import BoardPoint, CorrectionSet, PoseSequence, TrialContext, TrialOutcome, utc_now
 from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
-from .pose import analyze_pose
+from .pose import analyze_pose, _version
+from .sports2d_adapter import Sports2DAdapter
 from .quality import quality_summary
 from .serialization import canonical_hash, json_ready, write_json
 from .statistics import grouped_summary, relationship
@@ -66,14 +67,14 @@ def analyze_trial(
     context: TrialContext,
     output_dir: str | Path,
     config_overrides: dict[str, Any] | None = None,
-    backend: str = "rtmpose",
+    backend: str = "sports2d",
     pose_input: str | Path | None = None,
     corrections_path: str | Path | None = None,
     events_path: str | Path | None = None,
     device: str = "cpu",
     force_pose: bool = False,
     make_annotated_video: bool = True,
-    app_version: str = "0.1.0",
+    app_version: str = "0.2.0",
     progress: Progress = _no_progress,
 ) -> dict[str, Any]:
     """Analyze one trial and write a deterministic, inspectable result package."""
@@ -92,15 +93,22 @@ def analyze_trial(
         "pose_input": str(Path(pose_input).resolve()) if pose_input else None,
         "pose_input_sha256": file_sha256(pose_input) if pose_input else None,
         "device": device,
+        "backend_version": _version("sports2d" if backend == "sports2d" else "rtmlib" if backend == "rtmpose" else "mediapipe"),
+        "model_configuration": config.get("sports2d") if backend == "sports2d" else None,
     })
     cache = _load_json(cache_path, {})
     if pose_path.exists() and cache.get("pose_key") == pose_key and not force_pose:
         progress("detecting_pose", 0.40, "Using cached raw pose predictions")
         sequence = PoseSequence.load(pose_path)
     else:
-        sequence = analyze_pose(video, backend, progress, pose_input=pose_input, device=device)
+        if backend == "sports2d" and pose_input is None:
+            sequence = Sports2DAdapter().analyze(video, output / "sports2d", config, progress, device)
+        else:
+            sequence = analyze_pose(video, backend, progress, pose_input=pose_input, device=device)
         sequence.save(pose_path)
         write_json(cache_path, {"pose_key": pose_key, "created_at": utc_now()})
+    if sequence.frame_count < 3:
+        raise ValueError("The recording needs at least three readable frames to measure movement")
     if sequence.frame_count != len(sequence.frames):
         raise ValueError("pose frame_count does not match stored frames")
 
@@ -118,6 +126,10 @@ def analyze_trial(
     gap_handled, interpolated_mask = interpolate_short_gaps(
         effective, int(config["max_interpolation_gap_frames"])
     )
+
+    for correction in corrections.corrections:
+        if correction.kind == "interpolated" and correction.landmark in landmarks and 0 <= correction.frame_index < len(effective):
+            interpolated_mask[correction.frame_index, landmarks.index(correction.landmark)] = True
 
     progress("filtering", 0.53, "Filtering coordinates before calculating angles and velocities")
     filter_config = config["filter"]
@@ -146,11 +158,18 @@ def analyze_trial(
     progress("detecting_events", 0.68, "Detecting frame-limited movement event candidates")
     events = detect_events(kinematics.values["wrist_path_arm_lengths"], video.fps)
     events = apply_manual_event_overrides(events, _manual_event_overrides(event_file))
+    for event in events.values():
+        if event.effective_frame is not None and not 0 <= event.effective_frame < sequence.frame_count:
+            raise ValueError(f"{event.name} frame lies outside the video. Choose a frame from 0 to {sequence.frame_count - 1}.")
     start = events["motion_start"].effective_frame
     end = events["motion_end"].effective_frame
     if start is None or end is None or end <= start:
         start, end = 0, sequence.frame_count - 1
         filter_warnings.append("Motion bounds could not be detected; full-video bounds were used.")
+    ordered = [events[n].effective_frame for n in ("motion_start", "peak_backswing", "forward_swing", "release", "peak_follow_through", "motion_end")]
+    present = [f for f in ordered if f is not None]
+    if any(a > b for a, b in zip(present, present[1:])):
+        raise ValueError("Movement events are out of order. Review start, backswing, forward swing, release, follow-through and end before reanalysis.")
     event_payload = {
         "schema_version": 1,
         "frame_interval_seconds": 1.0 / video.fps,
@@ -171,7 +190,15 @@ def analyze_trial(
         name: normalized_event_timing(value.effective_frame, start, end) for name, value in events.items()
     }
     release_frame = events["release"].effective_frame
-    summaries = dict(kinematics.summaries)
+    # Summaries describe the reviewed movement interval, not setup before/after it.
+    from .kinematics import ANGLE_FIELDS, _nan_summary
+    summaries = {}
+    for field in ANGLE_FIELDS:
+        summaries[f"{field}_mean"] = _nan_summary(kinematics.values[field][start:end+1], "mean")
+        summaries[f"{field}_rom"] = _nan_summary(kinematics.values[field][start:end+1], "rom")
+        velocity_field = field.replace("_deg", "_velocity_deg_s")
+        summaries[f"{velocity_field}_mean"] = _nan_summary(kinematics.values[velocity_field][start:end+1], "mean")
+        summaries[f"{velocity_field}_peak_abs"] = _nan_summary(kinematics.values[velocity_field][start:end+1], "peak_abs")
     summaries["movement_duration_seconds"] = (end - start) / video.fps
     summaries["release_timing_cycle"] = event_timing["release"]
     if release_frame is not None and 0 <= release_frame < sequence.frame_count:
@@ -184,6 +211,8 @@ def analyze_trial(
         video.fps, video.width, video.height, context.camera_view,
         float(config["confidence_threshold"]), context.throwing_side,
     )
+    from .insights import quality_index
+    quality.update(quality_index(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
     warnings = sorted(set(filter_warnings + kinematics.warnings))
     results = {
         "schema_version": 1,
@@ -221,9 +250,9 @@ def analyze_trial(
     write_json(output / "normalized.json", normalized_payload)
     write_json(output / "results.json", results)
     plot_angles_angles(output / "angle_trajectories.png", tau, normalized_values,
-                       f"Projected 2D angles - Trial {context.trial_id}")
+                       "Projected upper-body angles")
     plot_wrist_trajectory(output / "wrist_trajectory.png", normalized_values["wrist_path_arm_lengths"],
-                          f"Shoulder-relative wrist path - Trial {context.trial_id}")
+                          "Shoulder-relative wrist path")
     (output / "summary.md").write_text(markdown_summary(json_ready(results)))
     if make_annotated_video:
         progress("annotating_video", 0.88, "Rendering skeleton overlay video")
@@ -231,9 +260,12 @@ def analyze_trial(
             video.path, output / "annotated.mp4", filtered, confidence, landmarks,
             float(config["confidence_threshold"]), manual_mask,
         )
+    engine_source_hash = canonical_hash({p.name: file_sha256(p) for p in Path(__file__).parent.glob("*.py")})
     manifest = {
+        "engine_source_sha256": engine_source_hash,
         "schema_version": 1,
         "analysis_id": canonical_hash({
+            "engine_source_sha256": engine_source_hash,
             "trial": context.trial_id,
             "video": video.sha256,
             "pose": pose_key,
@@ -257,6 +289,7 @@ def analyze_trial(
         "confidence_threshold": config["confidence_threshold"],
         "manual_correction_hash": canonical_hash(asdict(corrections)),
         "reference_trial_ids": [],
+        "pose_cache_key": pose_key,
         "outputs": sorted(p.name for p in output.iterdir() if p.is_file()),
     }
     write_json(output / "manifest.json", manifest)
@@ -273,12 +306,24 @@ def compare_trial(
     """Compare a trial with one or more compatible-view references."""
     if not reference_dirs:
         raise ValueError("at least one reference directory is required")
+    for directory in [test_dir, *reference_dirs]:
+        if (Path(directory) / "needs_reanalysis.json").exists():
+            raise ValueError("Tracking or event corrections changed. Reanalyze every selected throw before comparison.")
+    manifests = [_load_json(Path(d) / "manifest.json", {}) for d in [test_dir, *reference_dirs]]
+    signatures = [(m.get("pose_backend"), m.get("pose_model"), m.get("pose_model_version"), m.get("pose_model_sha256"), m.get("engine_source_sha256"), canonical_hash(m.get("analysis_configuration", {}))) for m in manifests]
+    if any(signature != signatures[0] for signature in signatures[1:]):
+        raise ValueError("These throws use different pose models or analysis settings. Reanalyze them with matching settings before comparison.")
     test_payload = _load_json(Path(test_dir) / "normalized.json", None)
     if test_payload is None:
         raise FileNotFoundError(f"Missing normalized.json in {test_dir}")
     references = [_load_json(Path(path) / "normalized.json", None) for path in reference_dirs]
     if any(value is None for value in references):
         raise FileNotFoundError("Every reference directory must contain normalized.json")
+    if test_payload["trial_id"] in [item["trial_id"] for item in references]:
+        raise ValueError("Choose a different throw for comparison; a trial cannot be its own reference.")
+    for item in references:
+        if len(item["tau"]) != len(test_payload["tau"]) or not np.allclose(item["tau"], test_payload["tau"]):
+            raise ValueError("These analyses use different normalized time grids. Reanalyze with matching settings.")
     assert_compatible_views(test_payload["camera_view"], [item["camera_view"] for item in references])
     test_values = {name: np.asarray(value, float) for name, value in test_payload["values"].items()}
     reference_values = [
@@ -309,6 +354,9 @@ def compare_trial(
         "reference_trial_ids": [item["trial_id"] for item in references],
         "camera_view": test_payload["camera_view"],
         "label": label,
+        "source_hashes": {str(Path(path).resolve()): file_sha256(Path(path)/"normalized.json") for path in [test_dir, *reference_dirs]},
+        "test_event_timing": test_payload["event_timing"],
+        "reference_event_timing": reference_event_timing,
         "raw_metrics": metrics,
         "similarity": score,
         "curves": {
@@ -379,6 +427,9 @@ def analyze_relationships(
         normalized = _load_json(Path(directory) / "normalized.json", None)
         if normalized is not None:
             normalized_by_trial[result["trial_id"]] = normalized
+    views = {v.get("camera_view") for v in normalized_by_trial.values() if v.get("camera_view")}
+    if len(views) > 1:
+        raise ValueError("Repeated-trial analysis requires matching camera views. Select one view at a time.")
     if len(athlete_ids) > 1:
         raise ValueError("Initial relationship analysis is within-person; provide one athlete at a time")
     outcomes = [row.get("radial_error_inches") for row in rows]

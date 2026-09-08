@@ -166,3 +166,33 @@ def test_relationships_use_raw_board_outcomes_and_separate_consistency_features(
     assert result["within_athlete_consistency"]["elbow_angle_deg_at_release"]["standard_deviation"] > 0
     assert result["data_rows"][4]["radial_error_inches"] == pytest.approx(4)
     assert result["data_rows"][4]["wrist_path_deviation_from_athlete_mean_arm_lengths"] is not None
+
+
+def test_sports2d_cached_pose_corrections_and_movement_interval(tmp_path,monkeypatch):
+    from cornhole_biomech.sports2d_adapter import Sports2DAdapter
+    from cornhole_biomech.video import file_sha256
+    from cornhole_biomech.kinematics import calculate_kinematics
+    video=tmp_path/'trial.avi';pose=tmp_path/'pose.json';output=tmp_path/'analysis'
+    _make_video(video);_make_pose(pose)
+    sequence=PoseSequence.load(pose);sequence.backend='sports2d';sequence.backend_version='0.8.34'
+    calls=[]
+    def run(*args,**kwargs):calls.append(1);return sequence
+    monkeypatch.setattr(Sports2DAdapter,'analyze',run)
+    context=TrialContext('T1','A1','side','right','left_to_right',str(video))
+    analyze_trial(context,output,make_annotated_video=False)
+    original=file_sha256(output/'pose_raw.json')
+    corrections={'schema_version':1,'corrections':[{'frame_index':20,'landmark':'right_wrist','x':220,'y':110,'kind':'manual'}]}
+    (output/'corrections.json').write_text(json.dumps(corrections))
+    event_frames={'motion_start':10,'peak_backswing':12,'forward_swing':14,'release':20,'peak_follow_through':25,'motion_end':30}
+    (output/'events.json').write_text(json.dumps({'manual_overrides':event_frames}))
+    result=analyze_trial(context,output,make_annotated_video=False)
+    assert len(calls)==1
+    assert file_sha256(output/'pose_raw.json')==original
+    assert result['results']['quality']['manual_correction_count']==1
+    assert result['results']['summaries']['movement_duration_seconds']==pytest.approx(20/60)
+    import pandas as pd
+    rows=pd.read_csv(output/'kinematics.csv')
+    assert result['results']['summaries']['elbow_angle_deg_mean']==pytest.approx(rows['elbow_angle_deg'].iloc[10:31].mean())
+    event_frames['release']=5
+    (output/'events.json').write_text(json.dumps({'manual_overrides':event_frames}))
+    with pytest.raises(ValueError,match='order'):analyze_trial(context,output,make_annotated_video=False)

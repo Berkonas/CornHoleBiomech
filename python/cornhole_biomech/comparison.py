@@ -24,12 +24,28 @@ def _paired(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return aa[valid], bb[valid]
 
 
-def curve_errors(test: np.ndarray, reference: np.ndarray) -> dict[str, float | None]:
+def align_circular_reference(test: np.ndarray, reference: np.ndarray) -> np.ndarray:
+    """Unwrap each finite run and choose its equivalent 360° branch near test."""
+    from .filtering import _finite_runs
+    result = np.asarray(reference, float).copy()
+    test = np.asarray(test, float)
+    for first, last in _finite_runs(np.isfinite(result)):
+        run = np.degrees(np.unwrap(np.radians(result[first:last])))
+        paired = np.isfinite(test[first:last])
+        if paired.any():
+            run += 360 * np.round(np.median(test[first:last][paired] - run[paired]) / 360)
+        result[first:last] = run
+    return result
+
+
+def curve_errors(test: np.ndarray, reference: np.ndarray, circular: bool = False) -> dict[str, float | None]:
     """Return time-preserving errors without warping away timing differences."""
+    if circular:
+        reference = align_circular_reference(test, reference)
     a, b = _paired(test, reference)
     if not a.size:
         return {"mae": None, "rmse": None, "correlation": None, "paired_samples": 0}
-    error = a - b
+    error = (a - b + 180) % 360 - 180 if circular else a - b
     if a.size >= 3 and np.std(a) > 1e-12 and np.std(b) > 1e-12:
         correlation: float | None = float(np.corrcoef(a, b)[0, 1])
     else:
@@ -77,6 +93,14 @@ def build_reference_set(trials: list[dict[str, np.ndarray]]) -> dict[str, dict[s
                 "sd": np.nanstd(stack, axis=0, ddof=1) if len(trials) > 1 else np.zeros_like(stack[0]),
                 "count": np.sum(np.isfinite(stack), axis=0),
             }
+        if "orientation_deg" in field or field == "trunk_inclination_deg":
+            anchor = result[field]["mean"]
+            for index in range(stack.shape[1]):
+                finite = stack[:, index][np.isfinite(stack[:, index])]
+                if finite.size:
+                    anchor[index] = np.degrees(np.arctan2(np.mean(np.sin(np.radians(finite))), np.mean(np.cos(np.radians(finite)))))
+            differences = (stack - anchor + 180) % 360 - 180
+            result[field]["sd"] = np.nanstd(differences, axis=0, ddof=1) if len(trials) > 1 else np.zeros_like(anchor)
     return result
 
 
@@ -91,8 +115,13 @@ def compare_normalized(
     for field in ANGLE_COMPARISON_FIELDS:
         if field not in test or field not in reference_set:
             continue
-        errors = curve_errors(test[field], reference_set[field]["mean"])
-        peak, rom = _peak_and_rom_difference(test[field], reference_set[field]["mean"])
+        circular = "orientation" in field or field == "trunk_inclination_deg"
+        reference = reference_set[field]["mean"]
+        if circular:
+            reference = align_circular_reference(test[field], reference)
+            reference_set[field]["mean"] = reference
+        errors = curve_errors(test[field], reference, circular=circular)
+        peak, rom = _peak_and_rom_difference(test[field], reference)
         stem = field.removesuffix("_deg")
         metrics[f"{stem}_mae_deg"] = errors["mae"]
         metrics[f"{stem}_rmse_deg"] = errors["rmse"]
@@ -134,6 +163,7 @@ def similarity_score(metrics: dict[str, Any], config: dict[str, Any]) -> dict[st
         score = 100.0 * max(0.0, 1.0 - float(value) / tolerance)
         components[metric] = {
             "raw_error": float(value),
+            "units": "degrees" if metric.endswith("deg") else "arm lengths" if "arm_lengths" in metric else "cycle fraction",
             "tolerance": tolerance,
             "weight": weight,
             "score": score,

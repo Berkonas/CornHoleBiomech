@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from .filtering import derivative
+from .filtering import derivative, _finite_runs
 from .geometry import (
     robust_segment_length,
     signed_orientation_degrees,
@@ -131,6 +131,13 @@ def calculate_kinematics(
         "wrist_path_arm_lengths": normalized_wrist,
         "elbow_path_arm_lengths": normalized_elbow,
     }
+    # Keep orientation continuous within each finite run before derivatives.
+    for field in ("upper_arm_orientation_deg", "forearm_orientation_deg", "trunk_inclination_deg"):
+        for first, last in _finite_runs(np.isfinite(values[field])):
+            values[field][first:last] = np.degrees(np.unwrap(np.radians(values[field][first:last])))
+    for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip"):
+        values[f"{name}_path_arm_lengths"] = throw_centered_points(
+            _point(filtered_coords, lookup, name), shoulder, arm_length, target_direction)
     warnings: list[str] = []
     for field in ANGLE_FIELDS:
         coverage = float(np.mean(np.isfinite(values[field])))

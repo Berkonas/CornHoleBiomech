@@ -1,378 +1,186 @@
 # Cornhole Biomechanics Lab
 
-Cornhole Biomechanics Lab is a native macOS research application and a reusable Python analysis package for local, single-camera, markerless analysis of cornhole throws. It connects **how a participant moves** with **what the throw produces** while keeping raw videos, raw pose estimates, corrections, analysis settings, and results inspectable.
+## What this app does
 
-Stage 1 is a research prototype, not a medical device, clinical assessment, coaching oracle, or validated commercial scoring system. The software is implemented and tested; scientific completion still requires the project team to collect and evaluate real participant trials.
+Cornhole Biomechanics Lab connects a thrower's movement with the bag's result. Import a local video, check the tracked body points, record the outcome, and inspect the throw inside a native Mac app. You can compare a throw with a coach-selected reference, another throw, or the athlete's own repeated movement.
 
-## 1. What this project is
+The Results screen combines video, projected joint angles, normalized wrist paths, reference differences, tracking quality and a board map. After enough comparable throws, it shows repeatability and exploratory movement–outcome relationships. All explanations are deterministic statements calculated from the data. There is no generative coach or hidden overall athlete score.
 
-The app supports this workflow:
+This is Stage 1 research software. A working application does not establish measurement validity. Real participant recordings and the validation protocol remain part of the course project.
 
-```text
-Create/open project → add athlete → import local video → label view/side/direction
-→ run local pose estimation → inspect tracking → correct landmarks/events
-→ record board outcome → inspect movement → select reference trial(s)
-→ compare → analyze repeated trials → export
-```
+## The research question
 
-The interface is native SwiftUI and uses AVKit for video. A tested Python package performs the scientific calculations. There are no accounts, advertisements, analytics, cloud databases, OpenAI calls, or generated interpretations.
+Can single-camera markerless video quantify upper-body cornhole kinematics repeatably, normalize measurements across athletes with different body proportions, and identify movement features associated with task performance?
 
-## 2. Research question
+## Why this matters
 
-Primary research question:
+Scoring tells us what happened to the bag. Movement measurements can help us investigate how the athlete threw it. The important questions remain separate: resemblance to a reference, repeatability of the athlete's own motion, and association with task outcome. Successful throws need not all look alike.
 
-> Can a single-camera, markerless 2D video-analysis system quantify upper-body cornhole throwing kinematics in a repeatable and interpretable way, normalize those measurements across athletes with different body sizes and proportions, and identify which movement features or deviations from a coach-selected reference pattern are associated with task performance?
-
-Secondary research question:
-
-> For an individual athlete, are better cornhole outcomes associated more strongly with similarity to a reference technique, with consistency of their own technique, or with specific kinematic features such as elbow motion, arm trajectory, trunk orientation, and timing?
-
-## 3. Why this problem matters
-
-Cornhole scores tell a coach what happened, but not why it happened. Laboratory motion capture can provide detailed biomechanics, but it is expensive, time-consuming, and impractical for routine training. If ordinary phone video can provide sufficiently repeatable upper-body kinematics, a coach could obtain individualized, evidence-based feedback during normal practice. The system must account for body-size differences, camera limitations, measurement uncertainty, and the possibility that more than one successful throwing strategy exists.
-
-The app therefore keeps three questions separate:
-
-1. **Reference similarity:** How similar is this throw to a coach-selected reference or reference set?
-2. **Within-athlete consistency:** How repeatable are this athlete's own measured features?
-3. **Performance relationship:** Which movement features are associated with better or worse outcomes?
-
-A high similarity score is not automatically a good throw. Skilled precision throwers can use different successful motor strategies.
-
-## 4. Stage 1 scope
-
-Stage 1 is video-only and runs locally. It includes local video import, RTMPose and MediaPipe pose backends, upper-body projected 2D kinematics, quality gates, manual pose/event correction, reference comparison, outcome recording, within-athlete exploratory statistics, plots, annotated video, and transparent exports.
-
-It does not include IMUs, force plates, EMG, cloud storage, accounts, generative AI, clinical interpretation, automated YouTube downloading, or Stage 2/3 hardware and AI features.
-
-## 5. What the application measures
-
-All angle names mean **projected into the image plane**.
-
-| Measurement | Definition | Units | Interpretation and main limitation |
-|---|---|---:|---|
-| 2D projected elbow angle | Angle shoulder–elbow–wrist | degrees | Image-plane elbow flexion geometry; changes with out-of-plane rotation |
-| Upper-arm orientation | Throwing shoulder→elbow direction from image horizontal | degrees | Segment orientation in target-forward, y-up axes |
-| Forearm orientation | Throwing elbow→wrist direction from image horizontal | degrees | Segment orientation, not pronation/supination |
-| Arm angle relative to trunk | Unsigned angle between upper arm and hip→shoulder trunk axis | degrees | Projected arm/trunk configuration |
-| Trunk inclination | Signed trunk top displacement relative to image vertical | degrees | Positive toward target after direction reflection |
-| Wrist trajectory | Wrist minus throwing shoulder, divided by arm length | arm lengths | Dimensionless shoulder-centered path |
-| Elbow trajectory | Elbow minus throwing shoulder, divided by arm length | arm lengths | Dimensionless shoulder-centered path |
-| Angle range of motion | finite maximum minus finite minimum | degrees | Observed projected range in the analyzed interval |
-| Angular velocity | derivative of filtered angle | degrees/second | Reported only with adequate finite coverage |
-| Movement duration | effective motion-end frame minus motion-start frame, divided by fps | seconds | Frame-limited duration |
-| Event timing | event position within effective motion interval | cycle fraction or percent | Release cannot be more precise than the recording frames |
-
-Summary values are calculated over the available analyzed frames; release values use the effective automatic-or-manual release frame.
-
-## 6. Human anatomy involved
-
-Primary markerless estimates are left/right shoulder, elbow, wrist, and hip. The throwing-side shoulder, elbow, and wrist define the arm. The hip midpoint and shoulder midpoint define the trunk. Hip points are used as a trunk reference even though the study focus is upper-body motion.
-
-The model estimates image keypoints, not palpated anatomical joint centers. Stage 1 does not infer shoulder internal/external rotation, humeral axial rotation, forearm pronation/supination, or 3D wrist rotation from ordinary 2D video.
-
-## 7. Coordinate-system definitions
-
-- Raw video pixels: origin at image top-left; x increases right; y increases downward.
-- Kinematic axes: y is flipped upward.
-- Target-forward axes: x is reflected for right-to-left trials so positive x always points toward the target.
-- Relative trajectories: throwing shoulder is the origin on every frame.
-- Body scale: relative arm paths are divided by median upper-arm length plus median forearm length.
-- Board coordinates: `(0, 0)` is the left corner at the pitcher end; x runs left-to-right from 0–24 inches and y runs pitcher-to-back from 0–48 inches. Hole center is `(12, 39)` inches and hole radius is 3 inches.
-- Normalized time: motion start is 0% and motion end is 100%.
-
-Direction reflection, translation, and uniform scale normalization cannot remove perspective distortion or recover motion perpendicular to the image plane.
-
-## 8. Camera setup
-
-Use a side/sagittal-like view for primary Stage 1 comparison:
-
-- Put the phone on a tripod or stable support; do not hand-hold it.
-- Keep the optical axis as perpendicular as practical to the main motion plane.
-- Keep the entire upper body and throwing arm visible throughout the throw.
-- Avoid severe perspective, digital zoom changes, motion blur, and backlighting.
-- Use the same camera position and framing when comparing trials.
-- Record at 60 fps or higher when available; 120 fps may improve later event work.
-- Label every video Side, Front, or Other / Exploratory.
-
-The engine warns below 60 fps and more strongly below 30 fps. The comparison command blocks incompatible camera-view labels. Front/other recordings can be explored but are not silently treated as side-view equivalents.
-
-## 9. Pose estimation
-
-The primary backend is RTMPose through RTMLib and ONNX Runtime on CPU. MediaPipe Pose Landmarker 0.10.35 is an offline fallback. Both expose per-keypoint confidence-like scores, although those scores are not calibrated physical position-error bounds.
-
-The setup step downloads model files once. After models are cached, analysis is offline. Every manifest records the backend, model identity/version, model hash when available, video hash, and backend metadata. Raw predictions are cached by video/model/device key so reopening a trial does not repeat inference unnecessarily.
-
-Sports2D received particular attention during tool review because it already offers research-oriented single-camera 2D processing. This project uses its ideas and documented ecosystem as a reference, but adds an independent cornhole-specific workflow, correction/provenance model, normalization, outcome model, reference comparison, and movement–performance analysis. See [RESEARCH_NOTES.md](RESEARCH_NOTES.md) and [REFERENCES.md](REFERENCES.md).
-
-## 10. Manual pose correction
-
-After analysis, open **Trials → Inspect & Correct**, pause at a frame, select a landmark, and drag it to the corrected image location. Green points meet the configured confidence threshold; red points do not; corrected points have a distinct blue/yellow treatment. Native Undo/Redo and “Reset to automatic” are supported.
-
-The file `pose_raw.json` is never edited. Corrections live in `corrections.json` with frame, landmark, corrected x/y, kind, and timestamp. Optional interpolation creates explicitly labeled `interpolated` correction records between two user anchors. It is visible and reversible. Re-run analysis after correction so filtering, events, kinematics, plots, and quality metrics use the effective points.
-
-## 11. Equations for joint angles
-
-For planar angle `ABC`, where `B` is the joint:
+## What Stage 1 measures
 
 ```text
-u = A − B
-v = C − B
-
-θ = atan2(|uₓvᵧ − uᵧvₓ|, u · v) × 180/π
+Video → Body tracking → Movement measurements → Reference comparison
+                                                   ↓
+                            Athlete insights ← Cornhole outcome
 ```
 
-This stable form produces an unsigned result from 0° to 180°. A zero-length or non-finite vector produces a missing value, not an invented angle. Synthetic tests verify 0°, 45°, 90°, 135°, and 180° cases.
+Stage 1 measures image-plane elbow angle, upper-arm and forearm orientations, arm relative to trunk, trunk inclination, shoulder-relative arm paths and movement timing. It records official 0/1/3 bag outcomes and optional approximate board locations. It does not recover ground-truth 3D rotations, force, muscle activity or injury risk from one camera.
 
-Signed segment orientation uses `atan2(vᵧ, vₓ)`. Trunk inclination uses `atan2(trunkₓ, trunkᵧ)` so 0° is image vertical after the y-up and target-direction transformations.
+## Quick start
 
-## 12. Filtering
+1. Open `dist/Cornhole Biomechanics Lab.app` after installation/build.
+2. Create a project in a local folder you choose and add an athlete.
+3. Start a recording session to carry camera and athlete details into each import.
+4. Import a throw and choose **Analyze**. Sports2D is the default engine.
+5. In **Trials**, review **Inspect & Correct** and **Quality & Events**.
+6. Record the bag outcome. Open **Results** to understand the throw.
+7. Mark reference throws in **Reference**, then use **Compare**.
 
-The processing order is corrections → confidence mask → short internal-gap interpolation → coordinate filtering → angle calculation → differentiation. The engine never differentiates raw noisy pose coordinates directly.
+Original videos are copied into the selected project; they are never overwritten. Project data is separate from the source repository.
 
-Default filtering is a fourth-order, zero-phase Butterworth low-pass filter with a 6 Hz cutoff. It is a documented pilot starting point, not a universal optimum copied from another task. Forward/backward second-order-section filtering avoids phase lag but can be sensitive at signal edges. Runs too short for defensible filtering remain unfiltered and generate a warning. The cutoff, order, enable state, frame rate, and effective cutoff are saved in the manifest and exposed under Advanced Analysis. The engine rejects a cutoff at or above Nyquist.
+## How to record a good video
 
-Pilot data should be inspected spectrally and against manual traces before confirming the cutoff. Velocity is omitted when finite angle coverage is below the configured 80% threshold.
+Use a fixed tripod and a clear side view, with the optical axis roughly perpendicular to the throwing plane. Keep both shoulders, both hips and the entire throwing arm visible. Use consistent framing and lighting, avoid motion blur and zoom changes, and record at 60 fps or higher when practical. Frame rate alone cannot rescue blurred or obscured landmarks. Prefer one visible thrower; verify that the selected Sports2D track is the intended athlete.
 
-## 13. Anthropometric normalization
+## How to analyze a throw
 
-Raw pixels are never used for between-athlete trajectory scoring. The robust arm scale is:
+The app runs a local Python worker and reports its stage. First use may download model weights. Once models are cached, analysis can run offline. **Cancel** stops the worker; retain the video and re-run incomplete analysis.
 
-```text
-Larm = median(||shoulder − elbow||) + median(||elbow − wrist||)
+Drag a tracked point to correct it, or choose **Correction actions → Enter pixel coordinates** for precise keyboard entry. Corrections and interpolated anchors remain separate from raw pose. Undo/Redo buttons, Command-Z, Shift-Command-Z and reset are supported. Reanalyze after changing tracking or events. The original model predictions are reused from cache when the video/model settings match.
 
-p̂wrist(t) = [p_wrist(t) − p_shoulder(t)] / Larm
-```
+Automatic release is a wrist-speed **candidate**, not a direct observation of bag separation. Inspect the recording and manually set visible release where possible. Events remain frame limited.
 
-Medians use finite frames and reduce the influence of isolated keypoint errors. Joint angles are already invariant to uniform scale. This normalization removes translation and uniform image scale, but not perspective, out-of-plane motion, or genuine anatomical/strategy differences. Height and arm span are optional context and are not required.
+Use **Advanced Analysis** for backend, model, confidence, interpolation and filter settings. Direct RTMPose and MediaPipe are explicit alternatives if Sports2D is unavailable or fails; the app never silently changes engines.
 
-## 14. Time normalization
+## Understanding the Results screen
 
-Automatic candidates identify motion start, peak backswing, forward swing, visible release, peak follow-through, and motion end from wrist-path behavior. Manual frames are stored separately and take precedence as the effective event.
+- **ACL bag result:** 0, 1 or 3 points. This is the bag's outcome, not an inning's cancellation score.
+- **Reference Similarity:** 0–100 resemblance to selected reference throws. Expand the components to see errors, units, tolerances, weights and formula.
+- **Athlete Consistency:** repeatability across at least five comparable throws. Missing data produces “More trials needed.”
+- **Tracking Quality:** a transparent pilot confidence index. Review camera, frame-rate and occlusion warnings even if similarity is high.
+- **Performance relationships:** scatter plots, sample size and Spearman estimates when at least eight complete pairs exist and both variables vary.
 
-For selected start/end times:
+Select a listed movement difference or timeline event to seek the video and synchronized plots. The wrist path uses arm lengths. The board map uses different symbols for target, first contact and final rest; overlay comparable throws to inspect dispersion.
 
-```text
-τ = (t − t_start) / (t_end − t_start)
-```
+## What each biomechanics metric means
 
-Each curve is linearly resampled to 101 samples from 0–100% by default. Release timing is reported as a cycle fraction. At 60 fps the frame interval is about 16.7 ms; the app never claims sub-frame bag-release timing.
+The elbow measurement is an **included angle**: 180° is straight, and a smaller value is more flexed in the image. Segment orientation says which way an arm segment points; it does not measure forearm twist or shoulder axial rotation. Trunk inclination says how far the midpoint trunk leans toward the target in the camera plane.
 
-## 15. Reference comparison
+For elbow points S (shoulder), E (elbow), W (wrist):
 
-One or several analyzed trials may be marked **Coach-Selected Reference**. A reference set uses its pointwise trajectory mean and, when `n > 1`, standard deviation. The test trial is compared after target-direction reflection, shoulder translation, arm-length scaling, and time normalization.
+`angle = atan2(|(S−E) × (W−E)|, (S−E) · (W−E))`
 
-The primary comparison preserves movement-cycle time. Dynamic time warping is not used to erase timing differences. The app reports angle MAE, RMSE, waveform correlation where defined, peak and range differences, event-timing difference, and normalized wrist/elbow path RMSE. Different camera-view labels are rejected.
+Convert to degrees. Missing/degenerate points produce missing angles. See [docs/METRICS.md](docs/METRICS.md) for every metric, interval, unit, equation, Sports2D convention and limitation.
 
-## 16. Similarity score
+## How body-size normalization works
 
-Raw errors appear before the score. Each configured component is transformed by:
+A 5′4″ athlete and a 6′8″ athlete can follow similar relative paths while producing very different pixel distances. Camera distance changes pixels too. We therefore align the throwing shoulders and divide the wrist path by estimated arm length:
 
-```text
-component score = 100 × max(0, 1 − raw error / tolerance)
-overall score   = weighted mean of available component scores
-```
+`Larm = median(upper-arm length) + median(forearm length)`
 
-The interface exposes every component's raw error, units, tolerance, weight, score, and equation. Missing components are omitted and named. Current tolerances are stored configuration values for pilot use, not population norms. They should later be derived from reference variability, measurement uncertainty, and pilot data.
+`normalized wrist = (wrist − throwing shoulder) / Larm`
 
-With one reference, the result is labeled **“Prototype reference similarity – single reference trial.”** The score means reference similarity, never “perfect mechanics” or performance quality.
+Horizontal direction is reflected toward the target; vertical direction points up. Movement start and end map to 0–100%. This removes translation and uniform image scale, while preserving timing differences. It cannot remove perspective or actual limb-proportion differences. The app includes a visual explanation under **How bodies are aligned**.
 
-## 17. Performance outcome
+## How reference comparison works
 
-Every trial can store intended target, 3/1/0 score, throw type, notes, and approximate board clicks for intended point, first contact, and final resting point. ACL board coordinates use inches and documented dimensions. When intended and actual points exist, the Python engine calculates signed lateral error, signed longitudinal error, and radial error.
+Mark one or several analyzed throws as references. The app compares normalized waveforms to their pointwise mean; the spread is shown when multiple references exist. Camera views and time grids must match. It reports angle errors, wrist-path RMSE and timing differences without dynamic time warping.
 
-A manual click is labeled approximate. It must not be interpreted as instrument-level spatial precision. Score categories are 3 through the hole, 1 on the board, and 0 off board/foul.
+`component = 100 × max(0, 1 − error / tolerance)`
 
-## 18. Movement-versus-performance analysis
+The displayed total is the weighted mean of available components. Pilot tolerances are visible and saved. Missing components are named. A changing reference changes the meaning of the score.
 
-The initial analysis is within one athlete. It evaluates elbow angle at release, elbow range, trunk inclination at release, movement duration, and release timing against approximate radial target error when available, otherwise 0/1/3 score.
+## Why the reference is not called “perfect form”
 
-The Results view shows raw paired observations, sample size, feature mean/median/standard deviation/range, and Spearman rank correlation with bootstrap confidence interval when justified. Fewer than eight complete pairs by default produces exactly: **“Not enough trials to estimate this relationship reliably.”** No small-sample machine learning is used, and observational correlation is not described as causal.
+A reference is a selected comparison pattern. It is not proof of an optimal technique. Skilled precision throwers can use different strategies, and similarity does not guarantee points. The app preserves that distinction.
 
-Reference similarity, personal consistency, and movement–outcome association remain separate sections. This prevents the system from assuming that copying the reference guarantees success.
+## How consistency is measured
 
-## 19. What the system CAN claim
+Use at least five throws from the same athlete, session, view, throwing hand, pose model and processing settings, with at least 80% usable frames. The app measures pointwise waveform variability in elbow, trunk and wrist, plus release-timing variability. All four components must be supported to show a score. The mean and variability remain visible alongside the score.
 
-- It computes reproducible image-plane geometry from stored markerless estimates and corrections.
-- It can compare compatible-view trials after documented translation, reflection, scale, and time normalization.
-- It can quantify trial-to-trial variability for one athlete.
-- It can describe exploratory within-athlete associations between complete movement and outcome observations.
-- It can reveal tracking gaps, low confidence, correction counts, filtering conditions, and other quality warnings.
+`Consistency = mean(100 × max(0, 1 − variability / pilot tolerance))`
 
-Claims still depend on the quality and validity of the recordings and pose estimates.
+This describes repeatability, not whether the technique is good. **Athlete vs own mean** comparison excludes the selected throw from the comparison mean.
 
-## 20. What the system CANNOT claim
+## How movement is related to performance
 
-- A 2D projected value is not a true 3D anatomical joint orientation.
-- Pose keypoints are not ground-truth joint centers.
-- Reference similarity is not proof of performance quality, safety, or ideal form.
-- Correlation does not show that a movement feature causes an outcome.
-- The software does not diagnose injury, prescribe treatment, or estimate joint loads.
-- Public/YouTube test footage does not satisfy the course requirement for participant performance data.
-- This pilot does not provide population norms.
+Relationships are explored within a comparable athlete group. Target error is preferred when spatial observations exist; otherwise the response is the 0/1/3 bag outcome. Contact and final-rest measurements are not pooled into one spatial response. At least eight complete pairs and variation in both measures are required for Spearman rho and a bootstrap interval. This threshold does not guarantee statistical power, and correlation does not establish causation.
 
-## 21. 2D limitations
+## Sports2D integration
 
-Single-camera results are sensitive to camera angle, perspective, lens distortion, occlusion, cropping, motion blur, pose-model domain shift, clothing, lighting, and movement out of the image plane. Even a reliable repeated 2D signal can be biased relative to 3D anatomy; reliability is not the same as validity. Body normalization does not correct foreshortening. A side-view label describes the protocol goal, not proof of perfect sagittal alignment.
+The pinned runtime is **Sports2D 0.8.34** with **Pose2Sim 0.10.49**. Sports2D provides RTMPose tracking, native angles, diagnostic processing, annotated video and TRC/MOT. Our code adds corrections, cornhole-specific measurements, normalization, reference comparison, sessions, outcomes and interpretation.
 
-## 22. How to install
+The adapter calls the public Python API. Because this version does not return raw confidence, a small version-locked bridge preserves its tracked pre-interpolation arrays; unsupported versions fail explicitly. The app retains model hashes, backend versions, settings and source hashes.
 
-Requirements used for this build:
+Metric conversion, C3D, camera/floor estimation, marker augmentation and inverse kinematics are disabled in the uncalibrated Stage 1 profile. Pixel coordinates must not be presented as measured millimeters or 3D biomechanics. CPU is the validated default; MPS/CoreML requires a separate equivalence check. See [docs/SPORTS2D.md](docs/SPORTS2D.md) for capability decisions and native-export differences.
 
-- macOS 15 or later on Apple Silicon
-- Xcode 26.6 at `/Applications/Xcode.app` (Swift 6.3.3, code compiled in Swift 5 language mode)
-- Python 3.11 or 3.12
-- Internet access once for Python packages/model download
+## Files and exports
 
-From Terminal:
+A trial directory retains `pose_raw.json`, `corrections.json`, `events.json`, `normalized.json`, `keypoints.csv`, `kinematics.csv`, `results.json`, `manifest.json`, plots and annotated video. Outcomes add `outcome.json`. Opening Results generates `insights.json`, `summary.md`, relationship information and a self-contained **report.html** with embedded figures.
 
-```bash
-cd "/Users/berkonas21/Desktop/Classes Fall 2026/Biomech/Project 1 - Cornhole"
+Use **Open local report** for the readable report and **Export research package** for the complete trial folder. Sports2D diagnostic artifacts live in its own subfolder and keep their original configuration/date when cached pose is reused. Comparisons have separate exports. Raw data remains available, but opening CSV is not needed to understand a result.
+
+## Validation
+
+Mathematical, normalization, correction, cache, decoding and integration tests support software correctness. A real Sports2D sample-video run checks the backend. Synthetic QA projects are clearly labeled and never counted as participant data. Follow [docs/VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md) for real recordings, manual digitization, rater repeatability and agreement testing. Final verification is recorded in [docs/QA.md](docs/QA.md).
+
+## Limitations
+
+Single-camera results are sensitive to camera placement, projection, occlusion, motion blur and model errors. Automatic release needs review. Board points are approximate. Pilot scores are not validated norms. Several successful styles may exist. The current native release uses a local installed Python runtime; it is not a standalone distributable for another Mac without setup. See METRICS.md for precise summary intervals and missing-data rules.
+
+## How to install
+
+Requirements: macOS 15 or newer, Xcode with command-line tools, Python 3.11 or 3.12, and network access for the initial package/model installation.
+
+```sh
 ./setup.sh
 ./build_app.sh
-```
-
-`setup.sh` creates `.venv`, installs the local package plus tested pose dependencies, and caches the official MediaPipe fallback model. RTMPose model files download into the user model cache on first use. Analysis is local after caches exist.
-
-## 23. How to launch the Mac app
-
-```bash
 ./run_app.sh
 ```
 
-Or open `dist/Cornhole Biomechanics Lab.app` in Finder. The ad-hoc-signed development build expects to remain within this repository so it can locate `.venv` and `python/`. The working name and version are centralized near the top of [Models.swift](CornholeBiomechanics/Sources/CornholeBiomechanics/Models.swift).
+The root scripts are compatibility entry points; implementations live in `scripts/`. Setup installs the runtime under `~/Library/Application Support/Cornhole Biomechanics Lab/Runtime`, with a repository `.venv` symlink for development. The release bundles its Python source. This avoids launching a Python environment from macOS-protected Desktop folders. Set `CORNHOLE_PYTHON=/path/to/python3.12` for setup if needed.
 
-Create a `.cornholeproject` folder from the welcome screen. The app copies imported videos into that project and never modifies the selected source file.
+## How to run
 
-## 24. How to run analysis from Python
+Open the built app in Finder, or run `./run_app.sh`. Keep projects in a local folder you select. For command-line analysis:
 
-The bundled development Python currently requires an explicit package path in this workspace:
-
-```bash
-export PYTHONPATH="$PWD/python"
-
-.venv/bin/python -m cornhole_biomech probe
-.venv/bin/python -m cornhole_biomech video-info "/path/to/throw.mov"
-.venv/bin/python -m cornhole_biomech analyze "/path/to/throw.mov" \
-  --output "/path/to/output" \
-  --trial-id "trial-001" --athlete-id "participant-001" \
-  --view side --throwing-side right --target-direction left_to_right
+```sh
+PYTHONPATH=python .venv/bin/python -m cornhole_biomech probe
+PYTHONPATH=python .venv/bin/python -m cornhole_biomech --help
 ```
 
-Additional commands:
+## Testing
 
-```bash
-.venv/bin/python -m cornhole_biomech compare \
-  --test "/path/to/test-analysis" \
-  --reference "/path/to/reference-analysis" \
-  --output "/path/to/comparison"
-
-.venv/bin/python -m cornhole_biomech batch "/path/to/batch-spec.json"
-.venv/bin/python -m cornhole_biomech relationships \
-  --analysis "/path/to/trial-analysis" \
-  --outcomes "/path/to/outcomes.json" \
-  --output "/path/to/relationships.json"
-```
-
-Use `--backend mediapipe` for the fallback. `--pose-input` accepts canonical `pose_raw.json`, enabling reproducible tests and external pose interchange without rerunning inference. All command output is structured JSON lines (`progress`, `result`, or `error`), not unstructured text scraping.
-
-## 25. Input files
-
-- Local `.mov`, `.mp4`, or another OpenCV/AVFoundation-readable video.
-- Required labels: athlete, camera view, throwing side, and target direction.
-- Optional source URL and attribution/permission note.
-- Optional canonical pose JSON for CLI analysis.
-- Optional corrections, manual event overrides, and configuration JSON.
-
-The app intentionally does not download YouTube media. It can retain and open a source URL. The user is responsible for permission to download or analyze any third-party recording; failure of an external source never blocks normal local-video analysis.
-
-## 26. Output files
-
-Each analyzed trial can contain:
-
-| File | Purpose |
-|---|---|
-| `manifest.json` | versions, hashes, model, configuration, provenance, output inventory |
-| `pose_raw.json` | immutable frame-by-frame markerless estimates |
-| `pose_cache.json` | cache key for video/model/device inputs |
-| `corrections.json` | separate manual/interpolated point changes |
-| `events.json` | automatic and manual event frames |
-| `outcome.json` | trial outcome and approximate board points |
-| `keypoints.csv` | raw, effective, filtered, confidence, and correction flags |
-| `kinematics.csv` | frame-time projected angles, velocities, and normalized paths |
-| `normalized.json` | 101-sample curves and normalized event timing |
-| `results.json` | summaries, quality, warnings, claim scope |
-| `annotated.mp4` | source frames with filtered skeleton overlay |
-| `angle_trajectories.png` | selected projected angle curves |
-| `wrist_trajectory.png` | dimensionless shoulder-relative wrist path |
-| `summary.md` | concise auditable result summary |
-
-A comparison adds `comparison.json` and `comparison_elbow_angle.png`. Relationship analysis adds `outcomes.json` and `relationships.json`. Export copies the selected analysis package without altering it.
-
-## 27. Data organization
-
-```text
-Study.cornholeproject/
-├── project.json                  # project, athlete, trial metadata
-├── videos/                       # immutable imported copies
-├── analyses/<trial UUID>/        # per-trial scientific package
-├── comparisons/<trial UUID>/     # test-to-reference result
-├── relationships/<athlete UUID>/ # within-athlete result
-└── exports/                      # reserved project export location
-```
-
-Large frame arrays remain in transparent files rather than metadata records. A stable UUID links athlete, trial, outcome, analysis, and comparison. Writes use atomic replacement where practical. Original assignment PDFs, books, papers, and videos are ignored by Git and never changed by setup or analysis.
-
-## 28. Validation and tests
-
-Run all automated checks:
-
-```bash
-PYTHONPATH=python .venv/bin/python -m pytest -q
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  swift test --package-path CornholeBiomechanics
+```sh
+.venv/bin/python -m pytest
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path app/CornholeBiomechanics
 ./build_app.sh
-codesign --verify --deep --strict "dist/Cornhole Biomechanics Lab.app"
 ```
 
-The Python suite contains 25 tests covering exact known angles, scale/translation invariance, time resampling, left/right mirroring, low confidence, correction separation, short-gap interpolation, filtering, event detection/override, time-preserving curve errors, score transparency, exported comparison curves, board errors, sample-size gating, consistency/performance separation, quality warning gates, and a video-to-result-package integration test. Five Swift tests cover portable project/outcome encoding, non-destructive correction undo, and the Python-to-Swift result boundary. The release app is built, plist-checked, ad-hoc signed, launched, and visually reviewed in the active system appearance; semantic colors and controls support light, dark, and increased-contrast behavior.
+For a visibly synthetic nine-throw UI fixture:
 
-Automated correctness does not establish criterion validity. Follow [docs/VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md) with real, consented participant trials.
+```sh
+.venv/bin/python scripts/create_qa_project.py --output /tmp/Cornhole-QA.cornholeproject
+```
 
-## 29. Troubleshooting
+The destination must not already exist. These generated videos and numbers test the software; they are not experimental results.
 
-**“Python environment was not found.”** Run `./setup.sh` from the repository root. Use Python 3.11/3.12, not the system Python 3.9.
+## Repository layout
 
-**`No module named cornhole_biomech` at the command line.** Run `export PYTHONPATH="$PWD/python"` first. The Mac app sets this automatically.
+`app/` contains the native Swift package and icon asset catalog. `python/` contains the existing scientific engine. `tests/` contains Python tests; Swift tests remain beside their package. `docs/` contains specifications, validation and QA. `resources/branding/` holds the editable original SVG and icon representations. `scripts/` contains installation, build and QA utilities. `reference_materials/` holds unchanged local books and course files and is excluded from Git.
 
-**MediaPipe fails to initialize.** This project pins `mediapipe>=0.10.21,<0.11`; a tested 1.0.1 macOS build failed during graph initialization. Re-run setup and confirm `.venv/bin/python -m pip show mediapipe` reports 0.10.35 or another compatible 0.10 release.
+## References
 
-**Pose inference is slow.** The default CPU path prioritizes compatibility and reproducibility. Trim unrelated footage before import, keep one athlete visible, and reuse the cached pose result. Do not interrupt model download on the first RTMPose use.
+[REFERENCES.md](REFERENCES.md) lists course material, precision-throwing literature, markerless measurement research, Sports2D, signal processing, ACL rules and Apple documentation. [RESEARCH_NOTES.md](RESEARCH_NOTES.md) separates the evidence from this project's decisions.
 
-**A comparison is unavailable.** Analyze both trials, mark at least one reference, and ensure camera-view labels match. Side-to-front comparison is intentionally blocked.
+## Future Stage 2 and Stage 3
 
-**Velocity is unavailable.** Inspect quality warnings. Low finite coverage or filter failure prevents defensible differentiation.
+Later stages can investigate synchronized sensors, calibrated multi-camera validation and individualized models after sufficient real data exist. They should preserve the separation between movement measurement, repeatability, task outcome and evidence for coaching decisions.
 
-**The app cannot open a video.** Convert it to a standard local H.264 `.mp4` or QuickTime `.mov`; preserve the original separately.
+## Release verification status
 
-## 30. Scientific references
+See [docs/QA.md](docs/QA.md) for the verified native workflows, test results and remaining validation scope. A successful build and passing calculations do not establish task-specific biomechanical accuracy.
 
-The complete bibliography—including peer-reviewed precision-throwing, markerless-validation, camera-geometry, filtering, software, ACL, Apple HIG, and YouTube policy sources—is in [REFERENCES.md](REFERENCES.md). The source-to-decision evidence table is in [RESEARCH_NOTES.md](RESEARCH_NOTES.md).
+The Appearance menu provides System, Light and Dark modes. In Inspect & Correct, the frame cursor carries into Movement Events; **Mark event** labels the displayed frame. The outcome editor can **Save & import next throw** while retaining the session's recording metadata. The quality disclosure shows the saved filter, confidence and gap settings used for that analysis.
 
-Seed scientific papers include Nasu, Matsuo, and Kadota (2014), [doi:10.1371/journal.pone.0088536](https://doi.org/10.1371/journal.pone.0088536); Nasu and Matsuo (2015), [doi:10.5432/jjpehss.14047](https://doi.org/10.5432/jjpehss.14047); and Tran, Yano, and Kondo (2019), [doi:10.1371/journal.pone.0223837](https://doi.org/10.1371/journal.pone.0223837).
-
-## 31. Open-source acknowledgements
-
-- NumPy, SciPy, pandas, Matplotlib, and OpenCV provide numerical, signal-processing, tabular, plotting, and video operations.
-- RTMLib/RTMPose and ONNX Runtime provide the primary local pose path.
-- MediaPipe Pose Landmarker provides the fallback.
-- Sports2D, Pose2Sim, MMPose/RTMPose, MediaPipe, and DeepLabCut informed the documented tool review; their versions, licenses, repositories, and requested citations are listed in [REFERENCES.md](REFERENCES.md).
-- SwiftUI, Charts, AVFoundation, and AVKit provide the native macOS interface.
-
-No dependency's output is treated as ground truth merely because it is produced by an established package.
-
-## 32. Future Stage 2 / Stage 3 extensions
-
-Stage 2 may add deliberately synchronized sensors such as IMUs only after video timing, calibration, storage, and validation are stable. Stage 3 may add an optional `ExplanationProvider` that consumes compact numerical results, but it must remain separate from measurement code, state uncertainty, use secure user-provided credentials, and never replace raw evidence.
-
-Other defensible extensions include calibrated 2D distance, multiple-camera 3D reconstruction with Pose2Sim, cornhole-specific labeled pose training with DeepLabCut, validated hand landmarks, multi-trial reference uncertainty, front-view exploratory measures, richer repeatability statistics, and preregistered participant analysis. None are silently implied by Stage 1.
+Analysis manifests include a path-independent SHA-256 fingerprint of the Python engine source in addition to video, model, settings and correction provenance. Preserve the project and recorded engine revision to reproduce a measurement. Sports2D pixel TRC headers are corrected to `px`, with exact upstream originals retained; see [the export notes](docs/SPORTS2D.md#upstream-export-quirks-verified-on-0834).

@@ -36,7 +36,7 @@ def apply_corrections(
     """
     effective = np.array(raw, dtype=float, copy=True)
     manual_mask = np.zeros(confidence.shape, dtype=bool)
-    low_confidence = (confidence < confidence_threshold) | ~np.isfinite(raw).all(axis=-1)
+    low_confidence = (~np.isfinite(confidence)) | (confidence < confidence_threshold) | ~np.isfinite(raw).all(axis=-1)
     effective[low_confidence] = np.nan
     lookup = {name: index for index, name in enumerate(landmarks)}
     for correction in corrections.corrections:

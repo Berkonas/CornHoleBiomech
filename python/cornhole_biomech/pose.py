@@ -285,6 +285,10 @@ def analyze_pose(
         imported = PoseSequence.load(pose_input)
         if abs(imported.fps - video.fps) > 1e-3:
             raise ValueError("Imported pose FPS does not match source video FPS")
+        if (imported.width, imported.height, imported.frame_count) != (video.width, video.height, video.frame_count):
+            raise ValueError("Imported pose dimensions/frame count do not match the source video")
+        if [f.frame_index for f in imported.frames] != list(range(video.frame_count)):
+            raise ValueError("Imported pose frames must be consecutive, starting at zero")
         return imported
     if backend == "rtmpose":
         return analyze_rtmpose(video, progress, device=device)

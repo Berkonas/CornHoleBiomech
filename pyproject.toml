@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cornhole-biomech"
-version = "0.1.0"
+version = "0.2.0"
 description = "Transparent single-camera 2D cornhole biomechanics analysis"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -24,7 +24,7 @@ pose = [
   "rtmlib>=0.0.13,<1",
   "mediapipe>=0.10.21,<0.11",
 ]
-sports2d = ["sports2d>=0.8.34,<0.9"]
+sports2d = ["sports2d==0.8.34", "Pose2Sim==0.10.49"]
 test = ["pytest>=8.3,<9", "pytest-cov>=5,<7"]
 
 [project.scripts]
@@ -38,4 +38,5 @@ where = ["python"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["python"]
 addopts = "-q"
