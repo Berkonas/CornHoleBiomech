@@ -24,19 +24,19 @@ Video → Body tracking → Movement measurements → Reference comparison
                             Athlete insights ← Cornhole outcome
 ```
 
-Stage 1 measures image-plane elbow angle, upper-arm and forearm orientations, arm relative to trunk, trunk inclination, shoulder-relative arm paths and movement timing. It records official 0/1/3 bag outcomes and optional approximate board locations. It does not recover ground-truth 3D rotations, force, muscle activity or injury risk from one camera.
+Stage 1 measures image-plane elbow angle and extension descriptors, segment and trunk orientation, global and shoulder-relative wrist motion, shoulder translation, radial/pendulum-like descriptors, path shape, movement timing, and optional projected bag-launch quantities. It records official 0/1/3 bag outcomes and approximate board observations. It does not recover ground-truth 3D rotations, force, muscle activity, or injury risk from one camera.
 
 ## Quick start
 
-1. Open `dist/Cornhole Biomechanics Lab.app` after installation/build.
-2. Create a project in a local folder you choose and add an athlete.
-3. Start a recording session to carry camera and athlete details into each import.
-4. Import a throw and choose **Analyze**. Sports2D is the default engine.
-5. In **Trials**, review **Inspect & Correct** and **Quality & Events**.
-6. Record the bag outcome. Open **Results** to understand the throw.
-7. Mark reference throws in **Reference**, then use **Compare**.
+1. Open `dist/Cornhole Biomechanics Lab.app`. The app restores the last athlete library automatically.
+2. Choose **Add Athlete**, then **Import Throw**. By default, scientific data live visibly in `~/Documents/Cornhole Biomechanics Lab Data`.
+3. Optionally start a session to reuse camera and throw metadata across imports.
+4. Select a throw and choose **Analyze**. Sports2D is the default pose engine.
+5. In **Trials**, review **Inspect & Correct** and **Quality & Events**. For bag-flight measurements, save one reviewed bag seed rectangle and reanalyze.
+6. Record the outcome and approximate board observations. Open **Results** to connect movement and performance.
+7. Create global or athlete-specific sets in **References**, then use **Compare**.
 
-Original videos are copied into the selected project; they are never overwritten. Project data is separate from the source repository.
+Original videos are copied into the visible athlete library; they are never overwritten. A small Application Support index remembers that location and the current selection. If a file or library moves, its record is retained and the app offers Locate / Relink.
 
 ## How to record a good video
 
@@ -49,6 +49,8 @@ The app runs a local Python worker and reports its stage. First use may download
 Drag a tracked point to correct it, or choose **Correction actions → Enter pixel coordinates** for precise keyboard entry. Corrections and interpolated anchors remain separate from raw pose. Undo/Redo buttons, Command-Z, Shift-Command-Z and reset are supported. Reanalyze after changing tracking or events. The original model predictions are reused from cache when the video/model settings match.
 
 Automatic release is a wrist-speed **candidate**, not a direct observation of bag separation. Inspect the recording and manually set visible release where possible. Events remain frame limited.
+
+Optional bag tracking starts from a reviewed rectangle. Automatic centroids remain immutable; manual centroid edits and reviewed interpolation are stored separately. Cyan, yellow, and purple overlays distinguish automatic, manual, and interpolated points. Tracker confidence is an appearance-consistency heuristic, not proof that the tracker followed the bag. After frame-by-frame review, use **Bag tracking → Mark reviewed through frame**. Projected launch values remain missing until that review covers the complete release-fit interval; changing the seed or a centroid clears the prior approval.
 
 Use **Advanced Analysis** for backend, model, confidence, interpolation and filter settings. Direct RTMPose and MediaPipe are explicit alternatives if Sports2D is unavailable or fails; the app never silently changes engines.
 
@@ -70,7 +72,7 @@ For elbow points S (shoulder), E (elbow), W (wrist):
 
 `angle = atan2(|(S−E) × (W−E)|, (S−E) · (W−E))`
 
-Convert to degrees. Missing/degenerate points produce missing angles. See [docs/METRICS.md](docs/METRICS.md) for every metric, interval, unit, equation, Sports2D convention and limitation.
+Convert to degrees. Missing/degenerate points produce missing angles. See [docs/BIOMECHANICS_METHODS.md](docs/BIOMECHANICS_METHODS.md) for every metric, interval, unit, equation, Sports2D convention and limitation.
 
 ## How body-size normalization works
 
@@ -116,13 +118,13 @@ Metric conversion, C3D, camera/floor estimation, marker augmentation and inverse
 
 ## Files and exports
 
-A trial directory retains `pose_raw.json`, `corrections.json`, `events.json`, `normalized.json`, `keypoints.csv`, `kinematics.csv`, `results.json`, `manifest.json`, plots and annotated video. Outcomes add `outcome.json`. Opening Results generates `insights.json`, `summary.md`, relationship information and a self-contained **report.html** with embedded figures.
+A trial analysis directory retains `pose_raw.json`, `corrections.json`, `events.json`, `normalized.json`, `keypoints.csv`, `kinematics.csv`, `results.json`, `manifest.json`, plots and annotated video. Bag-enabled analyses also retain `bag_seed.json`, immutable `bag_raw.json`, separate review/corrections in `bag_corrections.json`, an effective provenance-rich `bag_track.json`, and `bag_keypoints.csv`. Outcomes add `outcome.json`. Opening Results generates `insights.json`, `summary.md`, relationship information and a self-contained **report.html** with embedded figures.
 
 Use **Open local report** for the readable report and **Export research package** for the complete trial folder. Sports2D diagnostic artifacts live in its own subfolder and keep their original configuration/date when cached pose is reused. Comparisons have separate exports. Raw data remains available, but opening CSV is not needed to understand a result.
 
 ## Validation
 
-Mathematical, normalization, correction, cache, decoding and integration tests support software correctness. A real Sports2D sample-video run checks the backend. Synthetic QA projects are clearly labeled and never counted as participant data. Follow [docs/VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md) for real recordings, manual digitization, rater repeatability and agreement testing. Final verification is recorded in [docs/QA.md](docs/QA.md).
+Mathematical, normalization, correction, cache, decoding and integration tests support software correctness. A real Sports2D sample-video run checks the backend. Synthetic QA projects are clearly labeled and never counted as participant data. Follow [docs/VALIDATION_PLAN.md](docs/VALIDATION_PLAN.md) for real recordings, manual digitization, rater repeatability and agreement testing. Final verification is recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Limitations
 
@@ -152,9 +154,7 @@ PYTHONPATH=python .venv/bin/python -m cornhole_biomech --help
 ## Testing
 
 ```sh
-.venv/bin/python -m pytest
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path app/CornholeBiomechanics
-./build_app.sh
+./verify.sh
 ```
 
 For a visibly synthetic nine-throw UI fixture:
@@ -179,7 +179,7 @@ Later stages can investigate synchronized sensors, calibrated multi-camera valid
 
 ## Release verification status
 
-See [docs/QA.md](docs/QA.md) for the verified native workflows, test results and remaining validation scope. A successful build and passing calculations do not establish task-specific biomechanical accuracy.
+See [docs/VERIFICATION.md](docs/VERIFICATION.md) for the latest checks actually run and [docs/VALIDATION_PLAN.md](docs/VALIDATION_PLAN.md) for evidence still required. A successful build and passing calculations do not establish task-specific biomechanical accuracy.
 
 The Appearance menu provides System, Light and Dark modes. In Inspect & Correct, the frame cursor carries into Movement Events; **Mark event** labels the displayed frame. The outcome editor can **Save & import next throw** while retaining the session's recording metadata. The quality disclosure shows the saved filter, confidence and gap settings used for that analysis.
 
