@@ -20,6 +20,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "normalization_samples": 101,
     "minimum_velocity_coverage": 0.80,
     "minimum_relationship_trials": 8,
+    "bag_tracking": {
+        "method": "auto",
+        "confidence_threshold": 0.20,
+        "template_quality_threshold": 0.25,
+        "template_search_scale": 2.5,
+    },
+    "bag_release": {
+        "minimum_divergence_arm_lengths": 0.08,
+        "persistence_seconds": 0.05,
+    },
+    "projectile": {
+        "release_fit_window_seconds": 0.12,
+        "minimum_velocity_points": 4,
+        "acceleration_minimum_fps": 60.0,
+        "acceleration_minimum_points": 6,
+        "acceleration_maximum_fit_rmse_arm_lengths": 0.03,
+    },
     "similarity": {
         "formula": "linear_to_zero_at_tolerance",
         "components": {
@@ -62,6 +79,10 @@ def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
         raise ValueError("max_interpolation_gap_frames must be non-negative")
     if int(config["normalization_samples"]) < 3:
         raise ValueError("normalization_samples must be at least 3")
+    if not 0.0 <= float(config["minimum_velocity_coverage"]) <= 1.0:
+        raise ValueError("minimum_velocity_coverage must be between 0 and 1")
+    if int(config["minimum_relationship_trials"]) < 3:
+        raise ValueError("minimum_relationship_trials must be at least 3")
     filt = config["filter"]
     if filt["type"] not in {"butterworth_zero_phase", "none"}:
         raise ValueError("filter.type must be butterworth_zero_phase or none")
@@ -74,4 +95,27 @@ def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
     for item in config["similarity"]["components"].values():
         if float(item["tolerance"]) <= 0 or float(item["weight"]) < 0:
             raise ValueError("similarity tolerances must be positive and weights non-negative")
-
+    tracking = config["bag_tracking"]
+    if tracking["method"] not in {"auto", "csrt", "template_matching"}:
+        raise ValueError("bag_tracking.method must be auto, csrt, or template_matching")
+    for name in ("confidence_threshold", "template_quality_threshold"):
+        if not 0.0 <= float(tracking[name]) <= 1.0:
+            raise ValueError(f"bag_tracking.{name} must be between 0 and 1")
+    if float(tracking["template_search_scale"]) <= 0:
+        raise ValueError("bag_tracking.template_search_scale must be positive")
+    release = config["bag_release"]
+    if float(release["minimum_divergence_arm_lengths"]) <= 0:
+        raise ValueError("bag_release.minimum_divergence_arm_lengths must be positive")
+    if float(release["persistence_seconds"]) <= 0:
+        raise ValueError("bag_release.persistence_seconds must be positive")
+    projectile = config["projectile"]
+    if float(projectile["release_fit_window_seconds"]) <= 0:
+        raise ValueError("projectile.release_fit_window_seconds must be positive")
+    if int(projectile["minimum_velocity_points"]) < 3:
+        raise ValueError("projectile.minimum_velocity_points must be at least 3")
+    if int(projectile["acceleration_minimum_points"]) < 4:
+        raise ValueError("projectile.acceleration_minimum_points must be at least 4")
+    if float(projectile["acceleration_minimum_fps"]) <= 0:
+        raise ValueError("projectile.acceleration_minimum_fps must be positive")
+    if float(projectile["acceleration_maximum_fit_rmse_arm_lengths"]) <= 0:
+        raise ValueError("projectile.acceleration_maximum_fit_rmse_arm_lengths must be positive")

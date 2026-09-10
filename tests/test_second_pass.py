@@ -7,7 +7,13 @@ import pytest
 from cornhole_biomech.config import merged_config
 from cornhole_biomech.normalization import resample_curve
 from cornhole_biomech.comparison import curve_errors, build_reference_set
-from cornhole_biomech.insights import consistency_model, quality_index, differences, valid_comparison
+from cornhole_biomech.insights import (
+    comparison_references_are_current,
+    consistency_model,
+    differences,
+    quality_index,
+    valid_comparison,
+)
 from cornhole_biomech.sports2d_adapter import availability, build_config, read_trc, read_mot, elbow_included_from_sports2d, Sports2DAdapter
 from cornhole_biomech.video import VideoMetadata
 
@@ -119,6 +125,25 @@ def test_stale_comparison_rejected(tmp_path):
     assert valid_comparison(c) is not None
     (d/'normalized.json').write_text('{"changed":true}')
     assert valid_comparison(c) is None
+
+
+def test_reference_set_membership_controls_saved_comparison_validity():
+    project = {
+        "trials": [
+            {"id": "test", "cameraView": "side"},
+            {"id": "ref-a", "cameraView": "side", "isReference": True},
+            {"id": "ref-b", "cameraView": "side", "isReference": True},
+        ],
+        "referenceSets": [
+            {"id": "set-a", "trialIDs": ["ref-a"]},
+            {"id": "set-b", "trialIDs": ["ref-b"]},
+        ],
+    }
+    trial = project["trials"][0]
+    assert comparison_references_are_current(project, trial, {"reference_trial_ids": ["ref-a"]})
+    project["referenceSets"][0]["trialIDs"] = []
+    project["trials"][1]["isReference"] = False
+    assert not comparison_references_are_current(project, trial, {"reference_trial_ids": ["ref-a"]})
 
 
 def test_circular_peak_rom_and_correlation_do_not_have_branch_artifacts():

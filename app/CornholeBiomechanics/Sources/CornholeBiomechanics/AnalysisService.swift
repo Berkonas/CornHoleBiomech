@@ -32,9 +32,11 @@ final class AnalysisService: ObservableObject {
     private(set) var activeTrialID: UUID?
 
     func analyze(trial: Trial, store: ProjectStore, backend: String? = nil) async {
-        guard let root = store.projectURL,
-              let video = store.videoURL(for: trial),
-              let settings = store.project?.analysisSettings else { return }
+        guard let video = store.videoURL(for: trial) else {
+            errorMessage = "The source video is missing. Use Locate / Relink before analysis."
+            return
+        }
+        guard let settings = store.project?.analysisSettings else { return }
         guard !isRunning else { return }
         cancelled = false
         activeTrialID = trial.id
@@ -43,9 +45,10 @@ final class AnalysisService: ObservableObject {
         stage = "Preparing"
         detail = "Validating the local analysis environment"
         errorMessage = nil
-        let relativeOutput = "analyses/\(trial.id.uuidString)"
-        let output = root.appendingPathComponent(relativeOutput)
         do {
+            let destination = try store.analysisOutput(for: trial)
+            let relativeOutput = destination.relativePath
+            let output = destination.url
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             let configURL = output.appendingPathComponent("app-analysis-config.json")
             let configData = try JSONSerialization.data(withJSONObject: settings.pythonPayload, options: [.prettyPrinted, .sortedKeys])
@@ -72,6 +75,18 @@ final class AnalysisService: ObservableObject {
             let events = output.appendingPathComponent("events.json")
             if FileManager.default.fileExists(atPath: events.path) {
                 arguments += ["--events", events.path]
+            }
+            let bagSeed = output.appendingPathComponent("bag_seed.json")
+            if FileManager.default.fileExists(atPath: bagSeed.path) {
+                arguments += ["--bag-seed", bagSeed.path]
+            }
+            let bagCorrections = output.appendingPathComponent("bag_corrections.json")
+            if FileManager.default.fileExists(atPath: bagCorrections.path) {
+                arguments += ["--bag-corrections", bagCorrections.path]
+            }
+            let calibration = output.appendingPathComponent("calibration.json")
+            if FileManager.default.fileExists(atPath: calibration.path) {
+                arguments += ["--calibration", calibration.path]
             }
             _ = try await run(arguments)
             if let outcome = trial.outcome {

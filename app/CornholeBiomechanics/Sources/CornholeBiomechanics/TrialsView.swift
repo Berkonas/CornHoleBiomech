@@ -24,7 +24,11 @@ struct TrialsView: View {
                             Spacer()
                             if trial.isReference { Image(systemName: "bookmark.fill").foregroundStyle(.tint) }
                         }.font(.caption).foregroundStyle(.secondary)
-                        StatusPill(text: trial.analysisStatus, color: trial.analysisRelativePath == nil ? .secondary : .green)
+                        if case .missing = store.videoState(for: trial) {
+                            StatusPill(text: "Missing video", color: .orange)
+                        } else {
+                            StatusPill(text: trial.analysisStatus, color: trial.analysisRelativePath == nil ? .secondary : .green)
+                        }
                     }.padding(.vertical, 3).tag(trial.id)
                 }
             }.padding().frame(minWidth: 210, idealWidth: 240, maxWidth: 280)
@@ -48,6 +52,8 @@ struct TrialDetailView: View {
     let trial: Trial
     @StateObject private var data = TrialDataController()
     @State private var selectedTab = "Inspect"
+    @State private var editingMetadata = false
+    @State private var deletionTarget: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,6 +66,17 @@ struct TrialDetailView: View {
                 Spacer()
                 if trial.isReference { StatusPill(text: "Reference", color: .blue) }
                 if trial.outcome != nil { StatusPill(text: "Outcome recorded", color: .green) }
+                Menu {
+                    Button("Edit Throw…") { editingMetadata = true }
+                    Button("Reveal Source Video") { store.revealVideo(for: trial) }
+                    Button("Locate / Relink Video…") { store.locateAndRelinkVideo(for: trial) }
+                    Divider()
+                    Button("Re-run Analysis") { Task { await analysis.analyze(trial: trial, store: store) } }
+                        .disabled(!store.videoState(for: trial).isAvailable || analysis.isRunning)
+                    Button("Delete Analysis…", role: .destructive) { deletionTarget = "analysis" }
+                        .disabled(trial.analysisRelativePath == nil)
+                    Button("Delete Throw…", role: .destructive) { deletionTarget = "throw" }
+                } label: { Label("Manage", systemImage: "ellipsis.circle") }
             }.padding([.horizontal, .top], 20)
             Picker("Trial section", selection: $selectedTab) {
                 Text("Inspect & Correct").tag("Inspect")
@@ -80,7 +97,16 @@ struct TrialDetailView: View {
                 case "Quality": QualityEventsView(data: data)
                 case "Metadata": TrialMetadataView(trial: trial)
                 default:
-                    if let videoURL = store.videoURL(for: trial), data.pose != nil {
+                    if case .missing = store.videoState(for: trial) {
+                        ContentUnavailableView {
+                            Label("Missing source video", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text("The record and analysis were retained. Locate the moved file to relink this throw.")
+                        } actions: {
+                            Button("Locate / Relink…") { store.locateAndRelinkVideo(for: trial) }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    } else if let videoURL = store.videoURL(for: trial), data.pose != nil {
                         VideoPoseEditor(videoURL: videoURL, data: data, confidenceThreshold: store.project?.analysisSettings.confidenceThreshold ?? 0.35).id(trial.id)
                     } else if analysis.activeTrialID == trial.id {
                         ContentUnavailableView("Analyzing video", systemImage: "waveform.path.ecg", description: Text(analysis.detail))
@@ -99,6 +125,31 @@ struct TrialDetailView: View {
         .task(id: trial.id) { data.load(analysisURL: store.analysisURL(for: trial)) }
         .onChange(of: analysis.isRunning) { oldValue, newValue in
             if oldValue && !newValue { data.load(analysisURL: store.analysisURL(for: store.selectedTrial ?? trial)) }
+        }
+        .sheet(isPresented: $editingMetadata) { TrialEditForm(trial: trial) }
+        .confirmationDialog(
+            deletionTarget == "analysis" ? "Delete derived analysis?" : "Delete this throw?",
+            isPresented: Binding(get: { deletionTarget != nil }, set: { if !$0 { deletionTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            if deletionTarget == "analysis" {
+                Button("Delete Analysis", role: .destructive) {
+                    do { try store.deleteAnalysis(for: trial) }
+                    catch { store.errorMessage = error.localizedDescription }
+                    deletionTarget = nil
+                }
+            } else {
+                Button("Delete Throw and Managed Files", role: .destructive) {
+                    do { try store.deleteTrial(trial) }
+                    catch { store.errorMessage = error.localizedDescription }
+                    deletionTarget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { deletionTarget = nil }
+        } message: {
+            Text(deletionTarget == "analysis"
+                 ? "Pose, kinematics, plots, and comparisons are removed. The source video remains."
+                 : "The throw record, its managed video copy, analysis, and reference assignments are moved to Trash when possible.")
         }
     }
 
@@ -121,6 +172,8 @@ struct VideoPoseEditor: View {
     @State private var timeObserver: Any?
     @State private var interpolationNotice: String?
     @State private var showCoordinates = false
+    @State private var showBagSeed = false
+    @State private var showBagCoordinates = false
 
     init(videoURL: URL, data: TrialDataController, confidenceThreshold: Double) {
         self.videoURL = videoURL
@@ -143,6 +196,9 @@ struct VideoPoseEditor: View {
                             player.pause()
                             data.setCorrection(frame: currentFrame, landmark: landmark, x: x, y: y, undoManager: undoManager)
                         }
+                    }
+                    if data.bagTrack != nil {
+                        BagOverlay(data: data, frame: currentFrame, availableSize: geometry.size)
                     }
                     VStack {
                         HStack {
@@ -201,16 +257,53 @@ struct VideoPoseEditor: View {
                             }
                         }
                     }.fixedSize()
+                    Menu("Bag tracking") {
+                        Button(data.bagSeed == nil ? "Seed tracker rectangle…" : "Replace tracker seed…") {
+                            player.pause()
+                            showBagSeed = true
+                        }
+                        Button("Correct centroid at frame \(currentFrame)…") {
+                            player.pause()
+                            showBagCoordinates = true
+                        }.disabled(data.bagTrack == nil)
+                        Button("Reset centroid to automatic") {
+                            player.pause()
+                            data.resetBagCorrection(frame: currentFrame)
+                            interpolationNotice = "Removed the bag correction at frame \(currentFrame). Reanalyze to update launch metrics."
+                        }.disabled(data.bagCorrection(frame: currentFrame) == nil)
+                        Button("Interpolate between reviewed bag points") {
+                            player.pause()
+                            let count = data.interpolateBag(through: currentFrame)
+                            interpolationNotice = count > 0 ? "Added \(count) reviewed bag interpolation points. Reanalyze to update launch metrics." : "Add reviewed bag centroids on both sides of this frame first."
+                        }.disabled(data.bagTrack == nil)
+                        Divider()
+                        Button("Mark reviewed through frame \(currentFrame)") {
+                            player.pause()
+                            data.markBagReviewed(through: currentFrame)
+                            interpolationNotice = "Bag identity marked reviewed through frame \(currentFrame). Reanalyze to determine whether this covers the complete launch-fit interval."
+                        }.disabled(data.bagTrack == nil)
+                        Button("Clear bag review") {
+                            player.pause()
+                            data.clearBagReview()
+                            interpolationNotice = "Cleared bag-track review approval. Launch metrics will remain suppressed after reanalysis."
+                        }.disabled(data.bagCorrections.reviewedThroughFrame == nil)
+                    }.fixedSize()
                     Spacer(minLength: 0)
                 }
                 if let interpolationNotice { Text(interpolationNotice).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
-                Text("Pause, then drag a joint. To restore a missing joint, select its name and click its location on the video. Raw model predictions remain unchanged; corrections are stored separately. Reanalyze after edits.")
+                Text("Pause, then drag a joint. Bag tracking begins from one reviewed rectangle; cyan is automatic, yellow is manual, and purple is reviewed interpolation. Raw pose and bag tracks remain unchanged; corrections are stored separately. Reanalyze after edits.")
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }.padding(14)
         }
         .focusedSceneObject(data)
         .sheet(isPresented: $showCoordinates) {
             LandmarkCoordinateEditor(data: data, frame: currentFrame, landmark: selectedLandmark)
+        }
+        .sheet(isPresented: $showBagSeed) {
+            BagSeedEditor(data: data, frame: currentFrame, throwingWrist: selectedLandmark.contains("wrist") ? selectedLandmark : "right_wrist")
+        }
+        .sheet(isPresented: $showBagCoordinates) {
+            BagCoordinateEditor(data: data, frame: currentFrame)
         }
         .onAppear { frameBinding.wrappedValue = Double(currentFrame); installTimeObserver() }
         .onDisappear { removeTimeObserver(); player.pause() }
@@ -281,6 +374,140 @@ private struct LandmarkCoordinateEditor: View {
             x = original?.x.map { String($0) } ?? ""
             y = original?.y.map { String($0) } ?? ""
         }
+    }
+}
+
+private struct BagSeedEditor: View {
+    @ObservedObject var data: TrialDataController
+    let frame: Int
+    let throwingWrist: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var x = ""
+    @State private var y = ""
+    @State private var width = "28"
+    @State private var height = "28"
+
+    private var rectangle: [Double]? {
+        guard let px = Double(x), let py = Double(y), let w = Double(width), let h = Double(height),
+              [px, py, w, h].allSatisfy({ $0.isFinite }), w > 1, h > 1,
+              let pose = data.pose, px >= 0, py >= 0, px + w <= Double(pose.width), py + h <= Double(pose.height)
+        else { return nil }
+        return [px, py, w, h]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Seed Bag Tracker").font(.title2.weight(.semibold))
+            Text("Frame \(frame) · enter a tight rectangle around the bag in original video pixels (top-left origin). The tracker runs forward from this reviewed seed on reanalysis.")
+                .foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow { Text("Left x"); TextField("pixels", text: $x) }
+                GridRow { Text("Top y"); TextField("pixels", text: $y) }
+                GridRow { Text("Width"); TextField("pixels", text: $width) }
+                GridRow { Text("Height"); TextField("pixels", text: $height) }
+            }
+            Text("The seed is provenance, not a detection. Review the cyan track frame-by-frame and correct identity switches or gaps before interpreting release quantities.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save Seed") {
+                    guard let rectangle else { return }
+                    data.setBagSeed(frame: frame, bboxXYWH: rectangle)
+                    dismiss()
+                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(rectangle == nil)
+            }
+        }.padding(24).frame(width: 500)
+        .onAppear {
+            if let seed = data.bagSeed, seed.bboxXYWH.count == 4 {
+                x = String(seed.bboxXYWH[0]); y = String(seed.bboxXYWH[1])
+                width = String(seed.bboxXYWH[2]); height = String(seed.bboxXYWH[3])
+            } else if let wrist = data.effectivePoint(frame: frame, landmark: throwingWrist),
+                      let wx = wrist.x, let wy = wrist.y {
+                x = String(max(0, wx - 14)); y = String(max(0, wy - 14))
+            }
+        }
+    }
+}
+
+private struct BagCoordinateEditor: View {
+    @ObservedObject var data: TrialDataController
+    let frame: Int
+    @Environment(\.dismiss) private var dismiss
+    @State private var x = ""
+    @State private var y = ""
+
+    private var point: (Double, Double)? {
+        guard let px = Double(x), let py = Double(y), px.isFinite, py.isFinite,
+              let pose = data.pose, (0...Double(pose.width)).contains(px), (0...Double(pose.height)).contains(py)
+        else { return nil }
+        return (px, py)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Correct Bag Centroid").font(.title2.weight(.semibold))
+            Text("Frame \(frame) · original video pixels, measured from the top-left corner.").foregroundStyle(.secondary)
+            TextField("X pixel", text: $x)
+            TextField("Y pixel", text: $y)
+            Text("This adds a separate reviewed point; it never overwrites the immutable automatic track. Add anchors on both sides of a short gap to interpolate it explicitly.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Apply Correction") {
+                    guard let point else { return }
+                    data.setBagCorrection(frame: frame, x: point.0, y: point.1)
+                    dismiss()
+                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(point == nil)
+            }
+        }.padding(24).frame(width: 440)
+        .onAppear {
+            let current = data.bagPoint(frame: frame) ?? data.automaticBagPoint(frame: frame)
+            x = current.map { String($0.x) } ?? ""
+            y = current.map { String($0.y) } ?? ""
+        }
+    }
+}
+
+private struct BagOverlay: View {
+    @ObservedObject var data: TrialDataController
+    let frame: Int
+    let availableSize: CGSize
+
+    var body: some View {
+        if let pose = data.pose, let point = data.bagPoint(frame: frame) {
+            let rect = videoRect(width: Double(pose.width), height: Double(pose.height))
+            let location = CGPoint(
+                x: rect.minX + rect.width * point.x / Double(pose.width),
+                y: rect.minY + rect.height * point.y / Double(pose.height)
+            )
+            ZStack {
+                Circle().stroke(.black.opacity(0.8), lineWidth: 5).frame(width: 22, height: 22)
+                Circle().stroke(color, lineWidth: 3).frame(width: 22, height: 22)
+                Path { path in
+                    path.move(to: CGPoint(x: -14, y: 0)); path.addLine(to: CGPoint(x: 14, y: 0))
+                    path.move(to: CGPoint(x: 0, y: -14)); path.addLine(to: CGPoint(x: 0, y: 14))
+                }.stroke(color, lineWidth: 2).frame(width: 28, height: 28)
+            }
+            .position(location)
+            .help("Bag centroid · \(data.bagProvenance(frame: frame).replacingOccurrences(of: "_", with: " "))")
+            .accessibilityLabel("Bag centroid, \(data.bagProvenance(frame: frame))")
+        }
+    }
+
+    private var color: Color {
+        switch data.bagProvenance(frame: frame) {
+        case "manual": .yellow
+        case "interpolated", "reviewed_interpolation": .purple
+        default: .cyan
+        }
+    }
+
+    private func videoRect(width: Double, height: Double) -> CGRect {
+        let scale = min(availableSize.width / width, availableSize.height / height)
+        let size = CGSize(width: width * scale, height: height * scale)
+        return CGRect(x: (availableSize.width - size.width) / 2, y: (availableSize.height - size.height) / 2, width: size.width, height: size.height)
     }
 }
 
@@ -376,6 +603,12 @@ struct MeasurementsView: View {
         guard let value else { return "Unavailable" }
         if key.contains("seconds") { return "\(value.formatted(.number.precision(.fractionLength(3)))) s" }
         if key.contains("cycle") { return value.formatted(.percent.precision(.fractionLength(1))) }
+        if key.contains("arm_lengths_s2") { return "\(value.formatted(.number.precision(.fractionLength(3)))) arm lengths/s²" }
+        if key.contains("arm_lengths_s") { return "\(value.formatted(.number.precision(.fractionLength(3)))) arm lengths/s" }
+        if key.contains("px_s2") { return "\(value.formatted(.number.precision(.fractionLength(1)))) px/s²" }
+        if key.contains("px_s") { return "\(value.formatted(.number.precision(.fractionLength(1)))) px/s" }
+        if key.contains("m_s2") { return "\(value.formatted(.number.precision(.fractionLength(2)))) m/s²" }
+        if key.contains("m_s") { return "\(value.formatted(.number.precision(.fractionLength(2)))) m/s" }
         if key.contains("velocity") { return "\(value.formatted(.number.precision(.fractionLength(1)))) °/s" }
         if key.contains("deg") { return "\(value.formatted(.number.precision(.fractionLength(1))))°" }
         return value.formatted(.number.precision(.fractionLength(3)))
@@ -408,6 +641,32 @@ struct QualityEventsView: View {
                         Label(warning, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     }
                     Text(quality.confidenceNote).font(.caption).foregroundStyle(.secondary)
+                }
+                if let bag = data.results?.bag {
+                    Divider()
+                    Text("Bag Tracking Review").font(.title2.weight(.semibold))
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180))], spacing: 12) {
+                        metric("Automatic coverage", "\(bag.automaticTrackingCoveragePercent.formatted(.number.precision(.fractionLength(1))))%")
+                        metric("Effective coverage", "\(bag.effectiveTrackingCoveragePercent.formatted(.number.precision(.fractionLength(1))))%")
+                        metric("Median appearance quality", bag.medianAutomaticQuality?.formatted(.number.precision(.fractionLength(2))) ?? "Unavailable")
+                        metric("Reviewed points", "\(bag.manualCorrectionCount)")
+                        metric("Interpolated bag points", "\(bag.interpolatedSampleCount)")
+                        metric("Reviewed through", bag.review?.reviewedThroughFrame.map { "Frame \($0)" } ?? "Not reviewed")
+                        metric("Tracker", "\(bag.tracker.effectiveMethod.replacingOccurrences(of: "_", with: " ")) · \(bag.tracker.status.replacingOccurrences(of: "_", with: " "))")
+                    }
+                    if bag.review?.coversLaunchFit != true {
+                        Label("Launch values are suppressed until bag identity is reviewed through frame \(bag.review?.requiredThroughFrameForLaunch.map(String.init) ?? "unavailable").", systemImage: "hand.raised.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    if !bag.tracker.failureFrames.isEmpty {
+                        Label("\(bag.tracker.failureFrames.count) tracker failures remain for review.", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Text(bag.qualityNote).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Divider()
+                    Text("Bag tracking is optional. In Inspect & Correct, save one reviewed bag rectangle and re-run analysis to add bag path and projected launch measurements.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
                 Divider()
                 Text("Movement Events").font(.title2.weight(.semibold))
@@ -456,7 +715,60 @@ struct TrialMetadataView: View {
             LabeledContent("Analysis status", value: trial.analysisStatus)
             LabeledContent("Reference", value: trial.isReference ? "Yes" : "No")
             LabeledContent("Outcome", value: trial.outcome?.scoreCategory.label ?? "Not recorded")
-            Button("Show Project in Finder") { store.revealProject() }
+            Button("Reveal Source Video in Finder") { store.revealVideo(for: trial) }
+            Button("Reveal Athlete Folder in Finder") {
+                if let athlete = store.project?.athletes.first(where: { $0.id == trial.athleteID }) {
+                    store.revealAthlete(athlete)
+                }
+            }
         }.formStyle(.grouped).padding(20)
+    }
+}
+
+private struct TrialEditForm: View {
+    @EnvironmentObject private var store: ProjectStore
+    @Environment(\.dismiss) private var dismiss
+    let trial: Trial
+    @State private var name: String
+    @State private var view: CameraView
+    @State private var side: ThrowingSide
+    @State private var direction: TargetDirection
+
+    init(trial: Trial) {
+        self.trial = trial
+        _name = State(initialValue: trial.name ?? "")
+        _view = State(initialValue: trial.cameraView)
+        _side = State(initialValue: trial.throwingSide)
+        _direction = State(initialValue: trial.targetDirection)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Edit Throw").font(.title2.weight(.semibold))
+            Form {
+                TextField("Display name (optional)", text: $name)
+                Picker("Camera view", selection: $view) { ForEach(CameraView.allCases) { Text($0.label).tag($0) } }
+                Picker("Throwing side", selection: $side) { ForEach(ThrowingSide.allCases) { Text($0.label).tag($0) } }
+                Picker("Target direction", selection: $direction) { ForEach(TargetDirection.allCases) { Text($0.label).tag($0) } }
+            }.formStyle(.grouped)
+            Text("Changing view, side, or direction changes measurement interpretation; re-run analysis afterward.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Save") {
+                    var changed = trial
+                    changed.name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : name
+                    changed.cameraView = view
+                    changed.throwingSide = side
+                    changed.targetDirection = direction
+                    if changed.cameraView != trial.cameraView || changed.throwingSide != trial.throwingSide || changed.targetDirection != trial.targetDirection {
+                        changed.analysisStatus = changed.analysisRelativePath == nil ? "Not analyzed" : "Needs reanalysis"
+                    }
+                    do { try store.updateTrialMetadata(changed); dismiss() }
+                    catch { store.errorMessage = error.localizedDescription }
+                }.buttonStyle(.borderedProminent)
+            }
+        }.padding(24).frame(width: 540)
     }
 }

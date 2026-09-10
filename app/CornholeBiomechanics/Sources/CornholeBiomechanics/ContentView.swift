@@ -7,13 +7,18 @@ struct ContentView: View {
     @AppStorage("appearance") private var appearance = "system"
     @State private var showsAthleteSheet = false
     @State private var importURL: URL?
+    @State private var importAsReference = false
     @State private var showsOutcomeSheet = false
     @State private var showsSettings = false
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: $store.selectedSection) { section in
-                Label(section.rawValue, systemImage: section.symbol).tag(section)
+            List(selection: $store.selectedSection) {
+                Section("Athlete Library") {
+                    ForEach(AppSection.allCases) { section in
+                        Label(section.rawValue, systemImage: section.symbol).tag(section)
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 155, ideal: 175, max: 230)
             .navigationTitle(store.project?.name ?? applicationName)
@@ -21,7 +26,7 @@ struct ContentView: View {
         } detail: {
             Group {
                 if store.project == nil {
-                    WelcomeView()
+                    LibraryRecoveryView()
                 } else {
                     destination
                 }
@@ -32,7 +37,7 @@ struct ContentView: View {
         .tint(Color.accentColor)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
-        .sheet(item: $importURL) { ImportTrialForm(videoURL: $0) }
+        .sheet(item: $importURL) { ImportTrialForm(videoURL: $0, markAsReference: importAsReference) }
         .sheet(isPresented: $showsOutcomeSheet) {
             if let trial = store.selectedTrial { OutcomeEditor(trial: trial) }
         }
@@ -43,7 +48,10 @@ struct ContentView: View {
         .safeAreaInset(edge: .bottom) { analysisProgress }
         .onReceive(NotificationCenter.default.publisher(for: .createStudyProject)) { _ in store.createProject() }
         .onReceive(NotificationCenter.default.publisher(for: .openStudyProject)) { _ in store.openProject() }
-        .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport() }
+        .onReceive(NotificationCenter.default.publisher(for: .importLegacyProject)) { _ in store.importLegacyProject() }
+        .onReceive(NotificationCenter.default.publisher(for: .addAthlete)) { _ in store.selectedSection = .athletes; showsAthleteSheet = true }
+        .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport(asReference: false) }
+        .onReceive(NotificationCenter.default.publisher(for: .importReferenceVideo)) { _ in beginImport(asReference: true) }
         .onReceive(NotificationCenter.default.publisher(for: .analyzeSelectedTrial)) { _ in analyzeSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in showsOutcomeSheet = store.selectedTrial != nil }
         .onReceive(NotificationCenter.default.publisher(for: .exportSelectedTrial)) { _ in
@@ -64,7 +72,11 @@ struct ContentView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button(action: beginImport) { Label("Import Video", systemImage: "square.and.arrow.down") }
+            Button { store.selectedSection = .athletes; showsAthleteSheet = true } label: { Label("Add Athlete", systemImage: "person.badge.plus") }
+                .disabled(store.project == nil)
+            Button { beginImport(asReference: false) } label: { Label("Import Throw", systemImage: "square.and.arrow.down") }
+                .disabled(store.project == nil || store.project?.athletes.isEmpty == true)
+            Button { beginImport(asReference: true) } label: { Label("Add Reference", systemImage: "bookmark.badge.plus") }
                 .disabled(store.project == nil || store.project?.athletes.isEmpty == true)
             Button(action: analyzeSelected) { Label("Analyze", systemImage: "waveform.path.ecg") }
                 .disabled(store.selectedTrial == nil || analysis.isRunning)
@@ -82,12 +94,12 @@ struct ContentView: View {
     private var projectStatus: some View {
         VStack(alignment: .leading, spacing: 5) {
             if let project = store.project {
-                Label("Local project", systemImage: "externaldrive")
+                Label("Local athlete library", systemImage: "externaldrive")
                     .font(.caption.weight(.semibold))
-                Text("\(project.athletes.count) athletes · \(project.trials.count) trials")
+                Text("\(project.athletes.count) athletes · \(project.trials.count) throws")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("No project open").font(.caption).foregroundStyle(.secondary)
+                Text("Library needs attention").font(.caption).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,12 +131,15 @@ struct ContentView: View {
         })
     }
 
-    private func beginImport() {
+    private func beginImport() { beginImport(asReference: false) }
+
+    private func beginImport(asReference: Bool) {
         guard store.project?.athletes.isEmpty == false else {
             store.selectedSection = .athletes
             showsAthleteSheet = true
             return
         }
+        importAsReference = asReference
         store.chooseAndImportVideo(athleteID: store.selectedAthleteID) { importURL = $0 }
     }
 
@@ -134,7 +149,7 @@ struct ContentView: View {
     }
 }
 
-struct WelcomeView: View {
+struct LibraryRecoveryView: View {
     @EnvironmentObject private var store: ProjectStore
 
     var body: some View {
@@ -143,15 +158,23 @@ struct WelcomeView: View {
                 Image(nsImage: icon).resizable().frame(width: 100, height: 100).accessibilityLabel("Cornhole Biomechanics Lab")
             }
             VStack(spacing: 8) {
-                Text(applicationName).font(.largeTitle.weight(.semibold))
-                Text("A local research instrument for transparent, single-camera projected 2D kinematics.")
+                Text("Athlete Library").font(.largeTitle.weight(.semibold))
+                Text(store.missingLibraryURL == nil
+                     ? "Choose a visible data folder for athletes, throws, and biomechanics results."
+                     : "The saved athlete library could not be found. Locate it without losing its records.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 580)
             }
             HStack {
-                Button("Create Project…") { store.createProject() }.buttonStyle(.borderedProminent)
-                Button("Open Project…") { store.openProject() }
+                Button(store.missingLibraryURL == nil ? "Create Athlete Library…" : "Locate Library…") {
+                    if store.missingLibraryURL == nil { store.createProject() } else { store.openProject() }
+                }.buttonStyle(.borderedProminent)
+                if store.missingLibraryURL == nil { Button("Choose Existing Library…") { store.openProject() } }
+                Button("Import Legacy Project…") { store.importLegacyProject() }
             }
-            Text("No accounts, analytics, cloud database, or generative interpretation. Videos and results remain in the project folder you choose.")
+            if let missing = store.missingLibraryURL {
+                Text("Expected location: \(missing.path)").font(.caption.monospaced()).textSelection(.enabled)
+            }
+            Text("Videos and scientific results remain in the visible library folder; only its location and app preferences are kept in Application Support.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 540)
         }
         .padding(50)

@@ -147,6 +147,8 @@ def annotate_video(
     landmarks: tuple[str, ...],
     confidence_threshold: float,
     manually_corrected: np.ndarray,
+    bag_points: np.ndarray | None = None,
+    bag_provenance: np.ndarray | None = None,
 ) -> None:
     capture = cv2.VideoCapture(str(source_video))
     fps = float(capture.get(cv2.CAP_PROP_FPS))
@@ -177,6 +179,17 @@ def annotate_video(
                 reliable = confidence[frame, index] >= confidence_threshold or corrected
                 color = (38, 46, 139) if corrected else ((126, 74, 23) if reliable else (64, 64, 180))
                 cv2.circle(image, tuple(np.round(point).astype(int)), 5, color, -1, cv2.LINE_AA)
+            if bag_points is not None and frame < len(bag_points):
+                bag = np.asarray(bag_points[frame], float)
+                if np.isfinite(bag).all():
+                    provenance = "automatic" if bag_provenance is None else str(bag_provenance[frame])
+                    color = (50, 205, 255) if provenance == "automatic" else (38, 46, 220)
+                    center = tuple(np.round(bag).astype(int))
+                    cv2.circle(image, center, 9, color, 2, cv2.LINE_AA)
+                    cv2.putText(
+                        image, "bag", (center[0] + 10, center[1] - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA,
+                    )
             cv2.putText(image, f"Frame {frame}", (18, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (245, 245, 245), 2, cv2.LINE_AA)
             writer.write(image)
             frame += 1

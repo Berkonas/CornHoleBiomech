@@ -5,6 +5,7 @@ struct ImportTrialForm: View {
     @EnvironmentObject private var store: ProjectStore
     @Environment(\.dismiss) private var dismiss
     let videoURL: URL
+    var markAsReference = false
     @State private var athleteID: UUID?
     @State private var cameraView: CameraView = .side
     @State private var throwingSide: ThrowingSide = .right
@@ -49,9 +50,10 @@ struct ImportTrialForm: View {
                         _ = try store.importVideo(ImportDraft(
                             videoURL: videoURL, athleteID: athleteID, cameraView: cameraView,
                             throwingSide: throwingSide, targetDirection: targetDirection,
-                            sourceURL: sourceURL, sourceAttribution: sourceAttribution, sessionID: store.selectedSessionID
+                            sourceURL: sourceURL, sourceAttribution: sourceAttribution,
+                            sessionID: store.selectedSessionID, isReference: markAsReference
                         ))
-                        store.selectedSection = .trials
+                        store.selectedSection = markAsReference ? .reference : .trials
                         dismiss()
                     } catch { store.errorMessage = error.localizedDescription }
                 }.buttonStyle(.borderedProminent).disabled(athleteID == nil)

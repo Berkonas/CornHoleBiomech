@@ -6,8 +6,10 @@ SWIFT_PACKAGE="$PROJECT_DIR/app/CornholeBiomechanics"
 APP_DIR="$PROJECT_DIR/dist/Cornhole Biomechanics Lab.app"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export DEVELOPER_DIR
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/cornhole-swift-module-cache}"
+export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$CLANG_MODULE_CACHE_PATH}"
 
-swift build --package-path "$SWIFT_PACKAGE" -c release
+swift build --disable-sandbox --package-path "$SWIFT_PACKAGE" -c release
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$SWIFT_PACKAGE/.build/release/CornholeBiomechanics" "$APP_DIR/Contents/MacOS/CornholeBiomechanics"

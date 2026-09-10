@@ -32,6 +32,10 @@ struct ResultsView: View {
                 }
                 Text(insight.coach_summary).font(.body).textSelection(.enabled).padding(.vertical, 6)
                 if !insight.differences.isEmpty { differences(insight) }
+                if let bag = data.results?.bag {
+                    Divider()
+                    bagLaunchPanel(bag, summaries: data.results?.summaries ?? [:])
+                }
                 Divider()
                 if let normalized = data.normalized {
                     MovementWorkspace(normalized: normalized, comparison: insight.similarity == nil ? nil : data.comparison,
@@ -106,6 +110,43 @@ struct ResultsView: View {
             }
             Text("Ranked by peak difference relative to pilot tolerance; these are pointwise differences, not whole-curve errors.").font(.caption).foregroundStyle(.secondary)
         }
+    }
+    private func bagLaunchPanel(_ bag: AnalysisResults.BagAnalysis, summaries: [String: Double?]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Bag path & projected launch").font(.title2.weight(.semibold))
+            Text("Derived from the reviewed bag centroid in the video plane. Velocity is reported in pixels/s and body-normalized arm lengths/s; m/s remains unavailable unless an explicit calibration is valid in the athlete’s release-motion plane.")
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190))], spacing: 12) {
+                bagMetric("Projected speed", summaries["bag_release_speed_arm_lengths_s"] ?? nil, "arm lengths/s", digits: 3)
+                bagMetric("Projected launch angle", summaries["bag_release_angle_deg"] ?? nil, "°", digits: 1)
+                bagMetric("Forward velocity", summaries["bag_release_forward_velocity_arm_lengths_s"] ?? nil, "arm lengths/s", digits: 3)
+                bagMetric("Vertical velocity", summaries["bag_release_vertical_velocity_arm_lengths_s"] ?? nil, "arm lengths/s", digits: 3)
+                bagMetric("Forward release position", summaries["bag_release_position_forward_arm_lengths"] ?? nil, "arm lengths", digits: 3)
+                bagMetric("Vertical release position", summaries["bag_release_position_vertical_arm_lengths"] ?? nil, "arm lengths", digits: 3)
+            }
+            HStack {
+                Text("Release frame: \(bag.launch.releaseFrame.map(String.init) ?? "unavailable")")
+                Text("·")
+                Text("effective coverage \(number(bag.effectiveTrackingCoveragePercent, digits: 1))%")
+                Text("·")
+                Text(bag.tracker.status.replacingOccurrences(of: "_", with: " ").capitalized)
+            }.font(.caption).foregroundStyle(.secondary)
+            if bag.launch.status != "estimated" {
+                Label("Launch fit status: \(bag.launch.status.replacingOccurrences(of: "_", with: " ")). Review the track and post-release visibility before interpretation.", systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func bagMetric(_ title: String, _ value: Double?, _ unit: String, digits: Int) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(number(value, digits: digits)).font(.title3.weight(.semibold)).monospacedDigit()
+                Text(unit).font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
     }
     private func board(_ value: TrialInsights, trial: Trial) -> some View {
         VStack(alignment: .leading, spacing: 14) {

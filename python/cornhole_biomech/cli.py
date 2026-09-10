@@ -11,6 +11,7 @@ import json
 import sys
 
 from . import __version__
+from .bag import BagSeed, BagTrack, bag_tracking_qa, track_bag_from_seed
 from .models import BoardPoint, TrialContext, TrialOutcome
 from .outcomes import outcome_summary
 from .pipeline import analyze_relationships, analyze_trial, compare_trial
@@ -60,11 +61,34 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--pose-input", help="Import a canonical pose_raw.json instead of inference")
     analyze.add_argument("--corrections")
     analyze.add_argument("--events")
+    analyze.add_argument("--bag-track-input", help="Import immutable canonical bag_raw.json")
+    analyze.add_argument("--bag-seed", help="Track from a reviewed bag seed rectangle JSON")
+    analyze.add_argument("--bag-corrections", help="Apply separate reviewed bag centroid corrections JSON")
+    analyze.add_argument("--calibration", help="Optional validated athlete-plane spatial calibration JSON")
     analyze.add_argument("--config")
-    analyze.add_argument("--app-version", default="0.1.0")
+    analyze.add_argument("--app-version", default="0.3.0")
     analyze.add_argument("--force-pose", action="store_true")
     analyze.add_argument("--no-annotated-video", action="store_true")
     analyze.set_defaults(handler=handle_analyze)
+
+    bag_track = commands.add_parser("bag-track", help="Track a bag forward from a reviewed seed rectangle")
+    bag_track.add_argument("video")
+    bag_track.add_argument("--seed", required=True)
+    bag_track.add_argument("--output", required=True)
+    bag_track.add_argument("--method", choices=("auto", "csrt", "template_matching"), default="auto")
+    bag_track.add_argument("--quality-threshold", type=float, default=0.25)
+    bag_track.add_argument("--search-scale", type=float, default=2.5)
+    bag_track.set_defaults(handler=handle_bag_track)
+
+    bag_qa = commands.add_parser("bag-qa", help="Compare an automatic bag track with reviewed frame labels")
+    bag_qa.add_argument("--track", required=True)
+    bag_qa.add_argument("--labels", required=True)
+    bag_qa.add_argument("--output")
+    bag_qa.add_argument("--arm-length-pixels", type=float)
+    bag_qa.add_argument("--automatic-release-frame", type=int)
+    bag_qa.add_argument("--manual-release-frame", type=int)
+    bag_qa.add_argument("--fps", type=float)
+    bag_qa.set_defaults(handler=handle_bag_qa)
 
     compare = commands.add_parser("compare", help="Compare one analyzed trial to a reference set")
     compare.add_argument("--test", required=True)
@@ -127,6 +151,38 @@ def handle_video_info(args: argparse.Namespace) -> dict[str, Any]:
     return read_video_metadata(args.video).to_dict()
 
 
+def handle_bag_track(args: argparse.Namespace) -> dict[str, Any]:
+    track = track_bag_from_seed(
+        args.video,
+        BagSeed.load(args.seed),
+        requested_method=args.method,
+        template_quality_threshold=args.quality_threshold,
+        search_scale=args.search_scale,
+    )
+    track.save(args.output)
+    return {
+        "output": str(Path(args.output).expanduser().resolve()),
+        "status": track.status,
+        "effective_method": track.effective_method,
+        "failure_frame_count": len(track.failure_frames),
+    }
+
+
+def handle_bag_qa(args: argparse.Namespace) -> dict[str, Any]:
+    result = bag_tracking_qa(
+        BagTrack.load(args.track),
+        load_json(args.labels, []),
+        arm_length_pixels=args.arm_length_pixels,
+        automatic_release_frame=args.automatic_release_frame,
+        manual_release_frame=args.manual_release_frame,
+        fps=args.fps,
+    )
+    if args.output:
+        from .serialization import write_json
+        write_json(args.output, result)
+    return result
+
+
 def handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
     context = TrialContext(
         trial_id=args.trial_id,
@@ -151,6 +207,10 @@ def handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
         make_annotated_video=not args.no_annotated_video,
         app_version=args.app_version,
         progress=progress,
+        bag_track_input=args.bag_track_input,
+        bag_seed_path=args.bag_seed,
+        bag_corrections_path=args.bag_corrections,
+        calibration_path=args.calibration,
     )
     return {"output_dir": result["output_dir"], "results": result["results"]}
 
@@ -173,6 +233,10 @@ def handle_batch(args: argparse.Namespace) -> dict[str, Any]:
             pose_input=trial.get("pose_input"),
             corrections_path=trial.get("corrections"),
             events_path=trial.get("events"),
+            bag_track_input=trial.get("bag_track_input"),
+            bag_seed_path=trial.get("bag_seed"),
+            bag_corrections_path=trial.get("bag_corrections"),
+            calibration_path=trial.get("calibration"),
             device=trial.get("device", "cpu"),
             make_annotated_video=trial.get("annotated_video", True),
             progress=progress,

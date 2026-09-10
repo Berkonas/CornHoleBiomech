@@ -28,6 +28,15 @@ struct CompareView: View {
                 Text("Choose an analyzed throw…").tag(UUID?.none)
                 ForEach(store.analyzedTrials) { Text(label($0)).tag(Optional($0.id)) }
             }.frame(maxWidth: 680).disabled(analysis.isRunning)
+            if mode == .reference {
+                Picker("Reference set", selection: $store.selectedReferenceSetID) {
+                    Text("Choose a reference set…").tag(UUID?.none)
+                    ForEach(store.project?.referenceSets ?? []) { set in
+                        Text("\(set.name) · \(set.trialIDs.count) throw\(set.trialIDs.count == 1 ? "" : "s")")
+                            .tag(Optional(set.id))
+                    }
+                }.frame(maxWidth: 680).disabled(analysis.isRunning)
+            }
             if mode == .single || mode == .trial {
                 Picker(mode == .single ? "Reference throw" : "Other throw", selection: $referenceID) {
                     Text("Choose comparison throw…").tag(UUID?.none)
@@ -74,6 +83,9 @@ struct CompareView: View {
         .onAppear { if store.selectedTrialID == nil { store.selectedTrialID = store.analyzedTrials.first?.id }; reset() }
         .onChange(of: store.selectedTrialID) { _, _ in reset() }
         .onChange(of: mode) { _, _ in reset() }
+        .onChange(of: store.selectedReferenceSetID) { _, _ in
+            if mode == .reference { reset() }
+        }
         .onChange(of: referenceID) { _, _ in data.loadComparison(at: nil) }
     }
     private var candidates: [Trial] {
@@ -81,7 +93,8 @@ struct CompareView: View {
         return store.analyzedTrials.filter { t in
             guard t.id != test.id && t.cameraView == test.cameraView else { return false }
             switch mode {
-            case .reference, .single: return t.isReference
+            case .reference: return store.selectedReferenceSet?.trialIDs.contains(t.id) == true
+            case .single: return t.isReference
             case .own:
                 guard t.athleteID == test.athleteID && t.throwingSide == test.throwingSide && t.sessionID == test.sessionID,
                       let directory = store.analysisURL(for: t),

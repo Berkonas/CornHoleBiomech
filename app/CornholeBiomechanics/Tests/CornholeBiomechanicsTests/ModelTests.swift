@@ -2,6 +2,13 @@ import XCTest
 @testable import CornholeBiomechanics
 
 final class ModelTests: XCTestCase {
+    private func temporaryDirectory(_ label: String = "test") throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CornholeBiomechanics-\(label)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     func testProjectRoundTripPreservesTrialMetadata() throws {
         let athlete = Athlete(participantCode: "P01", dominantHand: .left, notes: "")
         let trial = Trial(
@@ -54,6 +61,46 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(result.quality.frameRateFPS, 60)
         XCTAssertEqual(result.summaries["elbow_angle_deg_at_release"]!, 112.5)
         XCTAssertNil(result.summaries["velocity"]!)
+    }
+
+    func testBagResultAndTrackDecodeWithExplicitProvenance() throws {
+        let resultsJSON = #"""
+        {
+          "trial_id":"T1", "athlete_id":"A1", "summaries":{"bag_release_angle_deg":31.2},
+          "quality":{"usable_frame_percentage":90,"missing_data_percentage":2,"low_confidence_landmark_counts":{},"manual_correction_count":0,"interpolated_sample_count":0,"frame_rate_fps":60,"resolution_pixels":{"width":100,"height":100},"camera_view":"side","warnings":[],"confidence_note":"not error"},
+          "bag":{"automatic_tracking_coverage_percent":80,"effective_tracking_coverage_percent":90,"median_automatic_quality":0.82,"manual_correction_count":1,"interpolated_sample_count":2,"tracker":{"requested_method":"auto","effective_method":"template_matching","status":"partial_failure","fallback_reason":"CSRT unavailable","failure_frames":[8]},"launch":{"status":"estimated","release_frame":6,"velocity":{"speed_arm_lengths_s":2.1,"angle_deg":31.2},"physical_units":{"status":"not_available_without_valid_athlete_plane_calibration"}},"quality_note":"review required"},
+          "events":{},"warnings":[],"claim_scope":"projected_2d_kinematics_not_true_3d_joint_orientation"
+        }
+        """#
+        let results = try JSONDecoder.projectDecoder.decode(AnalysisResults.self, from: Data(resultsJSON.utf8))
+        XCTAssertEqual(results.bag?.launch.velocity?.speedArmLengthsPerSecond, 2.1)
+        XCTAssertEqual(results.bag?.tracker.failureFrames, [8])
+
+        let trackJSON = #"""
+        {"schema_version":1,"coordinate_system":"raw_video_pixels_x_right_y_down","units":"pixels","tracker":{"requested_method":"auto","effective_method":"template_matching","status":"complete","fallback_reason":null,"failure_frames":[],"quality_note":"review"},"seed":{"frame_index":4,"bbox_xywh":[10,20,12,13],"source":"manual_bbox"},"corrections":{"schema_version":1,"corrections":[]},"samples":[{"frame_index":4,"automatic_centroid":{"x":16,"y":26.5,"confidence":1},"effective_centroid":{"x":16,"y":26.5},"filtered_centroid":{"x":16,"y":26.5},"provenance":"automatic"}]}
+        """#
+        let track = try JSONDecoder.projectDecoder.decode(BagTrackDocument.self, from: Data(trackJSON.utf8))
+        XCTAssertEqual(track.seed.frameIndex, 4)
+        XCTAssertEqual(track.samples.first?.provenance, "automatic")
+    }
+
+    @MainActor
+    func testBagCorrectionsRemainSeparateFromAutomaticTrack() throws {
+        let directory = try temporaryDirectory("bag-correction")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let track = Data(#"{"schema_version":1,"coordinate_system":"raw_video_pixels_x_right_y_down","units":"pixels","tracker":{"requested_method":"auto","effective_method":"template_matching","status":"complete","fallback_reason":null,"failure_frames":[],"quality_note":"review"},"seed":{"frame_index":0,"bbox_xywh":[0,0,10,10],"source":"manual_bbox"},"corrections":{"schema_version":1,"corrections":[]},"samples":[{"frame_index":0,"automatic_centroid":{"x":5,"y":5,"confidence":1},"effective_centroid":{"x":5,"y":5},"filtered_centroid":{"x":5,"y":5},"provenance":"automatic"}]}"#.utf8)
+        try track.write(to: directory.appendingPathComponent("bag_track.json"))
+        let original = try Data(contentsOf: directory.appendingPathComponent("bag_track.json"))
+        let controller = TrialDataController()
+        controller.load(analysisURL: directory)
+        controller.markBagReviewed(through: 12)
+        XCTAssertEqual(controller.bagCorrections.reviewedThroughFrame, 12)
+        controller.setBagCorrection(frame: 0, x: 8, y: 9)
+        XCTAssertNil(controller.bagCorrections.reviewedThroughFrame)
+        XCTAssertEqual(controller.bagPoint(frame: 0)?.x, 8)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("bag_track.json")), original)
+        controller.resetBagCorrection(frame: 0)
+        XCTAssertEqual(controller.bagPoint(frame: 0)?.x, 5)
     }
 
     func testComparisonAndRelationshipDecodersMatchPythonBoundary() throws {
@@ -122,6 +169,146 @@ final class ModelTests: XCTestCase {
         let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder.projectEncoder.encode(document)) as? [String: Any])
         XCTAssertEqual(encoded["schema_version"] as? Int, 1)
         XCTAssertNil(encoded["schemaVersion"])
+    }
+
+    @MainActor
+    func testAthleteLibraryRestoresAfterRelaunch() throws {
+        let base = try temporaryDirectory("restore")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(
+            applicationSupportURL: base.appendingPathComponent("Support"),
+            defaultLibraryURL: base.appendingPathComponent("Visible Data"),
+            libraryRootWasOverridden: false
+        )
+        let first = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        try first.addAthlete(NewAthleteDraft(participantCode: "PERSIST-01", dominantHand: .right))
+        let source = base.appendingPathComponent("source.mov")
+        try Data("video".utf8).write(to: source)
+        let trial = try first.importVideo(ImportDraft(videoURL: source, athleteID: first.selectedAthleteID))
+
+        let second = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        XCTAssertEqual(second.project?.athletes.first?.participantCode, "PERSIST-01")
+        XCTAssertEqual(second.project?.trials.first?.id, trial.id)
+        XCTAssertEqual(second.selectedAthleteID, first.selectedAthleteID)
+        XCTAssertTrue(second.videoState(for: trial).isAvailable)
+    }
+
+    @MainActor
+    func testMissingLibraryIsReportedWithoutDiscardingItsIndex() throws {
+        let base = try temporaryDirectory("missing")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let support = base.appendingPathComponent("Support")
+        let library = base.appendingPathComponent("Visible Data")
+        let paths = LibraryPaths(
+            applicationSupportURL: support,
+            defaultLibraryURL: library,
+            libraryRootWasOverridden: false
+        )
+        let first = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        try first.addAthlete(NewAthleteDraft(participantCode: "MISSING-01", dominantHand: .left))
+        let moved = base.appendingPathComponent("Moved Data")
+        try FileManager.default.moveItem(at: library, to: moved)
+
+        let second = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        XCTAssertNil(second.project)
+        XCTAssertEqual(second.missingLibraryURL?.standardizedFileURL.path, library.standardizedFileURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: moved.appendingPathComponent("project.json").path))
+        try second.open(moved)
+        XCTAssertEqual(second.project?.athletes.first?.participantCode, "MISSING-01")
+    }
+
+    @MainActor
+    func testLegacyMigrationIsIdempotentAndDoesNotModifySource() throws {
+        let base = try temporaryDirectory("migration")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("Legacy.cornholeproject")
+        try FileManager.default.createDirectory(at: source.appendingPathComponent("videos"), withIntermediateDirectories: true)
+        let athlete = Athlete(participantCode: "LEGACY-01", dominantHand: .right, notes: "")
+        let video = source.appendingPathComponent("videos/throw.mov")
+        try Data("original-video".utf8).write(to: video)
+        let trial = Trial(
+            athleteID: athlete.id, sourceVideoRelativePath: "videos/throw.mov", originalFilename: "throw.mov",
+            cameraView: .side, throwingSide: .right, targetDirection: .leftToRight, isReference: true
+        )
+        let legacy = StudyProject(schemaVersion: 1, name: "Legacy", athletes: [athlete], trials: [trial])
+        try JSONEncoder.projectEncoder.encode(legacy).write(
+            to: source.appendingPathComponent("project.json"), options: .atomic
+        )
+        let originalProject = try Data(contentsOf: source.appendingPathComponent("project.json"))
+        let originalVideo = try Data(contentsOf: video)
+        let paths = LibraryPaths(
+            applicationSupportURL: base.appendingPathComponent("Support"),
+            defaultLibraryURL: base.appendingPathComponent("Managed"),
+            libraryRootWasOverridden: false
+        )
+        let store = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        let first = try store.importLegacyProject(at: source)
+        let second = try store.importLegacyProject(at: source)
+
+        XCTAssertEqual(first.athletesImported, 1)
+        XCTAssertEqual(first.trialsImported, 1)
+        XCTAssertTrue(second.wasAlreadyImported)
+        XCTAssertEqual(store.project?.athletes.filter { $0.id == athlete.id }.count, 1)
+        XCTAssertEqual(store.project?.trials.filter { $0.id == trial.id }.count, 1)
+        XCTAssertEqual(store.project?.referenceSets.first?.provenance, "legacy_isReference_migration")
+        XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent("project.json")), originalProject)
+        XCTAssertEqual(try Data(contentsOf: video), originalVideo)
+    }
+
+    @MainActor
+    func testDeletingAnalysisPreservesSourceVideoAndThrowRecord() throws {
+        let base = try temporaryDirectory("delete-analysis")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(
+            applicationSupportURL: base.appendingPathComponent("Support"),
+            defaultLibraryURL: base.appendingPathComponent("Managed"),
+            libraryRootWasOverridden: false
+        )
+        let store = ProjectStore(
+            paths: paths, automaticallyRestore: true,
+            trashHandler: { try FileManager.default.removeItem(at: $0) }
+        )
+        try store.addAthlete(NewAthleteDraft(participantCode: "DELETE-01", dominantHand: .right))
+        let source = base.appendingPathComponent("source.mov")
+        try Data("video".utf8).write(to: source)
+        var trial = try store.importVideo(ImportDraft(videoURL: source, athleteID: store.selectedAthleteID))
+        let analysis = try store.analysisOutput(for: trial)
+        try FileManager.default.createDirectory(at: analysis.url, withIntermediateDirectories: true)
+        try Data("derived".utf8).write(to: analysis.url.appendingPathComponent("results.json"))
+        try store.markAnalysisComplete(trialID: trial.id, relativePath: analysis.relativePath)
+        trial = try XCTUnwrap(store.project?.trials.first { $0.id == trial.id })
+        let reference = try store.addReferenceSet(name: "Keep assignment", scope: .global, athleteID: nil)
+        try store.assign(trial, to: reference)
+        let managedVideo = try XCTUnwrap(store.videoURL(for: trial))
+
+        try store.deleteAnalysis(for: trial)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: managedVideo.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: analysis.url.path))
+        XCTAssertNotNil(store.project?.trials.first { $0.id == trial.id })
+        XCTAssertNil(store.project?.trials.first { $0.id == trial.id }?.analysisRelativePath)
+        XCTAssertTrue(store.project?.referenceSets.first { $0.id == reference.id }?.trialIDs.contains(trial.id) == true)
+    }
+
+    @MainActor
+    func testReferenceAssignmentRemovalNeverDeletesSourceThrow() throws {
+        let base = try temporaryDirectory("reference")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(
+            applicationSupportURL: base.appendingPathComponent("Support"),
+            defaultLibraryURL: base.appendingPathComponent("Managed"),
+            libraryRootWasOverridden: false
+        )
+        let store = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
+        try store.addAthlete(NewAthleteDraft(participantCode: "REF-01", dominantHand: .right))
+        let source = base.appendingPathComponent("source.mov")
+        try Data("video".utf8).write(to: source)
+        let trial = try store.importVideo(ImportDraft(videoURL: source, athleteID: store.selectedAthleteID))
+        let set = try store.addReferenceSet(name: "Personal baseline", scope: .athlete, athleteID: trial.athleteID)
+        try store.assign(trial, to: set)
+        try store.remove(trial, from: set)
+        XCTAssertNotNil(store.project?.trials.first { $0.id == trial.id })
+        XCTAssertTrue(store.videoState(for: trial).isAvailable)
+        XCTAssertFalse(store.project?.trials.first { $0.id == trial.id }?.isReference ?? true)
     }
 
 }

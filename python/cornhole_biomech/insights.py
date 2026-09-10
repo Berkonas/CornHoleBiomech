@@ -136,6 +136,27 @@ def valid_comparison(path):
     return value
 
 
+def comparison_references_are_current(project, trial, comparison):
+    """Require every saved comparison member to remain assigned and compatible."""
+    if not comparison:
+        return False
+    trial_by_id = {item['id']: item for item in project['trials']}
+    assigned_reference_ids = {
+        reference_id
+        for reference_set in project.get('referenceSets', project.get('reference_sets', []))
+        for reference_id in reference_set.get('trialIDs', reference_set.get('trial_ids', []))
+    }
+    assigned_reference_ids.update(item['id'] for item in project['trials'] if item.get('isReference'))
+    comparison_ids = comparison.get('reference_trial_ids', [])
+    return bool(comparison_ids) and all(
+        reference_id in assigned_reference_ids
+        and reference_id in trial_by_id
+        and reference_id != trial['id']
+        and trial_by_id[reference_id]['cameraView'] == trial['cameraView']
+        for reference_id in comparison_ids
+    )
+
+
 def generate_insights(project_path, trial_id, export_report=True):
     root=Path(project_path).resolve();project=read(root/'project.json')
     if not project:raise ValueError('Open a valid research project first.')
@@ -149,8 +170,8 @@ def generate_insights(project_path, trial_id, export_report=True):
     if dirty:
         warnings.insert(0,'Tracking or event corrections changed. Reanalyze this throw before interpreting derived results.')
         comparison=None
-    refs=[t['id'] for t in project['trials'] if t.get('isReference') and t['id']!=trial_id and t['cameraView']==trial['cameraView']]
-    if comparison and sorted(comparison['reference_trial_ids'])!=sorted(refs):comparison=None
+    if comparison and not comparison_references_are_current(project, trial, comparison):
+        comparison = None
     compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[]
     for t in project['trials']:
         if t['athleteID']!=trial['athleteID'] or not t.get('analysisRelativePath'):continue

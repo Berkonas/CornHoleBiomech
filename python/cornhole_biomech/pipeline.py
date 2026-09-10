@@ -6,10 +6,25 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 import json
+import math
 
 import numpy as np
 
 from . import REQUIRED_LANDMARKS, __version__
+from .bag import (
+    ANALYSIS_COORDINATE_SYSTEM,
+    BAG_COORDINATE_SYSTEM,
+    BagCorrectionSet,
+    BagSeed,
+    BagTrack,
+    SpatialCalibration,
+    detect_bag_wrist_release,
+    effective_bag_track,
+    estimate_projectile_release_kinematics,
+    track_bag_from_seed,
+    validate_bag_track_for_video,
+    write_bag_csv,
+)
 from .comparison import (
     assert_compatible_views,
     build_reference_set,
@@ -30,7 +45,7 @@ from .export import (
     plot_wrist_trajectory,
 )
 from .filtering import lowpass_zero_phase
-from .kinematics import calculate_kinematics
+from .kinematics import calculate_kinematics, movement_phase_summaries
 from .models import BoardPoint, CorrectionSet, PoseSequence, TrialContext, TrialOutcome, utc_now
 from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
@@ -63,6 +78,57 @@ def _manual_event_overrides(path: Path) -> dict[str, int | None]:
     return {}
 
 
+def _summary_units(name: str) -> str:
+    if name.endswith("_px_s2"):
+        return "pixels/s^2"
+    if name.endswith("_m_s2"):
+        return "m/s^2"
+    if name.endswith("_arm_lengths_s2"):
+        return "arm lengths/s^2"
+    if name.endswith("_px_s"):
+        return "pixels/s"
+    if name.endswith("_m_s"):
+        return "m/s"
+    if name.endswith("_arm_lengths_s"):
+        return "arm lengths/s"
+    if name.endswith("_deg_s"):
+        return "degrees/s"
+    if name.endswith("_deg") or "_deg_" in name:
+        return "degrees"
+    if name.endswith("_arm_lengths"):
+        return "arm lengths"
+    if name.endswith("_seconds"):
+        return "seconds"
+    if name.endswith("_cycle"):
+        return "movement cycle fraction"
+    if name.endswith("_coverage") or name.endswith("_ratio"):
+        return "dimensionless"
+    if name.endswith("_sample_count"):
+        return "samples"
+    if "curvature_rad_per_arm_length" in name:
+        return "radians/arm length"
+    return "dimensionless"
+
+
+def _metrics_metadata(summaries: dict[str, Any], camera_view: str) -> dict[str, Any]:
+    applicability = "primary_stage1_side_view" if camera_view == "side" else "exploratory_non_side_projection"
+    result = {}
+    for name in summaries:
+        claim = "descriptive_projected_2d_kinematics"
+        if "shoulder_bag_radius" in name:
+            claim = "projected_radial_distance_proxy_not_moment_arm_or_torque"
+        elif "acceleration" in name:
+            claim = "exploratory_noise_sensitive_projected_measurement"
+        elif "similarity" in name:
+            claim = "reference_similarity_not_performance_quality"
+        result[name] = {
+            "units": _summary_units(name),
+            "view_applicability": applicability,
+            "claim_scope": claim,
+        }
+    return result
+
+
 def analyze_trial(
     context: TrialContext,
     output_dir: str | Path,
@@ -74,8 +140,12 @@ def analyze_trial(
     device: str = "cpu",
     force_pose: bool = False,
     make_annotated_video: bool = True,
-    app_version: str = "0.2.0",
+    app_version: str = "0.3.0",
     progress: Progress = _no_progress,
+    bag_track_input: str | Path | None = None,
+    bag_seed_path: str | Path | None = None,
+    bag_corrections_path: str | Path | None = None,
+    calibration_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Analyze one trial and write a deterministic, inspectable result package."""
     output = Path(output_dir).expanduser().resolve()
@@ -145,6 +215,85 @@ def analyze_trial(
     else:
         filtered = np.array(gap_handled, copy=True)
 
+    if bag_track_input is not None and bag_seed_path is not None:
+        raise ValueError("Provide either an existing bag track or a manual bag seed, not both")
+    bag_track: BagTrack | None = None
+    bag_derived: dict[str, Any] | None = None
+    bag_filtered: np.ndarray | None = None
+    bag_corrections: BagCorrectionSet | None = None
+    bag_release_candidate = None
+    bag_warnings: list[str] = []
+    bag_raw_path = output / "bag_raw.json"
+    bag_cache_path = output / "bag_cache.json"
+    bag_key: str | None = None
+    if bag_track_input is not None:
+        bag_track = BagTrack.load(bag_track_input)
+        bag_key = canonical_hash({
+            "source_video_sha256": video.sha256,
+            "import_sha256": file_sha256(bag_track_input),
+            "method": "canonical_bag_track_import",
+        })
+        validate_bag_track_for_video(bag_track, video.path)
+        bag_track.save(bag_raw_path)
+        write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
+    elif bag_seed_path is not None:
+        seed = BagSeed.load(bag_seed_path)
+        tracking_config = config["bag_tracking"]
+        bag_key = canonical_hash({
+            "source_video_sha256": video.sha256,
+            "seed": asdict(seed),
+            "tracker_configuration": tracking_config,
+            "opencv_version": _version("opencv-contrib-python"),
+        })
+        bag_cache = _load_json(bag_cache_path, {})
+        if bag_raw_path.exists() and bag_cache.get("bag_key") == bag_key:
+            bag_track = BagTrack.load(bag_raw_path)
+            validate_bag_track_for_video(bag_track, video.path)
+        else:
+            progress("tracking_bag", 0.48, "Tracking the bag forward from the reviewed seed rectangle")
+            bag_track = track_bag_from_seed(
+                video.path,
+                seed,
+                requested_method=str(tracking_config["method"]),
+                template_quality_threshold=float(tracking_config["template_quality_threshold"]),
+                search_scale=float(tracking_config["template_search_scale"]),
+            )
+            bag_track.save(bag_raw_path)
+            write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
+    elif bag_raw_path.exists():
+        # Reanalysis retains an already reviewed raw bag track even if the caller
+        # does not repeat its seed/import arguments.
+        bag_track = BagTrack.load(bag_raw_path)
+        validate_bag_track_for_video(bag_track, video.path)
+        bag_key = _load_json(bag_cache_path, {}).get("bag_key")
+
+    if bag_track is not None:
+        bag_corrections = BagCorrectionSet.load(bag_corrections_path or (output / "bag_corrections.json"))
+        bag_corrections.save(output / "bag_corrections.json")
+        bag_derived = effective_bag_track(
+            bag_track,
+            bag_corrections,
+            float(config["bag_tracking"]["confidence_threshold"]),
+            int(config["max_interpolation_gap_frames"]),
+        )
+        bag_gap_handled = bag_derived["effective"]
+        if filter_config["enabled"] and filter_config["type"] != "none":
+            bag_filtered, _, current_warnings = lowpass_zero_phase(
+                bag_gap_handled,
+                video.fps,
+                float(filter_config["cutoff_hz"]),
+                int(filter_config["order"]),
+            )
+            bag_warnings.extend(f"Bag track: {item}" for item in current_warnings)
+        else:
+            bag_filtered = np.array(bag_gap_handled, copy=True)
+        if bag_track.fallback_reason:
+            bag_warnings.append(bag_track.fallback_reason)
+        if bag_track.failure_frames:
+            bag_warnings.append(
+                f"Bag tracker did not return a reviewed automatic centroid in {len(bag_track.failure_frames)} frame(s); inspect and correct the track."
+            )
+
     progress("calculating_kinematics", 0.62, "Calculating projected 2D upper-body measures")
     kinematics = calculate_kinematics(
         filtered,
@@ -153,10 +302,25 @@ def analyze_trial(
         context.throwing_side,
         context.target_direction,
         float(config["minimum_velocity_coverage"]),
+        bag_coords=bag_filtered,
     )
+    if bag_filtered is not None:
+        lookup = {name: index for index, name in enumerate(landmarks)}
+        wrist_pixels = filtered[:, lookup[f"{context.throwing_side}_wrist"], :]
+        release_config = config["bag_release"]
+        bag_release_candidate = detect_bag_wrist_release(
+            wrist_pixels,
+            bag_filtered,
+            kinematics.arm_length_pixels,
+            video.fps,
+            float(release_config["minimum_divergence_arm_lengths"]),
+            float(release_config["persistence_seconds"]),
+        )
     event_file = Path(events_path) if events_path else output / "events.json"
     progress("detecting_events", 0.68, "Detecting frame-limited movement event candidates")
-    events = detect_events(kinematics.values["wrist_path_arm_lengths"], video.fps)
+    events = detect_events(
+        kinematics.values["wrist_path_arm_lengths"], video.fps, bag_release_candidate
+    )
     events = apply_manual_event_overrides(events, _manual_event_overrides(event_file))
     for event in events.values():
         if event.effective_frame is not None and not 0 <= event.effective_frame < sequence.frame_count:
@@ -173,7 +337,7 @@ def analyze_trial(
     event_payload = {
         "schema_version": 1,
         "frame_interval_seconds": 1.0 / video.fps,
-        "release_precision_note": "Visible release is frame-limited and is not a sub-frame measurement of bag-hand separation.",
+        "release_precision_note": "Visible release is frame-limited; neither bag/wrist divergence nor manual review establishes sub-frame timing.",
         "events": {name: {**asdict(value), "effective_frame": value.effective_frame} for name, value in events.items()},
         "manual_overrides": {name: value.manual_frame for name, value in events.items() if value.manual_frame is not None},
     }
@@ -205,6 +369,156 @@ def analyze_trial(
         for field in ("elbow_angle_deg", "trunk_inclination_deg", "arm_to_trunk_deg"):
             value = kinematics.values[field][release_frame]
             summaries[f"{field}_at_release"] = float(value) if np.isfinite(value) else None
+    summaries.update(movement_phase_summaries(
+        kinematics.values,
+        start,
+        end,
+        events["forward_swing"].effective_frame,
+        release_frame,
+    ))
+
+    calibration = SpatialCalibration.load(calibration_path)
+    projectile: dict[str, Any] | None = None
+    bag_result: dict[str, Any] | None = None
+    if bag_track is not None and bag_derived is not None and bag_filtered is not None:
+        projectile_config = config["projectile"]
+        fit_frame_count = max(
+            int(projectile_config["minimum_velocity_points"]),
+            int(math.ceil(float(projectile_config["release_fit_window_seconds"]) * video.fps)) + 1,
+        )
+        required_review_through = (
+            None if release_frame is None
+            else min(sequence.frame_count - 1, release_frame + fit_frame_count - 1)
+        )
+        bag_review_covers_fit = bag_corrections.covers(required_review_through)
+        if bag_review_covers_fit:
+            projectile = estimate_projectile_release_kinematics(
+                bag_filtered,
+                release_frame,
+                video.fps,
+                kinematics.arm_length_pixels,
+                context.target_direction,
+                calibration=calibration,
+                window_seconds=float(projectile_config["release_fit_window_seconds"]),
+                minimum_points=int(projectile_config["minimum_velocity_points"]),
+                acceleration_minimum_fps=float(projectile_config["acceleration_minimum_fps"]),
+                acceleration_minimum_points=int(projectile_config["acceleration_minimum_points"]),
+                acceleration_maximum_fit_rmse_arm_lengths=float(
+                    projectile_config["acceleration_maximum_fit_rmse_arm_lengths"]
+                ),
+            )
+        else:
+            projectile = {
+                "status": "suppressed_unreviewed_track",
+                "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
+                "frame_interval_seconds": 1.0 / video.fps,
+                "release_frame": release_frame,
+                "required_review_through_frame": required_review_through,
+                "reviewed_through_frame": bag_corrections.reviewed_through_frame,
+                "velocity": None,
+                "acceleration": {
+                    "status": "suppressed",
+                    "reason": "The complete release-fit interval has not been marked as reviewed.",
+                    "interpretation": "exploratory_noise_sensitive_projected_measurement",
+                },
+                "physical_units": {
+                    "status": "not_available_while_track_is_unreviewed",
+                    "calibration": None if calibration is None else asdict(calibration),
+                },
+                "uncertainty_note": (
+                    "Automatic bag coverage is not evidence of correct object identity. "
+                    "Review every frame used by the release fit before interpreting launch quantities."
+                ),
+            }
+            bag_warnings.append(
+                "Projected bag launch is suppressed because the automatic track has not been reviewed through "
+                f"frame {required_review_through}."
+            )
+        projectile["release_event_method"] = events["release"].automatic_method
+        projectile["release_event_was_manually_reviewed"] = events["release"].manual_frame is not None
+        velocity = projectile.get("velocity") or {}
+        velocity_names = {
+            "forward_px_s": "bag_release_forward_velocity_px_s",
+            "vertical_px_s": "bag_release_vertical_velocity_px_s",
+            "speed_px_s": "bag_release_speed_px_s",
+            "angle_deg": "bag_release_angle_deg",
+            "forward_arm_lengths_s": "bag_release_forward_velocity_arm_lengths_s",
+            "vertical_arm_lengths_s": "bag_release_vertical_velocity_arm_lengths_s",
+            "speed_arm_lengths_s": "bag_release_speed_arm_lengths_s",
+        }
+        for source, destination in velocity_names.items():
+            summaries[destination] = velocity.get(source)
+        physical_velocity = projectile.get("physical_units", {}).get("velocity", {})
+        for source, destination in (
+            ("forward_m_s", "bag_release_forward_velocity_m_s"),
+            ("vertical_m_s", "bag_release_vertical_velocity_m_s"),
+            ("speed_m_s", "bag_release_speed_m_s"),
+        ):
+            summaries[destination] = physical_velocity.get(source)
+        acceleration = projectile.get("acceleration", {})
+        for source, destination in (
+            ("forward_px_s2", "bag_release_forward_acceleration_px_s2"),
+            ("vertical_px_s2", "bag_release_vertical_acceleration_px_s2"),
+            ("magnitude_px_s2", "bag_release_acceleration_magnitude_px_s2"),
+            ("forward_arm_lengths_s2", "bag_release_forward_acceleration_arm_lengths_s2"),
+            ("vertical_arm_lengths_s2", "bag_release_vertical_acceleration_arm_lengths_s2"),
+            ("magnitude_arm_lengths_s2", "bag_release_acceleration_magnitude_arm_lengths_s2"),
+            ("forward_m_s2", "bag_release_forward_acceleration_m_s2"),
+            ("vertical_m_s2", "bag_release_vertical_acceleration_m_s2"),
+            ("magnitude_m_s2", "bag_release_acceleration_magnitude_m_s2"),
+        ):
+            summaries[destination] = acceleration.get(source)
+        if bag_review_covers_fit and release_frame is not None and 0 <= release_frame < sequence.frame_count:
+            bag_position = kinematics.values["bag_path_arm_lengths"][release_frame]
+            summaries["bag_release_position_forward_arm_lengths"] = (
+                float(bag_position[0]) if np.isfinite(bag_position[0]) else None
+            )
+            summaries["bag_release_position_vertical_arm_lengths"] = (
+                float(bag_position[1]) if np.isfinite(bag_position[1]) else None
+            )
+        automatic_present = np.isfinite(bag_derived["raw"]).all(axis=-1)
+        effective_present = np.isfinite(bag_derived["effective"]).all(axis=-1)
+        after_seed = slice(bag_track.seed.frame_index, None)
+        automatic_quality = bag_derived["confidence"][automatic_present]
+        candidate_payload = None
+        if bag_release_candidate is not None and bag_release_candidate.automatic_frame is not None:
+            candidate_payload = asdict(bag_release_candidate)
+        else:
+            bag_warnings.append(
+                "Bag/wrist persistent divergence did not produce a release candidate; the wrist-speed candidate remains active until manual review."
+            )
+        for frame, sample in enumerate(bag_derived["payload"]["samples"]):
+            sample["filtered_centroid"] = (
+                None if not np.isfinite(bag_filtered[frame]).all()
+                else {"x": bag_filtered[frame, 0], "y": bag_filtered[frame, 1]}
+            )
+        bag_result = {
+            "coordinate_system": BAG_COORDINATE_SYSTEM,
+            "analysis_coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
+            "units": "pixels_and_arm_lengths; physical_units_only_with_explicit_athlete_plane_calibration",
+            "view_applicability": (
+                "primary_stage1_side_view" if context.camera_view == "side"
+                else "exploratory_non_side_projection"
+            ),
+            "automatic_tracking_coverage_percent": 100.0 * float(np.mean(automatic_present[after_seed])),
+            "effective_tracking_coverage_percent": 100.0 * float(np.mean(effective_present[after_seed])),
+            "median_automatic_quality": (
+                float(np.median(automatic_quality)) if automatic_quality.size else None
+            ),
+            "manual_correction_count": int(np.count_nonzero(bag_derived["manual_mask"])),
+            "interpolated_sample_count": int(np.count_nonzero(bag_derived["interpolated_mask"])),
+            "review": {
+                "reviewed_through_frame": bag_corrections.reviewed_through_frame,
+                "required_through_frame_for_launch": required_review_through,
+                "covers_launch_fit": bag_review_covers_fit,
+                "reviewed_at": bag_corrections.reviewed_at,
+                "note": bag_corrections.review_note,
+            },
+            "tracker": bag_derived["payload"]["tracker"],
+            "release_candidate": candidate_payload,
+            "launch": projectile,
+            "quality_note": bag_track.quality_note,
+        }
 
     quality = quality_summary(
         raw, confidence, effective, manual_mask, interpolated_mask, landmarks,
@@ -213,7 +527,7 @@ def analyze_trial(
     )
     from .insights import quality_index
     quality.update(quality_index(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
-    warnings = sorted(set(filter_warnings + kinematics.warnings))
+    warnings = sorted(set(filter_warnings + kinematics.warnings + bag_warnings))
     results = {
         "schema_version": 1,
         "trial_id": context.trial_id,
@@ -222,9 +536,16 @@ def analyze_trial(
         "throwing_side": context.throwing_side,
         "target_direction": context.target_direction,
         "summaries": summaries,
+        "metrics_metadata": _metrics_metadata(summaries, context.camera_view),
         "quality": quality,
+        "bag": bag_result,
         "events": event_payload["events"],
         "warnings": warnings,
+        "coordinate_system": {
+            "raw_video": "x right, y down, pixels",
+            "analysis": "x toward target after reflection, y up",
+            "body_normalization": "throwing-shoulder-relative, divided by median projected upper-arm plus forearm length",
+        },
         "claim_scope": "projected_2d_kinematics_not_true_3d_joint_orientation",
     }
     normalized_payload = {
@@ -238,6 +559,8 @@ def analyze_trial(
         "values": normalized_values,
         "event_timing": event_timing,
         "arm_length_pixels": kinematics.arm_length_pixels,
+        "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
+        "spatial_units": "arm_lengths_unless_field_suffix_states_pixels",
     }
 
     progress("saving_results", 0.82, "Writing transparent CSV, JSON, plots, and manifest")
@@ -249,6 +572,9 @@ def analyze_trial(
     export_kinematics_csv(output / "kinematics.csv", times, kinematics.values)
     write_json(output / "normalized.json", normalized_payload)
     write_json(output / "results.json", results)
+    if bag_derived is not None:
+        write_json(output / "bag_track.json", bag_derived["payload"])
+        write_bag_csv(output / "bag_keypoints.csv", bag_derived, video.fps)
     plot_angles_angles(output / "angle_trajectories.png", tau, normalized_values,
                        "Projected upper-body angles")
     plot_wrist_trajectory(output / "wrist_trajectory.png", normalized_values["wrist_path_arm_lengths"],
@@ -259,6 +585,8 @@ def analyze_trial(
         annotate_video(
             video.path, output / "annotated.mp4", filtered, confidence, landmarks,
             float(config["confidence_threshold"]), manual_mask,
+            bag_points=bag_filtered,
+            bag_provenance=None if bag_derived is None else bag_derived["provenance"],
         )
     engine_source_hash = canonical_hash({p.name: file_sha256(p) for p in Path(__file__).parent.glob("*.py")})
     manifest = {
@@ -271,6 +599,9 @@ def analyze_trial(
             "pose": pose_key,
             "corrections": canonical_hash(asdict(corrections)),
             "events": canonical_hash(event_payload["manual_overrides"]),
+            "bag_track": bag_key,
+            "bag_corrections": None if bag_corrections is None else canonical_hash(asdict(bag_corrections)),
+            "calibration": None if calibration is None else canonical_hash(asdict(calibration)),
             "config": config,
         }),
         "created_at": utc_now(),
@@ -288,6 +619,19 @@ def analyze_trial(
         "effective_filter_cutoff_hz": effective_cutoff,
         "confidence_threshold": config["confidence_threshold"],
         "manual_correction_hash": canonical_hash(asdict(corrections)),
+        "bag_tracking": None if bag_track is None else {
+            "raw_track_sha256": file_sha256(bag_raw_path),
+            "cache_key": bag_key,
+            "requested_method": bag_track.requested_method,
+            "effective_method": bag_track.effective_method,
+            "status": bag_track.status,
+            "manual_correction_hash": canonical_hash(asdict(bag_corrections)) if bag_corrections is not None else None,
+            "coordinate_system": BAG_COORDINATE_SYSTEM,
+        },
+        "spatial_calibration": None if calibration is None else {
+            **asdict(calibration),
+            "physical_units_permitted": calibration.permits_physical_units,
+        },
         "reference_trial_ids": [],
         "pose_cache_key": pose_key,
         "outputs": sorted(p.name for p in output.iterdir() if p.is_file()),
@@ -433,7 +777,8 @@ def analyze_relationships(
     if len(athlete_ids) > 1:
         raise ValueError("Initial relationship analysis is within-person; provide one athlete at a time")
     outcomes = [row.get("radial_error_inches") for row in rows]
-    if not any(value is not None for value in outcomes):
+    finite_radial = [value for value in outcomes if value is not None and np.isfinite(value)]
+    if len(finite_radial) < minimum_trials:
         outcomes = [row.get("score_category") for row in rows]
         outcome_name = "score_category"
     else:
@@ -455,10 +800,22 @@ def analyze_relationships(
                 )
     feature_names = (
         "elbow_angle_deg_at_release",
+        "elbow_extension_deficit_deg_at_release",
         "elbow_angle_deg_rom",
         "trunk_inclination_deg_at_release",
         "movement_duration_seconds",
         "release_timing_cycle",
+        "shoulder_translation_net_arm_lengths",
+        "shoulder_peak_speed_arm_lengths_s",
+        "wrist_relative_peak_speed_arm_lengths_s",
+        "shoulder_wrist_radius_at_release_arm_lengths",
+        "shoulder_wrist_radius_forward_swing_sd_arm_lengths",
+        "wrist_forward_swing_path_straightness_ratio",
+        "wrist_forward_swing_path_rms_fitted_line_deviation_arm_lengths",
+        "bag_release_speed_arm_lengths_s",
+        "bag_release_angle_deg",
+        "bag_release_position_forward_arm_lengths",
+        "bag_release_position_vertical_arm_lengths",
         "reference_similarity_score",
         "wrist_reference_deviation_arm_lengths",
         "wrist_path_deviation_from_athlete_mean_arm_lengths",
@@ -474,10 +831,22 @@ def analyze_relationships(
     consistency: dict[str, dict[str, Any]] = {}
     units = {
         "elbow_angle_deg_at_release": "degrees",
+        "elbow_extension_deficit_deg_at_release": "degrees",
         "elbow_angle_deg_rom": "degrees",
         "trunk_inclination_deg_at_release": "degrees",
         "movement_duration_seconds": "seconds",
         "release_timing_cycle": "movement cycle fraction",
+        "shoulder_translation_net_arm_lengths": "arm lengths",
+        "shoulder_peak_speed_arm_lengths_s": "arm lengths/second",
+        "wrist_relative_peak_speed_arm_lengths_s": "arm lengths/second",
+        "shoulder_wrist_radius_at_release_arm_lengths": "arm lengths",
+        "shoulder_wrist_radius_forward_swing_sd_arm_lengths": "arm lengths",
+        "wrist_forward_swing_path_straightness_ratio": "dimensionless",
+        "wrist_forward_swing_path_rms_fitted_line_deviation_arm_lengths": "arm lengths",
+        "bag_release_speed_arm_lengths_s": "arm lengths/second",
+        "bag_release_angle_deg": "degrees",
+        "bag_release_position_forward_arm_lengths": "arm lengths",
+        "bag_release_position_vertical_arm_lengths": "arm lengths",
         "reference_similarity_score": "0-100 reference similarity index",
         "wrist_reference_deviation_arm_lengths": "arm lengths",
         "wrist_path_deviation_from_athlete_mean_arm_lengths": "arm lengths",

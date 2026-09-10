@@ -4,7 +4,10 @@ import AppKit
 extension Notification.Name {
     static let createStudyProject = Notification.Name("createStudyProject")
     static let openStudyProject = Notification.Name("openStudyProject")
+    static let importLegacyProject = Notification.Name("importLegacyProject")
+    static let addAthlete = Notification.Name("addAthlete")
     static let importTrialVideo = Notification.Name("importTrialVideo")
+    static let importReferenceVideo = Notification.Name("importReferenceVideo")
     static let analyzeSelectedTrial = Notification.Name("analyzeSelectedTrial")
     static let addTrialOutcome = Notification.Name("addTrialOutcome")
     static let exportSelectedTrial = Notification.Name("exportSelectedTrial")
@@ -27,10 +30,13 @@ struct CornholeBiomechanicsApp: App {
         .defaultSize(width: 1240, height: 820)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Research Project…") { post(.createStudyProject) }
+                Button("New Athlete Library…") { post(.createStudyProject) }
                     .keyboardShortcut("n", modifiers: .command)
-                Button("Open Research Project…") { post(.openStudyProject) }
+                Button("Choose Athlete Library…") { post(.openStudyProject) }
                     .keyboardShortcut("o", modifiers: .command)
+                Button("Import Legacy .cornholeproject…") { post(.importLegacyProject) }
+                Divider()
+                Button("Add Athlete…") { post(.addAthlete) }
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { undoTrackingOrText(redo: false) }.keyboardShortcut("z", modifiers: .command)
@@ -43,9 +49,10 @@ struct CornholeBiomechanicsApp: App {
                     Text("Dark").tag("dark")
                 }
             }
-            CommandMenu("Trial") {
-                Button("Import Video…") { post(.importTrialVideo) }
+            CommandMenu("Throw") {
+                Button("Import Throw Video…") { post(.importTrialVideo) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
+                Button("Import Reference Video…") { post(.importReferenceVideo) }
                 Button("Analyze Selected Trial") { post(.analyzeSelectedTrial) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Add or Edit Outcome…") { post(.addTrialOutcome) }

@@ -1,13 +1,14 @@
 import Foundation
 
 let applicationName = "Cornhole Biomechanics Lab"
-let applicationVersion = "0.2.0"
+let applicationVersion = "0.3.0"
+let currentProjectSchemaVersion = 2
 
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case athletes = "Athletes"
-    case reference = "Reference"
-    case trials = "Trials"
+    case reference = "References"
+    case trials = "Throws"
     case compare = "Compare"
     case results = "Results"
 
@@ -116,8 +117,65 @@ struct Trial: Codable, Identifiable, Hashable {
     var analysisRelativePath: String?
     var analysisStatus = "Not analyzed"
     var sessionID: UUID?
+    var name: String?
 
     var shortID: String { String(id.uuidString.prefix(8)) }
+    var displayName: String {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? originalFilename : trimmed
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, athleteID, createdAt, sourceVideoRelativePath, originalFilename, sourceURL, sourceAttribution
+        case cameraView, throwingSide, targetDirection, outcome, isReference, analysisRelativePath, analysisStatus
+        case sessionID, name
+    }
+
+    init(
+        id: UUID = UUID(), athleteID: UUID, createdAt: Date = Date(), sourceVideoRelativePath: String,
+        originalFilename: String, sourceURL: String? = nil, sourceAttribution: String? = nil,
+        cameraView: CameraView, throwingSide: ThrowingSide, targetDirection: TargetDirection,
+        outcome: TrialOutcome? = nil, isReference: Bool = false, analysisRelativePath: String? = nil,
+        analysisStatus: String = "Not analyzed", sessionID: UUID? = nil, name: String? = nil
+    ) {
+        self.id = id
+        self.athleteID = athleteID
+        self.createdAt = createdAt
+        self.sourceVideoRelativePath = sourceVideoRelativePath
+        self.originalFilename = originalFilename
+        self.sourceURL = sourceURL
+        self.sourceAttribution = sourceAttribution
+        self.cameraView = cameraView
+        self.throwingSide = throwingSide
+        self.targetDirection = targetDirection
+        self.outcome = outcome
+        self.isReference = isReference
+        self.analysisRelativePath = analysisRelativePath
+        self.analysisStatus = analysisStatus
+        self.sessionID = sessionID
+        self.name = name
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        athleteID = try c.decode(UUID.self, forKey: .athleteID)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        sourceVideoRelativePath = try c.decode(String.self, forKey: .sourceVideoRelativePath)
+        originalFilename = try c.decodeIfPresent(String.self, forKey: .originalFilename)
+            ?? URL(fileURLWithPath: sourceVideoRelativePath).lastPathComponent
+        sourceURL = try c.decodeIfPresent(String.self, forKey: .sourceURL)
+        sourceAttribution = try c.decodeIfPresent(String.self, forKey: .sourceAttribution)
+        cameraView = try c.decodeIfPresent(CameraView.self, forKey: .cameraView) ?? .side
+        throwingSide = try c.decodeIfPresent(ThrowingSide.self, forKey: .throwingSide) ?? .right
+        targetDirection = try c.decodeIfPresent(TargetDirection.self, forKey: .targetDirection) ?? .leftToRight
+        outcome = try c.decodeIfPresent(TrialOutcome.self, forKey: .outcome)
+        isReference = try c.decodeIfPresent(Bool.self, forKey: .isReference) ?? false
+        analysisRelativePath = try c.decodeIfPresent(String.self, forKey: .analysisRelativePath)
+        analysisStatus = try c.decodeIfPresent(String.self, forKey: .analysisStatus) ?? (analysisRelativePath == nil ? "Not analyzed" : "Analyzed")
+        sessionID = try c.decodeIfPresent(UUID.self, forKey: .sessionID)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+    }
 }
 
 struct AnalysisSettings: Codable, Equatable {
@@ -149,8 +207,26 @@ struct AnalysisSettings: Codable, Equatable {
     }
 }
 
+enum ReferenceScope: String, Codable, CaseIterable, Identifiable {
+    case global
+    case athlete
+    var id: String { rawValue }
+    var label: String { self == .global ? "Global" : "Athlete-specific" }
+}
+
+struct ReferenceSet: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var scope: ReferenceScope = .global
+    var athleteID: UUID?
+    var trialIDs: [UUID] = []
+    var provenance: String = "coach_selected"
+    var notes: String = ""
+    var createdAt = Date()
+}
+
 struct StudyProject: Codable {
-    var schemaVersion = 1
+    var schemaVersion = currentProjectSchemaVersion
     var appVersion = applicationVersion
     var id: UUID = UUID()
     var name: String
@@ -160,6 +236,45 @@ struct StudyProject: Codable {
     var trials: [Trial] = []
     var analysisSettings = AnalysisSettings()
     var sessions: [RecordingSession]? = []
+    var referenceSets: [ReferenceSet] = []
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, appVersion, id, name, createdAt, updatedAt, athletes, trials, analysisSettings, sessions, referenceSets
+    }
+
+    init(
+        schemaVersion: Int = currentProjectSchemaVersion, appVersion: String = applicationVersion,
+        id: UUID = UUID(), name: String, createdAt: Date = Date(), updatedAt: Date = Date(),
+        athletes: [Athlete] = [], trials: [Trial] = [], analysisSettings: AnalysisSettings = AnalysisSettings(),
+        sessions: [RecordingSession]? = [], referenceSets: [ReferenceSet] = []
+    ) {
+        self.schemaVersion = schemaVersion
+        self.appVersion = appVersion
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.athletes = athletes
+        self.trials = trials
+        self.analysisSettings = analysisSettings
+        self.sessions = sessions
+        self.referenceSets = referenceSets
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        appVersion = try c.decodeIfPresent(String.self, forKey: .appVersion) ?? "unknown"
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Imported Cornhole Study"
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+        athletes = try c.decodeIfPresent([Athlete].self, forKey: .athletes) ?? []
+        trials = try c.decodeIfPresent([Trial].self, forKey: .trials) ?? []
+        analysisSettings = try c.decodeIfPresent(AnalysisSettings.self, forKey: .analysisSettings) ?? AnalysisSettings()
+        sessions = try c.decodeIfPresent([RecordingSession].self, forKey: .sessions) ?? []
+        referenceSets = try c.decodeIfPresent([ReferenceSet].self, forKey: .referenceSets) ?? []
+    }
 }
 
 struct ImportDraft {
@@ -171,6 +286,7 @@ struct ImportDraft {
     var sourceURL = ""
     var sourceAttribution = ""
     var sessionID: UUID?
+    var isReference = false
 }
 
 struct NewAthleteDraft {
@@ -243,6 +359,114 @@ struct CorrectionDocument: Codable {
     }
 }
 
+struct BagSeedDocument: Codable, Equatable {
+    var frameIndex: Int
+    var bboxXYWH: [Double]
+    var source = "manual_bbox"
+
+    enum CodingKeys: String, CodingKey {
+        case frameIndex = "frame_index"
+        case bboxXYWH = "bbox_xywh"
+        case source
+    }
+}
+
+struct BagPointCorrection: Codable, Equatable {
+    var frameIndex: Int
+    var x: Double
+    var y: Double
+    var kind = "manual"
+    var createdAt = ISO8601DateFormatter().string(from: Date())
+
+    enum CodingKeys: String, CodingKey {
+        case frameIndex = "frame_index"
+        case x, y, kind
+        case createdAt = "created_at"
+    }
+}
+
+struct BagCorrectionDocument: Codable {
+    var schemaVersion = 1
+    var corrections: [BagPointCorrection] = []
+    var reviewedThroughFrame: Int?
+    var reviewedAt: String?
+    var reviewNote: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case corrections
+        case reviewedThroughFrame = "reviewed_through_frame"
+        case reviewedAt = "reviewed_at"
+        case reviewNote = "review_note"
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        corrections = try container.decodeIfPresent([BagPointCorrection].self, forKey: .corrections) ?? []
+        reviewedThroughFrame = try container.decodeIfPresent(Int.self, forKey: .reviewedThroughFrame)
+        reviewedAt = try container.decodeIfPresent(String.self, forKey: .reviewedAt)
+        reviewNote = try container.decodeIfPresent(String.self, forKey: .reviewNote)
+    }
+}
+
+struct BagTrackDocument: Codable {
+    struct Centroid: Codable, Equatable {
+        var x: Double
+        var y: Double
+        var confidence: Double?
+    }
+    struct Sample: Codable, Identifiable {
+        var frameIndex: Int
+        var automaticCentroid: Centroid?
+        var effectiveCentroid: Centroid?
+        var filteredCentroid: Centroid?
+        var provenance: String
+        var id: Int { frameIndex }
+
+        enum CodingKeys: String, CodingKey {
+            case frameIndex = "frame_index"
+            case automaticCentroid = "automatic_centroid"
+            case effectiveCentroid = "effective_centroid"
+            case filteredCentroid = "filtered_centroid"
+            case provenance
+        }
+    }
+    struct Tracker: Codable {
+        var requestedMethod: String
+        var effectiveMethod: String
+        var status: String
+        var fallbackReason: String?
+        var failureFrames: [Int]
+        var qualityNote: String
+
+        enum CodingKeys: String, CodingKey {
+            case requestedMethod = "requested_method"
+            case effectiveMethod = "effective_method"
+            case status
+            case fallbackReason = "fallback_reason"
+            case failureFrames = "failure_frames"
+            case qualityNote = "quality_note"
+        }
+    }
+
+    var schemaVersion: Int
+    var coordinateSystem: String
+    var units: String
+    var tracker: Tracker
+    var seed: BagSeedDocument
+    var corrections: BagCorrectionDocument
+    var samples: [Sample]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case coordinateSystem = "coordinate_system"
+        case units, tracker, seed, corrections, samples
+    }
+}
+
 struct AnalysisResults: Codable {
     struct Quality: Codable {
         var score: Double?
@@ -298,10 +522,99 @@ struct AnalysisResults: Codable {
         }
     }
 
+    struct BagAnalysis: Codable {
+        struct Review: Codable {
+            var reviewedThroughFrame: Int?
+            var requiredThroughFrameForLaunch: Int?
+            var coversLaunchFit: Bool
+            var reviewedAt: String?
+            var note: String?
+
+            enum CodingKeys: String, CodingKey {
+                case reviewedThroughFrame = "reviewed_through_frame"
+                case requiredThroughFrameForLaunch = "required_through_frame_for_launch"
+                case coversLaunchFit = "covers_launch_fit"
+                case reviewedAt = "reviewed_at"
+                case note
+            }
+        }
+        struct Tracker: Codable {
+            var requestedMethod: String
+            var effectiveMethod: String
+            var status: String
+            var fallbackReason: String?
+            var failureFrames: [Int]
+
+            enum CodingKeys: String, CodingKey {
+                case requestedMethod = "requested_method"
+                case effectiveMethod = "effective_method"
+                case status
+                case fallbackReason = "fallback_reason"
+                case failureFrames = "failure_frames"
+            }
+        }
+        struct Launch: Codable {
+            struct Velocity: Codable {
+                var forwardPixelsPerSecond: Double?
+                var verticalPixelsPerSecond: Double?
+                var speedPixelsPerSecond: Double?
+                var angleDegrees: Double?
+                var forwardArmLengthsPerSecond: Double?
+                var verticalArmLengthsPerSecond: Double?
+                var speedArmLengthsPerSecond: Double?
+
+                enum CodingKeys: String, CodingKey {
+                    case forwardPixelsPerSecond = "forward_px_s"
+                    case verticalPixelsPerSecond = "vertical_px_s"
+                    case speedPixelsPerSecond = "speed_px_s"
+                    case angleDegrees = "angle_deg"
+                    case forwardArmLengthsPerSecond = "forward_arm_lengths_s"
+                    case verticalArmLengthsPerSecond = "vertical_arm_lengths_s"
+                    case speedArmLengthsPerSecond = "speed_arm_lengths_s"
+                }
+            }
+            struct PhysicalUnits: Codable {
+                var status: String
+            }
+            var status: String
+            var releaseFrame: Int?
+            var velocity: Velocity?
+            var physicalUnits: PhysicalUnits
+
+            enum CodingKeys: String, CodingKey {
+                case status
+                case releaseFrame = "release_frame"
+                case velocity
+                case physicalUnits = "physical_units"
+            }
+        }
+
+        var automaticTrackingCoveragePercent: Double
+        var effectiveTrackingCoveragePercent: Double
+        var medianAutomaticQuality: Double?
+        var manualCorrectionCount: Int
+        var interpolatedSampleCount: Int
+        var review: Review?
+        var tracker: Tracker
+        var launch: Launch
+        var qualityNote: String
+
+        enum CodingKeys: String, CodingKey {
+            case automaticTrackingCoveragePercent = "automatic_tracking_coverage_percent"
+            case effectiveTrackingCoveragePercent = "effective_tracking_coverage_percent"
+            case medianAutomaticQuality = "median_automatic_quality"
+            case manualCorrectionCount = "manual_correction_count"
+            case interpolatedSampleCount = "interpolated_sample_count"
+            case review, tracker, launch
+            case qualityNote = "quality_note"
+        }
+    }
+
     var trialID: String
     var athleteID: String
     var summaries: [String: Double?]
     var quality: Quality
+    var bag: BagAnalysis?
     var events: [String: Event]
     var warnings: [String]
     var claimScope: String
@@ -309,7 +622,7 @@ struct AnalysisResults: Codable {
     enum CodingKeys: String, CodingKey {
         case trialID = "trial_id"
         case athleteID = "athlete_id"
-        case summaries, quality, events, warnings
+        case summaries, quality, bag, events, warnings
         case claimScope = "claim_scope"
     }
 }
@@ -534,7 +847,7 @@ extension JSONDecoder {
     }
 }
 
-struct RecordingSession: Codable, Identifiable {
+struct RecordingSession: Codable, Identifiable, Hashable {
     var id = UUID()
     var athleteID: UUID
     var name: String

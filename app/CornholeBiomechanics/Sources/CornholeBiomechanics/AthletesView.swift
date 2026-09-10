@@ -39,6 +39,8 @@ struct AthletesView: View {
 struct AthleteProfile: View {
     @EnvironmentObject private var store: ProjectStore
     let athlete: Athlete
+    @State private var editing = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         ScrollView {
@@ -50,6 +52,9 @@ struct AthleteProfile: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button("Reveal in Finder") { store.revealAthlete(athlete) }
+                    Button("Edit…") { editing = true }
+                    Button("Delete…", role: .destructive) { confirmingDelete = true }
                     Button("View Results") { store.selectedAthleteID = athlete.id; store.selectedSection = .results }
                 }
                 HStack(spacing: 14) {
@@ -85,9 +90,22 @@ struct AthleteProfile: View {
             }
             .padding(28).frame(maxWidth: 900, alignment: .leading)
         }
+        .sheet(isPresented: $editing) { AthleteForm(existing: athlete) }
+        .confirmationDialog(
+            "Delete \(athlete.displayName)?", isPresented: $confirmingDelete, titleVisibility: .visible
+        ) {
+            Button("Delete Athlete and Managed Data", role: .destructive) {
+                do { try store.deleteAthlete(athlete) }
+                catch { store.errorMessage = error.localizedDescription }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This affects \(sessions.count) sessions, \(trials.count) source videos, and \(trials.filter { $0.analysisRelativePath != nil }.count) analyses. Managed files are moved to Trash when possible.")
+        }
     }
 
     private var trials: [Trial] { store.project?.trials.filter { $0.athleteID == athlete.id } ?? [] }
+    private var sessions: [RecordingSession] { store.project?.sessions?.filter { $0.athleteID == athlete.id } ?? [] }
 
     private func profileMetric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -101,11 +119,23 @@ struct AthleteProfile: View {
 struct AthleteForm: View {
     @EnvironmentObject private var store: ProjectStore
     @Environment(\.dismiss) private var dismiss
-    @State private var draft = NewAthleteDraft()
+    let existing: Athlete?
+    @State private var draft: NewAthleteDraft
+
+    init(existing: Athlete? = nil) {
+        self.existing = existing
+        _draft = State(initialValue: NewAthleteDraft(
+            participantCode: existing?.participantCode ?? "",
+            dominantHand: existing?.dominantHand ?? .right,
+            height: existing?.heightCentimeters.map { String($0) } ?? "",
+            armSpan: existing?.armSpanCentimeters.map { String($0) } ?? "",
+            notes: existing?.notes ?? ""
+        ))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Add Athlete").font(.title2.weight(.semibold))
+            Text(existing == nil ? "Add Athlete" : "Edit Athlete").font(.title2.weight(.semibold))
             Form {
                 TextField("Participant code or name", text: $draft.participantCode)
                 Picker("Dominant throwing hand", selection: $draft.dominantHand) {
@@ -120,8 +150,20 @@ struct AthleteForm: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
-                Button("Add Athlete") {
-                    do { try store.addAthlete(draft); dismiss() }
+                Button(existing == nil ? "Add Athlete" : "Save Changes") {
+                    do {
+                        if var changed = existing {
+                            changed.participantCode = draft.participantCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                            changed.dominantHand = draft.dominantHand
+                            changed.heightCentimeters = Double(draft.height)
+                            changed.armSpanCentimeters = Double(draft.armSpan)
+                            changed.notes = draft.notes
+                            try store.updateAthlete(changed)
+                        } else {
+                            try store.addAthlete(draft)
+                        }
+                        dismiss()
+                    }
                     catch { store.errorMessage = error.localizedDescription }
                 }.buttonStyle(.borderedProminent).disabled(draft.participantCode.trimmingCharacters(in: .whitespaces).isEmpty)
             }

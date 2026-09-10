@@ -4,6 +4,8 @@ struct OverviewView: View {
     @EnvironmentObject private var store: ProjectStore
     @Binding var showsSettings: Bool
     @State private var newSession = false
+    @State private var editingSession: RecordingSession?
+    @State private var deletingSession: RecordingSession?
     var body: some View {
         SectionContainer(title: store.project?.name ?? "Your study", subtitle: "Connect how an athlete throws with where the bag lands.") {
             HStack(spacing: 14) {
@@ -18,7 +20,11 @@ struct OverviewView: View {
                     ForEach(store.project?.sessions ?? []) { Text("\($0.name) · \($0.date.formatted(date: .abbreviated, time: .omitted))").tag(Optional($0.id)) }
                 }.frame(maxWidth: 550)
                 if let session = store.project?.sessions?.first(where: { $0.id == store.selectedSessionID }) {
-                    Text("\(session.cameraSetup) · \(session.cameraView.label) · \(store.project?.trials.filter { $0.sessionID == session.id }.count ?? 0) throws").foregroundStyle(.secondary)
+                    HStack {
+                        Text("\(session.cameraSetup) · \(session.cameraView.label) · \(store.project?.trials.filter { $0.sessionID == session.id }.count ?? 0) throws").foregroundStyle(.secondary)
+                        Button("Edit…") { editingSession = session }
+                        Button("Delete…", role: .destructive) { deletingSession = session }
+                    }
                 }
             }
             Divider()
@@ -34,8 +40,25 @@ struct OverviewView: View {
                 Text("Stage 1 measures projected 2D movement. Real participant data and validation are required before claims about measurement accuracy or training benefits.").foregroundStyle(.secondary)
             }
             CameraGuideCard()
-            HStack { Button("Advanced Analysis…") { showsSettings = true }; Button("Show project in Finder") { store.revealProject() } }
-        }.sheet(isPresented:$newSession) { SessionForm() }
+            HStack { Button("Advanced Analysis…") { showsSettings = true }; Button("Show athlete library in Finder") { store.revealProject() } }
+        }
+        .sheet(isPresented:$newSession) { SessionForm() }
+        .sheet(item: $editingSession) { SessionForm(existing: $0) }
+        .confirmationDialog(
+            "Delete session record?",
+            isPresented: Binding(get: { deletingSession != nil }, set: { if !$0 { deletingSession = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Session", role: .destructive) {
+                guard let session = deletingSession else { return }
+                do { try store.deleteSession(session) }
+                catch { store.errorMessage = error.localizedDescription }
+                deletingSession = nil
+            }
+            Button("Cancel", role: .cancel) { deletingSession = nil }
+        } message: {
+            Text("The session grouping is removed. Its throws, videos, outcomes, and analyses remain in the athlete library.")
+        }
     }
 }
 struct CameraGuideCard: View {

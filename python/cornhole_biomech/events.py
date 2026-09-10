@@ -24,12 +24,17 @@ def _sustained(mask: np.ndarray, count: int) -> np.ndarray:
     return convolution >= count
 
 
-def detect_events(normalized_wrist: np.ndarray, fps: float) -> dict[str, EventValue]:
+def detect_events(
+    normalized_wrist: np.ndarray,
+    fps: float,
+    release_candidate: EventValue | None = None,
+) -> dict[str, EventValue]:
     """Detect candidate events from filtered shoulder-relative wrist motion.
 
-    Release is a visible-kinematic proxy: peak target-axis wrist velocity after
-    backswing. It is not direct projectile-hand separation and carries at least
-    frame-interval uncertainty.
+    When supplied, a reviewed bag-track candidate based on persistent bag/wrist
+    divergence takes priority over the wrist-only proxy. Otherwise release is
+    peak target-axis wrist velocity after backswing. Both remain frame-limited
+    candidates until manually reviewed.
     """
     wrist = np.asarray(normalized_wrist, float)
     valid = np.isfinite(wrist).all(axis=-1)
@@ -55,10 +60,17 @@ def detect_events(normalized_wrist: np.ndarray, fps: float) -> dict[str, EventVa
     else:
         start, end = int(moving_indices[0]), int(moving_indices[-1])
     x = np.where(valid, wrist[:, 0], np.nan)
-    provisional_release = int(start + np.nanargmax(velocity[start : end + 1, 0]))
-    if provisional_release <= start:
+    wrist_release = int(start + np.nanargmax(velocity[start : end + 1, 0]))
+    if wrist_release <= start:
         later = np.flatnonzero(valid & (np.arange(len(valid)) > start) & (np.arange(len(valid)) <= end))
-        if later.size: provisional_release = int(later[0])
+        if later.size: wrist_release = int(later[0])
+    use_bag = (
+        release_candidate is not None
+        and release_candidate.automatic_frame is not None
+        and start < release_candidate.automatic_frame < end
+        and valid[release_candidate.automatic_frame]
+    )
+    provisional_release = int(release_candidate.automatic_frame) if use_bag else wrist_release
     backswing = int(start + np.nanargmin(x[start : provisional_release + 1]))
     follow = int(provisional_release + np.nanargmax(x[provisional_release : end + 1]))
     forward_candidates = np.flatnonzero(valid & (np.arange(len(valid)) > backswing) & (np.arange(len(valid)) <= provisional_release))
@@ -72,7 +84,7 @@ def detect_events(normalized_wrist: np.ndarray, fps: float) -> dict[str, EventVa
         "peak_follow_through": follow,
         "motion_end": end,
     }
-    return {
+    result = {
         name: EventValue(
             name=name,
             automatic_frame=frames[name],
@@ -81,6 +93,14 @@ def detect_events(normalized_wrist: np.ndarray, fps: float) -> dict[str, EventVa
         )
         for name in EVENT_ORDER
     }
+    if use_bag:
+        result["release"] = EventValue(
+            name="release",
+            automatic_frame=provisional_release,
+            automatic_confidence=release_candidate.automatic_confidence,
+            automatic_method=release_candidate.automatic_method,
+        )
+    return result
 
 
 def apply_manual_event_overrides(
@@ -96,4 +116,3 @@ def apply_manual_event_overrides(
     if known != sorted(known):
         raise ValueError("manual event frames must preserve movement-event order")
     return result
-

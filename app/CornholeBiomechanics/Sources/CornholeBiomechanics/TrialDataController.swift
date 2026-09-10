@@ -8,6 +8,9 @@ final class TrialDataController: ObservableObject {
     @Published private(set) var comparison: ComparisonDocument?
     @Published private(set) var relationships: RelationshipDocument?
     @Published private(set) var corrections = CorrectionDocument()
+    @Published private(set) var bagTrack: BagTrackDocument?
+    @Published private(set) var bagSeed: BagSeedDocument?
+    @Published private(set) var bagCorrections = BagCorrectionDocument()
     @Published private(set) var events: EventDocument?
     @Published private(set) var kinematicRows: [[String: String]] = []
     let correctionUndoManager = UndoManager()
@@ -24,6 +27,9 @@ final class TrialDataController: ObservableObject {
         results = decode(AnalysisResults.self, at: analysisURL?.appendingPathComponent("results.json"))
         normalized = decode(NormalizedDocument.self, at: analysisURL?.appendingPathComponent("normalized.json"))
         corrections = decode(CorrectionDocument.self, at: analysisURL?.appendingPathComponent("corrections.json")) ?? CorrectionDocument()
+        bagTrack = decode(BagTrackDocument.self, at: analysisURL?.appendingPathComponent("bag_track.json"))
+        bagSeed = decode(BagSeedDocument.self, at: analysisURL?.appendingPathComponent("bag_seed.json")) ?? bagTrack?.seed
+        bagCorrections = decode(BagCorrectionDocument.self, at: analysisURL?.appendingPathComponent("bag_corrections.json")) ?? BagCorrectionDocument()
         events = decode(EventDocument.self, at: analysisURL?.appendingPathComponent("events.json"))
         kinematicRows = loadCSV(at: analysisURL?.appendingPathComponent("kinematics.csv"))
     }
@@ -45,6 +51,92 @@ final class TrialDataController: ObservableObject {
 
     func correction(frame: Int, landmark: String) -> PointCorrection? {
         corrections.corrections.last { $0.frameIndex == frame && $0.landmark == landmark }
+    }
+
+    func bagPoint(frame: Int) -> BagTrackDocument.Centroid? {
+        if let correction = bagCorrection(frame: frame) {
+            return BagTrackDocument.Centroid(x: correction.x, y: correction.y, confidence: nil)
+        }
+        guard let sample = bagTrack?.samples.first(where: { $0.frameIndex == frame }) else { return nil }
+        return sample.filteredCentroid ?? sample.effectiveCentroid
+    }
+
+    func automaticBagPoint(frame: Int) -> BagTrackDocument.Centroid? {
+        bagTrack?.samples.first(where: { $0.frameIndex == frame })?.automaticCentroid
+    }
+
+    func bagProvenance(frame: Int) -> String {
+        if let correction = bagCorrection(frame: frame) { return correction.kind }
+        return bagTrack?.samples.first(where: { $0.frameIndex == frame })?.provenance ?? "missing"
+    }
+
+    func bagCorrection(frame: Int) -> BagPointCorrection? {
+        bagCorrections.corrections.last { $0.frameIndex == frame }
+    }
+
+    func setBagSeed(frame: Int, bboxXYWH: [Double]) {
+        guard bboxXYWH.count == 4, bboxXYWH.allSatisfy(\.isFinite), bboxXYWH[2] > 1, bboxXYWH[3] > 1 else {
+            loadError = "The bag seed rectangle is invalid."
+            return
+        }
+        let seed = BagSeedDocument(frameIndex: frame, bboxXYWH: bboxXYWH)
+        bagSeed = seed
+        clearBagReview()
+        markDirty(reason: "bag_seed_changed")
+        guard let url = analysisURL?.appendingPathComponent("bag_seed.json") else { return }
+        do { try JSONEncoder.projectEncoder.encode(seed).write(to: url, options: .atomic) }
+        catch { loadError = "Could not save the bag seed: \(error.localizedDescription)" }
+    }
+
+    func setBagCorrection(frame: Int, x: Double, y: Double, kind: String = "manual") {
+        clearBagReview(save: false)
+        bagCorrections.corrections.removeAll { $0.frameIndex == frame }
+        bagCorrections.corrections.append(BagPointCorrection(frameIndex: frame, x: x, y: y, kind: kind))
+        saveBagCorrections()
+    }
+
+    func resetBagCorrection(frame: Int) {
+        clearBagReview(save: false)
+        bagCorrections.corrections.removeAll { $0.frameIndex == frame }
+        saveBagCorrections()
+    }
+
+    func interpolateBag(through frame: Int) -> Int {
+        let anchors = bagCorrections.corrections
+            .filter { $0.kind == "manual" }
+            .sorted { $0.frameIndex < $1.frameIndex }
+        guard let left = anchors.last(where: { $0.frameIndex < frame }),
+              let right = anchors.first(where: { $0.frameIndex > frame }),
+              right.frameIndex > left.frameIndex + 1 else { return 0 }
+        clearBagReview(save: false)
+        bagCorrections.corrections.removeAll {
+            $0.kind == "interpolated" && $0.frameIndex > left.frameIndex && $0.frameIndex < right.frameIndex
+        }
+        for index in (left.frameIndex + 1)..<right.frameIndex {
+            let fraction = Double(index - left.frameIndex) / Double(right.frameIndex - left.frameIndex)
+            bagCorrections.corrections.append(BagPointCorrection(
+                frameIndex: index,
+                x: left.x + fraction * (right.x - left.x),
+                y: left.y + fraction * (right.y - left.y),
+                kind: "interpolated"
+            ))
+        }
+        saveBagCorrections()
+        return right.frameIndex - left.frameIndex - 1
+    }
+
+    func markBagReviewed(through frame: Int) {
+        bagCorrections.reviewedThroughFrame = max(0, frame)
+        bagCorrections.reviewedAt = ISO8601DateFormatter().string(from: Date())
+        bagCorrections.reviewNote = "Frame-by-frame identity review recorded in the native app."
+        saveBagCorrections()
+    }
+
+    func clearBagReview(save: Bool = true) {
+        bagCorrections.reviewedThroughFrame = nil
+        bagCorrections.reviewedAt = nil
+        bagCorrections.reviewNote = nil
+        if save { saveBagCorrections() }
     }
 
     func setCorrection(frame: Int, landmark: String, x: Double, y: Double, kind: String = "manual") {
@@ -159,9 +251,10 @@ final class TrialDataController: ObservableObject {
         return Double(string)
     }
 
-    private func markDirty() {
+    private func markDirty(reason: String = "corrections_changed") {
         guard let url = analysisURL?.appendingPathComponent("needs_reanalysis.json") else { return }
-        try? Data("{\"reason\":\"corrections_changed\"}".utf8).write(to: url, options: .atomic)
+        try? JSONSerialization.data(withJSONObject: ["reason": reason], options: [.prettyPrinted, .sortedKeys])
+            .write(to: url, options: .atomic)
     }
 
     private func saveCorrections() {
@@ -169,6 +262,13 @@ final class TrialDataController: ObservableObject {
         guard let url = analysisURL?.appendingPathComponent("corrections.json") else { return }
         do { try JSONEncoder.projectEncoder.encode(corrections).write(to: url, options: .atomic) }
         catch { loadError = "Could not save correction: \(error.localizedDescription)" }
+    }
+
+    private func saveBagCorrections() {
+        markDirty(reason: "bag_corrections_changed")
+        guard let url = analysisURL?.appendingPathComponent("bag_corrections.json") else { return }
+        do { try JSONEncoder.projectEncoder.encode(bagCorrections).write(to: url, options: .atomic) }
+        catch { loadError = "Could not save bag correction: \(error.localizedDescription)" }
     }
 
     private func decode<T: Decodable>(_ type: T.Type, at url: URL?) -> T? {
