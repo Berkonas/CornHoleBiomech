@@ -206,6 +206,23 @@ final class AnalysisService: ObservableObject {
 
     func probe() async throws -> [String: Any] { try await run(["probe"], updateProgress: false) }
 
+    func videoInfo(_ url: URL) async throws -> [String: Any] {
+        try await run(["video-info", url.path], updateProgress: false)
+    }
+
+    func prepareVideo(trial: Trial, store: ProjectStore, start: Int, end: Int, crop: [Int], rotation: Int) async throws {
+        guard !isRunning, let source = store.originalVideoURL(for: trial) else {
+            throw AnalysisServiceError.processFailed("Wait for the worker, or relink the original recording first.")
+        }
+        let output = try store.preparationOutput(for: trial)
+        isRunning = true; stage = "Preparing video"; detail = "Creating a separate analysis copy; preserving the original"; progress = 0.2
+        defer { isRunning = false }
+        _ = try await run(["prepare-video", source.path, "--output", output.path,
+            "--start-frame", String(start), "--end-frame", String(end), "--crop"] + crop.map(String.init) + ["--rotation", String(rotation)])
+        try store.usePreparedVideo(output, for: trial)
+        progress = 1; stage = "Video ready"; detail = "Analyze this version before reviewing measurements."
+    }
+
     @discardableResult
     private func run(_ arguments: [String], updateProgress: Bool = true) async throws -> [String: Any] {
         guard activeProcess == nil else { throw AnalysisServiceError.processFailed("Wait for the current worker to finish, then try again.") }

@@ -1,8 +1,8 @@
 import Foundation
 
 let applicationName = "Cornhole Biomechanics Lab"
-let applicationVersion = "0.3.0"
-let currentProjectSchemaVersion = 2
+let applicationVersion = "0.4.0"
+let currentProjectSchemaVersion = 3
 
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
@@ -118,6 +118,8 @@ struct Trial: Codable, Identifiable, Hashable {
     var analysisStatus = "Not analyzed"
     var sessionID: UUID?
     var name: String?
+    var preparedVideoRelativePath: String?
+    var preparationDirectoryRelativePath: String?
 
     var shortID: String { String(id.uuidString.prefix(8)) }
     var displayName: String {
@@ -128,7 +130,7 @@ struct Trial: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id, athleteID, createdAt, sourceVideoRelativePath, originalFilename, sourceURL, sourceAttribution
         case cameraView, throwingSide, targetDirection, outcome, isReference, analysisRelativePath, analysisStatus
-        case sessionID, name
+        case sessionID, name, preparedVideoRelativePath, preparationDirectoryRelativePath
     }
 
     init(
@@ -175,6 +177,8 @@ struct Trial: Codable, Identifiable, Hashable {
         analysisStatus = try c.decodeIfPresent(String.self, forKey: .analysisStatus) ?? (analysisRelativePath == nil ? "Not analyzed" : "Analyzed")
         sessionID = try c.decodeIfPresent(UUID.self, forKey: .sessionID)
         name = try c.decodeIfPresent(String.self, forKey: .name)
+        preparedVideoRelativePath = try c.decodeIfPresent(String.self, forKey: .preparedVideoRelativePath)
+        preparationDirectoryRelativePath = try c.decodeIfPresent(String.self, forKey: .preparationDirectoryRelativePath)
     }
 }
 
@@ -771,7 +775,37 @@ struct RelationshipDocument: Codable {
         var referenceSimilarityScore: Double?
         var wristReferenceDeviation: Double?
         var wristAthleteMeanDeviation: Double?
+        var numericFeatures: [String: Double] = [:]
         var id: String { trialID }
+        private struct FeatureKey: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { return nil }
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            trialID = try c.decode(String.self, forKey: .trialID)
+            scoreCategory = try c.decodeIfPresent(Double.self, forKey: .scoreCategory)
+            radialErrorInches = try c.decodeIfPresent(Double.self, forKey: .radialErrorInches)
+            elbowAngleAtRelease = try c.decodeIfPresent(Double.self, forKey: .elbowAngleAtRelease)
+            elbowROM = try c.decodeIfPresent(Double.self, forKey: .elbowROM)
+            trunkInclinationAtRelease = try c.decodeIfPresent(Double.self, forKey: .trunkInclinationAtRelease)
+            movementDuration = try c.decodeIfPresent(Double.self, forKey: .movementDuration)
+            releaseTimingCycle = try c.decodeIfPresent(Double.self, forKey: .releaseTimingCycle)
+            referenceSimilarityScore = try c.decodeIfPresent(Double.self, forKey: .referenceSimilarityScore)
+            wristReferenceDeviation = try c.decodeIfPresent(Double.self, forKey: .wristReferenceDeviation)
+            wristAthleteMeanDeviation = try c.decodeIfPresent(Double.self, forKey: .wristAthleteMeanDeviation)
+            let features = try decoder.container(keyedBy: FeatureKey.self)
+            for key in features.allKeys {
+                if let value = try? features.decode(Double.self, forKey: key), value.isFinite { numericFeatures[key.stringValue] = value }
+            }
+        }
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: FeatureKey.self)
+            try c.encode(trialID, forKey: FeatureKey(stringValue: "trial_id")!)
+            for (key, value) in numericFeatures { try c.encode(value, forKey: FeatureKey(stringValue: key)!) }
+        }
         enum CodingKeys: String, CodingKey {
             case trialID = "trial_id"
             case scoreCategory = "score_category"

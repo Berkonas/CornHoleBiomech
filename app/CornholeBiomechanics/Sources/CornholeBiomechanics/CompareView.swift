@@ -26,7 +26,7 @@ struct CompareView: View {
             Picker("Comparison", selection: $mode) { ForEach(ComparisonMode.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).disabled(analysis.isRunning)
             Picker("Athlete throw", selection: $store.selectedTrialID) {
                 Text("Choose an analyzed throw…").tag(UUID?.none)
-                ForEach(store.analyzedTrials) { Text(label($0)).tag(Optional($0.id)) }
+                ForEach(store.analyzedTrials.filter { store.selectedAthleteID == nil || $0.athleteID == store.selectedAthleteID }) { Text(label($0)).tag(Optional($0.id)) }
             }.frame(maxWidth: 680).disabled(analysis.isRunning)
             if mode == .reference {
                 Picker("Reference set", selection: $store.selectedReferenceSetID) {
@@ -53,12 +53,10 @@ struct CompareView: View {
             if candidates.isEmpty { Label("No compatible comparison throws. Analyze another throw with the same camera view\(mode == .reference || mode == .single ? " and mark it in Reference" : "").", systemImage: "info.circle").foregroundStyle(.secondary) }
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
             if let comparison = data.comparison, let normalized = data.normalized, let trial = store.selectedTrial {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(number(comparison.similarity.overall, digits: 0)).font(.system(size: 42, weight: .semibold)).foregroundStyle(athleteInk).monospacedDigit()
-                    Text("/ 100").foregroundStyle(.secondary)
-                    VStack(alignment: .leading) { Text(mode == .own ? "Similarity to athlete’s other throws" : mode == .trial ? "Similarity between these throws" : "Reference Similarity").font(.headline); Text("Pilot index · \(comparison.referenceTrialIDs.count) comparison throws").font(.caption).foregroundStyle(.secondary) }
-                    Spacer()
-                }.padding(.vertical, 6)
+                Text("Measured movement differences · \(comparison.referenceTrialIDs.count) comparison throws").font(.title2.weight(.semibold))
+                ForEach(comparison.rawMetrics.keys.filter { $0.contains("mae_deg") || $0 == "wrist_path_rmse_arm_lengths" }.sorted(), id: \.self) { key in
+                    LabeledContent(metricLabel(key), value: number(comparison.rawMetrics[key] ?? nil, digits: 2)).font(.callout)
+                }
                 Text("A high similarity does not imply a better outcome. Review both recordings and tracking quality before interpreting differences.").font(.callout).foregroundStyle(.secondary)
                 if let q = data.results?.quality { Label("Tracking Quality: \(number(q.score, digits: 0))/100 · \(q.warnings.count) measurement warnings", systemImage: "viewfinder").foregroundStyle(q.warnings.isEmpty ? Color.secondary : Color.orange) }
                 MovementWorkspace(normalized: normalized, comparison: comparison, videoURL: store.videoURL(for: trial), events: data.events, fps: data.pose?.fps ?? 30, fraction: $fraction)
@@ -68,7 +66,7 @@ struct CompareView: View {
                         Text("This video shares the movement-cycle cursor with the athlete and plots above.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                SimilarityBreakdown(similarity: comparison.similarity)
+                DisclosureGroup("Experimental similarity index · \(number(comparison.similarity.overall, digits: 0))/100") { SimilarityBreakdown(similarity: comparison.similarity) }
                 DisclosureGroup("Raw errors and waveform agreement") {
                     ForEach(comparison.rawMetrics.keys.sorted(), id: \.self) { key in
                         LabeledContent(metricLabel(key), value: number(comparison.rawMetrics[key] ?? nil, digits: 3)).font(.callout)

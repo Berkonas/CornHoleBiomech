@@ -4,8 +4,8 @@
 
 ## Course sources
 
-- Zelik, K. E. (2026). *Project 1: Biomechanics of Human Movement (Fall 2026)*. Vanderbilt University. Local course handout, file `reference_materials/course/Project 1 Topics - Fall 2026 - 082126.pdf`, updated 21 August 2026.
-- Zelik, K. E. (2026). *ME 3890/5890 & BME 3890/8901: Biomechanics of Human Movement, Fall 2026*. Vanderbilt University. Local syllabus, file `reference_materials/course/Biomechanics_Syllabus_Fall2026_082126.pdf`, updated 21 August 2026.
+- Zelik, K. E. (2026). *Project 1: Biomechanics of Human Movement (Fall 2026)*. Vanderbilt University. Local course handout, file `research/course/Project 1 Topics - Fall 2026 - 082126.pdf`, updated 21 August 2026.
+- Zelik, K. E. (2026). *ME 3890/5890 & BME 3890/8901: Biomechanics of Human Movement, Fall 2026*. Vanderbilt University. Local syllabus, file `research/course/Biomechanics_Syllabus_Fall2026_082126.pdf`, updated 21 August 2026.
 
 The course PDFs are local source material and are not distributed with the application.
 
@@ -49,4 +49,4 @@ API documentation supports implementation semantics; it is not evidence that a c
 
 ## Source-use boundary
 
-Untracked local books and design files under `reference_materials/` were **not read, cited, redistributed, or used as evidence** in this pass. They remain opaque user-owned material. The unrelated legacy `reference_materials/design/DESIGN_RESEARCH.md` was identified by filename/text audit as research for a different “Places” product and is not a source for this application.
+Untracked local books and design files under `research/` were **not read, cited, redistributed, or used as evidence** in this pass. They remain opaque user-owned material. The unrelated legacy `research/design/DESIGN_RESEARCH.md` was identified in the earlier audit as research for a different “Places” product and is not a source for this application.

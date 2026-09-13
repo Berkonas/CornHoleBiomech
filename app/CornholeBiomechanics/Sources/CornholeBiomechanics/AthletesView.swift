@@ -8,7 +8,7 @@ struct AthletesView: View {
         HSplitView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("Participants").font(.headline)
+                    Text("Athlete profiles").font(.headline)
                     Spacer()
                     Button { showsAddSheet = true } label: { Image(systemName: "plus") }
                         .help("Add athlete")
@@ -26,7 +26,10 @@ struct AthletesView: View {
             if let athlete = store.selectedAthlete {
                 AthleteProfile(athlete: athlete)
             } else {
-                ContentUnavailableView("Select an athlete", systemImage: "person.2", description: Text("Athlete-specific analysis keeps body proportions and strategy in context."))
+                ContentUnavailableView {
+                    Label("Start with an athlete", systemImage: "person.2")
+                } description: { Text("Add a profile, then import that athlete’s recorded throws. Your library saves automatically; there is no project setup step.") }
+                actions: { Button("Add athlete") { showsAddSheet = true }.buttonStyle(.borderedProminent) }
             }
         }
     }
@@ -41,6 +44,9 @@ struct AthleteProfile: View {
     let athlete: Athlete
     @State private var editing = false
     @State private var confirmingDelete = false
+    @State private var addingSession = false
+    @State private var editingSession: RecordingSession?
+    @State private var deletingSession: RecordingSession?
 
     var body: some View {
         ScrollView {
@@ -55,13 +61,33 @@ struct AthleteProfile: View {
                     Button("Reveal in Finder") { store.revealAthlete(athlete) }
                     Button("Edit…") { editing = true }
                     Button("Delete…", role: .destructive) { confirmingDelete = true }
-                    Button("View Results") { store.selectedAthleteID = athlete.id; store.selectedSection = .results }
+                    Button("Import throw") { NotificationCenter.default.post(name: .importTrialVideo, object: nil) }.buttonStyle(.borderedProminent)
+                    Button("View Results") { store.selectedAthleteID = athlete.id; store.selectedTrialID = trials.first(where: { $0.analysisRelativePath != nil })?.id; store.selectedSection = .results }
                 }
                 HStack(spacing: 14) {
                     profileMetric("Height", athlete.heightCentimeters.map { "\($0.formatted()) cm" } ?? "Not required")
                     profileMetric("Arm span", athlete.armSpanCentimeters.map { "\($0.formatted()) cm" } ?? "Not required")
                     profileMetric("Trials", "\(trials.count)")
                     profileMetric("With outcomes", "\(trials.filter { $0.outcome != nil }.count)")
+                }
+                GroupBox("Recording session (optional)") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Picker("Session", selection: $store.selectedSessionID) {
+                                Text("Ungrouped throws").tag(UUID?.none)
+                                ForEach(sessions) { Text($0.name).tag(Optional($0.id)) }
+                            }
+                            Button("New session…") { addingSession = true }
+                        }
+                        if let session = sessions.first(where: { $0.id == store.selectedSessionID }) {
+                            Text("\(session.cameraSetup) · \(session.cameraView.label) view").font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Button("Edit session…") { editingSession = session }
+                                Button("Delete session…", role: .destructive) { deletingSession = session }
+                            }
+                        }
+                        Text("Group throws recorded with the same camera setup. Selected session settings carry into the next import.").font(.caption).foregroundStyle(.secondary)
+                    }.padding(6)
                 }
                 ResearchCard(title: "Interpret this athlete in context", symbol: "person.text.rectangle") {
                     Text("Ask what this athlete usually does, how variable the motion is, which features change on better throws, and whether reference differences are actually related to outcome. Height is optional because Stage 1 paths use arm-length normalization.")
@@ -78,7 +104,7 @@ struct AthleteProfile: View {
                         HStack {
                             Image(systemName: "video")
                             VStack(alignment: .leading) {
-                                Text(trial.originalFilename)
+                                Text(trial.displayName)
                                 Text("\(trial.cameraView.label) · \(trial.analysisStatus)").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -91,6 +117,17 @@ struct AthleteProfile: View {
             .padding(28).frame(maxWidth: 900, alignment: .leading)
         }
         .sheet(isPresented: $editing) { AthleteForm(existing: athlete) }
+        .sheet(isPresented: $addingSession) { SessionForm() }
+        .sheet(item: $editingSession) { SessionForm(existing: $0) }
+        .confirmationDialog("Delete session?", isPresented: Binding(get: { deletingSession != nil }, set: { if !$0 { deletingSession = nil } }), titleVisibility: .visible) {
+            Button("Delete session record", role: .destructive) {
+                if let session = deletingSession {
+                    do { try store.deleteSession(session) } catch { store.errorMessage = error.localizedDescription }
+                }
+                deletingSession = nil
+            }
+            Button("Cancel", role: .cancel) { deletingSession = nil }
+        } message: { Text("The session grouping is removed. Its athlete, throws, original videos, and analyses remain.") }
         .confirmationDialog(
             "Delete \(athlete.displayName)?", isPresented: $confirmingDelete, titleVisibility: .visible
         ) {

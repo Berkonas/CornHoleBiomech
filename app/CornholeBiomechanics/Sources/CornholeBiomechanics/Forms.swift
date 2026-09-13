@@ -51,7 +51,7 @@ struct ImportTrialForm: View {
                             videoURL: videoURL, athleteID: athleteID, cameraView: cameraView,
                             throwingSide: throwingSide, targetDirection: targetDirection,
                             sourceURL: sourceURL, sourceAttribution: sourceAttribution,
-                            sessionID: store.selectedSessionID, isReference: markAsReference
+                            sessionID: store.project?.sessions?.first(where: { $0.id == store.selectedSessionID && $0.athleteID == athleteID })?.id, isReference: markAsReference
                         ))
                         store.selectedSection = markAsReference ? .reference : .trials
                         dismiss()
@@ -60,7 +60,7 @@ struct ImportTrialForm: View {
             }
         }.padding(24).frame(width: 600)
         .onAppear {
-            if let session = store.project?.sessions?.first(where: { $0.id == store.selectedSessionID }) {
+            if let session = store.project?.sessions?.first(where: { $0.id == store.selectedSessionID && $0.athleteID == store.selectedAthleteID }) {
                 athleteID = session.athleteID; cameraView = session.cameraView; throwingSide = session.throwingSide; targetDirection = session.targetDirection
                 return
             }

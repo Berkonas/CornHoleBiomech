@@ -2,6 +2,7 @@
 from pathlib import Path
 import base64
 import html
+import json
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -62,6 +63,15 @@ def create_report(directory, insight, normalized, comparison):
     esc=lambda v:html.escape(str(v))
     fmt=lambda v:'Unavailable' if v is None else f'{v:.1f}'
     task=insight.get('outcome');score=insight.get('similarity') or {};quality=insight['quality']
+    summary_path = directory / 'results.json'
+    summaries = json.loads(summary_path.read_text()).get('summaries', {}) if summary_path.exists() else {}
+    measures = [
+        ('Elbow included angle at release', 'elbow_angle_deg_at_release', '°'),
+        ('Trunk inclination at release', 'trunk_inclination_deg_at_release', '°'),
+        ('Forward-swing wrist travel', 'wrist_forward_swing_path_length_arm_lengths', ' arm lengths'),
+        ('Movement duration', 'movement_duration_seconds', ' s'),
+    ]
+    measurement_cards = ''.join(f'<div><b>{fmt(summaries.get(key))}{unit if summaries.get(key) is not None else ""}</b>{label}</div>' for label, key, unit in measures)
     rows=''.join(f"<tr><td>{esc(d['name'])}</td><td>{d['amount']:.2f} {esc(d['units'])}</td><td>{esc(d['explanation'])}</td></tr>" for d in insight['differences'][:3])
     figures=''.join(f'<figure><img alt="{esc(name.replace("_"," "))}" src="data:image/png;base64,{base64.b64encode((directory/name).read_bytes()).decode()}"></figure>' for name in images if (directory/name).exists())
     warnings=''.join(f'<li>{esc(w)}</li>' for w in insight['warnings'])
@@ -69,7 +79,9 @@ def create_report(directory, insight, normalized, comparison):
     report=f'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Throw report — {esc(insight['trial_name'])}</title>
 <style>body{{font:16px/1.6 -apple-system,BlinkMacSystemFont,sans-serif;color:#233647;background:#f8f7f3;max-width:1000px;margin:40px auto;padding:0 28px}}h1{{font-size:34px;line-height:1.2}}h2{{margin-top:32px;font-size:21px}}small{{color:#586570}}header{{border-bottom:3px solid #267B86;padding-bottom:24px}}.numbers{{display:flex;flex-wrap:wrap;gap:28px;margin:25px 0}}.numbers b{{display:block;font-size:28px}}table{{border-collapse:collapse;width:100%;font-size:14px}}td,th{{text-align:left;padding:10px;border-bottom:1px solid #d4d9dc}}img{{width:100%;height:auto;max-height:540px;object-fit:contain}}figure{{margin:24px 0}}@media print{{body{{background:white;margin:0}}figure,tr{{break-inside:avoid}}}}</style>
 <header><small>CORNHOLE BIOMECHANICS LAB · LOCAL TRIAL REPORT</small><h1>{esc(insight['athlete'])}</h1><p>{esc(insight['trial_name'])} · {esc(insight['date'])}</p></header>
-<div class="numbers"><div><b>{str(task['score_category'])+' points' if task else 'Not recorded'}</b>ACL bag result</div><div><b>{fmt(score.get('overall'))}</b>Reference Similarity /100</div><div><b>{fmt(quality.get('score'))}</b>Tracking Quality /100</div><div><b>{fmt(con.get('score'))}</b>Athlete Consistency /100</div></div>
+<h2>Projected movement measurements</h2><div class="numbers">{measurement_cards}</div>
+<p>Observed bag result: <strong>{str(task['score_category'])+' points' if task else 'Not recorded'}</strong>. An elbow included angle of 180° is straight in this camera projection. Review landmarks and release before interpretation.</p>
+<details><summary>Experimental indices — not validated skill scores</summary><p>Reference similarity: {fmt(score.get('overall'))}/100 · Tracking quality: {fmt(quality.get('score'))}/100 · Athlete consistency: {fmt(con.get('score'))}/100</p></details>
 <p>{esc(insight['coach_summary'])}</p><ul>{warnings}</ul>
 <h2>Largest movement differences</h2><table>{rows or '<tr><td>Run a compatible reference comparison.</td></tr>'}</table>
 <h2>Measurements and movement</h2>{figures}

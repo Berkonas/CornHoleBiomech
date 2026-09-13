@@ -1,6 +1,6 @@
 # Biomechanics methods
 
-**Stage 1 measurement contract — reviewed 8 September 2026**
+**Stage 1 measurement contract — updated 10 September 2026, app 0.4**
 
 This document defines what Cornhole Biomechanics Lab may calculate and what each value means. It is the canonical specification for equations, units, coordinate systems, assumptions, and missing-data behavior. A field is reported only when the required observations and quality checks exist. Missing information stays missing; it is never replaced with zero.
 
@@ -28,6 +28,8 @@ Normalized comparisons use 101 samples from 0–100% of the reviewed movement. A
 
 ## 2. Observations and provenance
 
+Video preparation is non-destructive. Trim indices use the half-open source interval `[start, end)`; a prepared frame `f` maps to source frame `f + start`. Crop uses original decoded pixel bounds and is followed by an optional clockwise quarter-turn rotation. No rescaling, mirroring, stabilization, or speed adjustment is performed. The original and prepared hashes, bounds, rotation, and frame rate are saved in the sidecar and analysis manifest. Clips are transcoded with MPEG-4 and omit audio; compression may affect tracking and must not be confused with a lossless recording. Variable-frame-rate source timing is not preserved. Use known constant-frame-rate recordings for timed measurements. Review landmarks and events again after preparation; previous analysis and calibration are archived, not reused.
+
 Body points are pose-model estimates, not palpated anatomical joint centers. For each landmark and bag centroid, the data layers remain distinct:
 
 1. immutable automatic coordinates and model/tracker confidence;
@@ -44,6 +46,8 @@ The required order is:
 `raw estimates -> manual corrections -> confidence masking -> limited short-gap interpolation -> coordinate filtering -> angles/paths -> differentiation`
 
 Coordinates are filtered before calculating angles or derivatives. Differentiating raw frame-to-frame pose or bag positions is not an acceptable release-speed method.
+
+Bag samples beyond the explicitly reviewed-through frame are masked before zero-phase filtering. Otherwise a tracker drifting to the background after release could contaminate earlier values through the filter. Unreviewed centroids remain visible as diagnostic tracking data, but cannot enter bag trajectories, radial distances, automatic bag/wrist release detection, or launch calculations. Review extent is necessary, not evidence of accuracy by itself.
 
 The pilot default is a fourth-order, zero-phase Butterworth low-pass filter at 6 Hz, implemented in second-order sections. This is a reproducible starting setting, **not** a universal biomechanical cutoff. The cutoff must be positive and below Nyquist (`fps/2`); filter order, cutoff, frame rate, finite-run behavior, and interpolation limit are saved. Too-short finite runs remain unfiltered or missing with a warning rather than being silently padded into a result.
 

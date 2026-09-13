@@ -40,7 +40,7 @@ fi
 "$RUNTIME_DIR/bin/python" -m pip install --upgrade pip
 "$RUNTIME_DIR/bin/python" -m pip install "${PROJECT_DIR}[test,pose,sports2d]"
 
-MODEL_DIR="$PROJECT_DIR/models"
+MODEL_DIR="$PROJECT_DIR/app/Resources/models"
 MEDIAPIPE_MODEL="$MODEL_DIR/pose_landmarker_heavy.task"
 if [[ ! -f "$MEDIAPIPE_MODEL" ]]; then
   mkdir -p "$MODEL_DIR"

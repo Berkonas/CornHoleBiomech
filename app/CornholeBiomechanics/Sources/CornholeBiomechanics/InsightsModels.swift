@@ -41,6 +41,27 @@ struct TrialInsights: Decodable {
 }
 
 func metricLabel(_ key: String) -> String {
+    let extended = [
+        "elbow_extension_deficit_deg_at_release": "Elbow extension deficit at release (°)",
+        "shoulder_translation_net_arm_lengths": "Shoulder net translation (arm lengths)",
+        "shoulder_peak_speed_arm_lengths_s": "Peak projected shoulder speed (arm lengths/s)",
+        "wrist_relative_peak_speed_arm_lengths_s": "Peak shoulder-relative wrist speed (arm lengths/s)",
+        "shoulder_wrist_radius_at_release_arm_lengths": "Shoulder-to-wrist distance at release (arm lengths)",
+        "shoulder_wrist_radius_forward_swing_sd_arm_lengths": "Forward-swing radial distance SD (arm lengths)",
+        "wrist_forward_swing_path_straightness_ratio": "Forward-swing path straightness (0–1)",
+        "wrist_forward_swing_path_rms_fitted_line_deviation_arm_lengths": "Forward-swing line deviation RMS (arm lengths)",
+        "bag_release_speed_arm_lengths_s": "Projected bag launch speed (arm lengths/s)",
+        "bag_release_angle_deg": "Projected bag launch angle (°)",
+        "bag_release_position_forward_arm_lengths": "Bag release position, forward (arm lengths)",
+        "bag_release_position_vertical_arm_lengths": "Bag release position, vertical (arm lengths)",
+        "elbow_angle_mae_deg": "Elbow angle mean absolute difference (°)",
+        "trunk_inclination_mae_deg": "Trunk inclination mean absolute difference (°)",
+        "upper_arm_orientation_mae_deg": "Upper-arm orientation mean absolute difference (°)",
+        "forearm_orientation_mae_deg": "Forearm orientation mean absolute difference (°)",
+        "arm_to_trunk_mae_deg": "Arm-to-trunk mean absolute difference (°)",
+        "wrist_path_rmse_arm_lengths": "Wrist-path RMS difference (arm lengths)"
+    ]
+    if let label = extended[key] { return label }
     let relationships = ["elbow_angle_deg_at_release": "Elbow at release (°)", "elbow_angle_deg_rom": "Elbow range of motion (°)", "trunk_inclination_deg_at_release": "Trunk at release (°)", "movement_duration_seconds": "Movement duration (s)", "release_timing_cycle": "Release timing (cycle fraction)", "reference_similarity_score": "Reference Similarity (0–100)", "wrist_reference_deviation_arm_lengths": "Wrist deviation from reference (arm lengths)", "wrist_path_deviation_from_athlete_mean_arm_lengths": "Wrist deviation from own mean (arm lengths)"]
     if let label = relationships[key] { return label }
     let names = ["elbow_angle_deg":"Elbow included angle", "arm_to_trunk_deg":"Arm relative to trunk", "trunk_inclination_deg":"Trunk inclination", "upper_arm_orientation_deg":"Upper-arm orientation", "forearm_orientation_deg":"Forearm orientation", "wrist_path_rmse_arm_lengths":"Wrist-path RMSE", "release_timing_abs_difference_cycle":"Release timing difference", "elbow_angle_mae_deg":"Elbow angle", "upper_arm_orientation_mae_deg":"Upper-arm orientation", "forearm_orientation_mae_deg":"Forearm orientation", "arm_to_trunk_mae_deg":"Arm relative to trunk", "trunk_inclination_mae_deg":"Trunk inclination"]

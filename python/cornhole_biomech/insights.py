@@ -220,7 +220,7 @@ def generate_insights(project_path, trial_id, export_report=True):
         relationships['spatial_endpoint']=endpoint
     athlete=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
     payload={'schema_version':1,'trial_id':trial_id,'athlete':athlete.get('participantCode','Unknown athlete'),
-             'trial_name':trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
+             'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
              'outcome':outcome,'similarity':comparison.get('similarity') if comparison else None,
              'differences':diffs,'coach_summary':' '.join(sentences),'consistency':consistency,
              'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,

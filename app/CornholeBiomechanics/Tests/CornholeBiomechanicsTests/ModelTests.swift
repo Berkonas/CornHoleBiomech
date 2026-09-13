@@ -2,6 +2,82 @@ import XCTest
 @testable import CornholeBiomechanics
 
 final class ModelTests: XCTestCase {
+    @MainActor
+    func testMetadataChangeRequiresReanalysisAndCrossAthleteSessionIsRejected() throws {
+        let base = try temporaryDirectory("metadata")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(applicationSupportURL: base.appendingPathComponent("Support"), defaultLibraryURL: base.appendingPathComponent("Data"), libraryRootWasOverridden: false)
+        let store = ProjectStore(paths: paths, trashHandler: { _ in })
+        try store.addAthlete(NewAthleteDraft(participantCode: "A", dominantHand: .right))
+        let athleteID = try XCTUnwrap(store.selectedAthleteID)
+        let source = base.appendingPathComponent("source.mov")
+        try Data("original".utf8).write(to: source)
+        var trial = try store.importVideo(ImportDraft(videoURL: source, athleteID: athleteID))
+        let analysis = try store.analysisOutput(for: trial)
+        try FileManager.default.createDirectory(at: analysis.url, withIntermediateDirectories: true)
+        try store.markAnalysisComplete(trialID: trial.id, relativePath: analysis.relativePath)
+        trial = try XCTUnwrap(store.selectedTrial)
+        trial.name = "Readable name"
+        try store.updateTrialMetadata(trial)
+        let marker = analysis.url.appendingPathComponent("needs_reanalysis.json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        trial.throwingSide = .left
+        try store.updateTrialMetadata(trial)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertTrue(store.selectedTrial?.analysisStatus.contains("reanalyze") == true)
+        var draft = ImportDraft(videoURL: source, athleteID: athleteID)
+        draft.sessionID = UUID()
+        XCTAssertThrowsError(try store.importVideo(draft))
+        XCTAssertEqual(store.project?.trials.count, 1)
+    }
+    func testRelationshipIncludesNewNumericFeatures() throws {
+        let json = #"{"trial_id":"T1","bag_release_angle_deg":24.5,"shoulder_translation_net_arm_lengths":0.2,"missing":null}"#
+        let row = try JSONDecoder().decode(RelationshipDocument.DataRow.self, from: Data(json.utf8))
+        XCTAssertEqual(row.numericFeatures["bag_release_angle_deg"], 24.5)
+        XCTAssertEqual(row.numericFeatures["shoulder_translation_net_arm_lengths"], 0.2)
+        XCTAssertNil(row.numericFeatures["missing"])
+        let roundTrip = try JSONDecoder().decode(RelationshipDocument.DataRow.self, from: JSONEncoder().encode(row))
+        XCTAssertEqual(roundTrip.numericFeatures, row.numericFeatures)
+    }
+
+    @MainActor
+    func testVideoPreparationArchivesAnalysisAndRestoresOriginalWithoutDuplicatingThrow() throws {
+        let base = try temporaryDirectory("video-revisions")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(applicationSupportURL: base.appendingPathComponent("Support"), defaultLibraryURL: base.appendingPathComponent("Data"), libraryRootWasOverridden: false)
+        let store = ProjectStore(paths: paths, trashHandler: { try FileManager.default.removeItem(at: $0) })
+        try store.addAthlete(NewAthleteDraft(participantCode: "EDIT-01", dominantHand: .right))
+        let source = base.appendingPathComponent("source.mov")
+        try Data("original".utf8).write(to: source)
+        var trial = try store.importVideo(ImportDraft(videoURL: source, athleteID: store.selectedAthleteID))
+        let original = try XCTUnwrap(store.originalVideoURL(for: trial))
+        let analysis = try store.analysisOutput(for: trial)
+        try FileManager.default.createDirectory(at: analysis.url, withIntermediateDirectories: true)
+        try Data("reviewed".utf8).write(to: analysis.url.appendingPathComponent("corrections.json"))
+        try store.markAnalysisComplete(trialID: trial.id, relativePath: analysis.relativePath)
+        trial = try XCTUnwrap(store.selectedTrial)
+        let output = try store.preparationOutput(for: trial)
+        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("prepared".utf8).write(to: output)
+        try store.usePreparedVideo(output, for: trial)
+        trial = try XCTUnwrap(store.selectedTrial)
+        XCTAssertEqual(store.project?.trials.count, 1)
+        XCTAssertNil(store.analysisURL(for: trial))
+        XCTAssertEqual(store.videoURL(for: trial), output)
+        XCTAssertEqual(try Data(contentsOf: original), Data("original".utf8))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.deletingLastPathComponent().appendingPathComponent("previous-analysis/corrections.json").path))
+        let reopened = ProjectStore(paths: paths, trashHandler: { _ in })
+        XCTAssertEqual(reopened.selectedTrial?.preparedVideoRelativePath, trial.preparedVideoRelativePath)
+        try FileManager.default.removeItem(at: output)
+        XCTAssertNil(store.videoURL(for: trial), "Never silently substitute original geometry for a missing prepared clip")
+        try store.usePreparedVideo(nil, for: trial)
+        trial = try XCTUnwrap(store.selectedTrial)
+        XCTAssertEqual(store.videoURL(for: trial), original)
+        let revisionRoot = try XCTUnwrap(trial.preparationDirectoryRelativePath.flatMap(store.url(for:)))
+        try store.deleteTrial(trial)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: revisionRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path), "External original must remain")
+    }
     private func temporaryDirectory(_ label: String = "test") throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CornholeBiomechanics-\(label)-\(UUID().uuidString)", isDirectory: true)
@@ -208,6 +284,14 @@ final class ModelTests: XCTestCase {
         try first.addAthlete(NewAthleteDraft(participantCode: "MISSING-01", dominantHand: .left))
         let moved = base.appendingPathComponent("Moved Data")
         try FileManager.default.moveItem(at: library, to: moved)
+
+        // Without the sandbox, macOS can resolve a moved folder through its
+        // bookmark. This fixture specifically tests an unavailable location,
+        // so remove the recovery bookmark rather than assuming it cannot work.
+        let indexURL = support.appendingPathComponent("library-location.json")
+        var savedIndex = try JSONDecoder.projectDecoder.decode(LibraryLocationIndex.self, from: Data(contentsOf: indexURL))
+        savedIndex.bookmarkData = nil
+        try JSONEncoder.projectEncoder.encode(savedIndex).write(to: indexURL, options: .atomic)
 
         let second = ProjectStore(paths: paths, automaticallyRestore: true, trashHandler: { _ in })
         XCTAssertNil(second.project)

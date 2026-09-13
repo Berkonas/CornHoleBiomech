@@ -23,8 +23,10 @@ struct ResultsView: View {
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled) }
             if refreshing { HStack { ProgressView().controlSize(.small); Text("Preparing the latest trial results…").foregroundStyle(.secondary) } }
             if let trial = store.selectedTrial, let insight, insight.trial_id == trial.id.uuidString {
-                scoreStrip(insight)
                 if insight.needs_reanalysis { Label("Corrections changed. Reanalyze before interpreting these measurements.", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange) }
+                measurementStrip(insight)
+                board(insight, trial: trial)
+                DisclosureGroup("Experimental summary indices · not validated skill scores") { scoreStrip(insight) }
                 if !insight.warnings.isEmpty {
                     DisclosureGroup("\(insight.warnings.count) measurement warning\(insight.warnings.count == 1 ? "" : "s") — review before interpreting") {
                         ForEach(Array(insight.warnings.enumerated()), id: \.offset) { _, warning in Text(warning).font(.callout).frame(maxWidth: .infinity, alignment: .leading) }
@@ -41,8 +43,6 @@ struct ResultsView: View {
                     MovementWorkspace(normalized: normalized, comparison: insight.similarity == nil ? nil : data.comparison,
                                       videoURL: store.videoURL(for: trial), events: data.events, fps: insight.quality.frameRateFPS, fraction: $fraction)
                 }
-                Divider()
-                board(insight, trial: trial)
                 Divider()
                 consistency(insight.consistency)
                 Divider()
@@ -66,7 +66,7 @@ struct ResultsView: View {
     private var trialPicker: some View {
         Picker("Throw", selection: $store.selectedTrialID) {
             Text("Choose a throw…").tag(UUID?.none)
-            ForEach(store.analyzedTrials) { trial in Text("\(name(trial.athleteID)) · \(trial.originalFilename)").tag(Optional(trial.id)) }
+            ForEach(store.analyzedTrials.filter { store.selectedAthleteID == nil || $0.athleteID == store.selectedAthleteID }) { trial in Text(trial.displayName).tag(Optional(trial.id)) }
         }.frame(maxWidth: 520).disabled(analysis.isRunning)
     }
     private var actions: some View {
@@ -82,6 +82,28 @@ struct ResultsView: View {
             resultNumber(title: "TRACKING QUALITY", value: number(value.quality.score, digits: 0), unit: "/ 100", explanation: value.quality.score == nil ? "Reanalyze to calculate" : "Raw tracking visibility and confidence", color: value.quality.score ?? 0 < 65 ? .orange : .primary)
             resultNumber(title: "ATHLETE CONSISTENCY", value: number(value.consistency.score, digits: 0), unit: "/ 100", explanation: value.consistency.score == nil ? "More trials needed · \(value.consistency.n)/\(value.consistency.minimum_trials)" : "Repeatability · \(value.consistency.n) throws", color: .primary)
         }.padding(.vertical, 16)
+    }
+    private func measurementStrip(_ value: TrialInsights) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Movement measurements").font(.title2.weight(.semibold))
+            Text("Projected 2D estimates from this camera view. Review landmarks and release before interpretation; an unavailable value is not zero.").font(.callout).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), alignment: .leading)], spacing: 16) {
+                measurement("Elbow included angle at release", key: "elbow_angle_deg_at_release", unit: "°", note: "180° is a straight projected elbow")
+                measurement("Trunk inclination at release", key: "trunk_inclination_deg_at_release", unit: "°", note: "Relative to image vertical; camera alignment matters")
+                measurement("Forward-swing wrist travel", key: "wrist_forward_swing_path_length_arm_lengths", unit: "arm lengths", note: "Shoulder-relative projected path")
+                measurement("Movement duration", key: "movement_duration_seconds", unit: "s", note: "Reviewed motion start to motion end")
+            }
+            Text("Recorded at \(value.quality.frameRateFPS.formatted()) fps · frame-limited events · \(trialViewLabel)").font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 12)
+    }
+    private var trialViewLabel: String { store.selectedTrial?.cameraView == .side ? "side-view interpretation" : "non-side projection: exploratory interpretation" }
+    private func measurement(_ title: String, key: String, unit: String, note: String) -> some View {
+        let value: Double? = data.results?.summaries[key] ?? nil
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.callout.weight(.medium))
+            HStack(alignment: .firstTextBaseline) { Text(number(value, digits: 2)).font(.title).monospacedDigit(); Text(unit).font(.caption).foregroundStyle(.secondary) }
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private func resultNumber(title: String, value: String, unit: String, explanation: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {

@@ -30,13 +30,16 @@ struct CornholeBiomechanicsApp: App {
         .defaultSize(width: 1240, height: 820)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Athlete Library…") { post(.createStudyProject) }
+                Button("Add Athlete…") { post(.addAthlete) }
                     .keyboardShortcut("n", modifiers: .command)
+                    .disabled(analysis.isRunning)
+                Divider()
+                Button("New Separate Library…") { post(.createStudyProject) }.disabled(analysis.isRunning)
                 Button("Choose Athlete Library…") { post(.openStudyProject) }
                     .keyboardShortcut("o", modifiers: .command)
-                Button("Import Legacy .cornholeproject…") { post(.importLegacyProject) }
+                    .disabled(analysis.isRunning)
+                Button("Import Legacy .cornholeproject…") { post(.importLegacyProject) }.disabled(analysis.isRunning)
                 Divider()
-                Button("Add Athlete…") { post(.addAthlete) }
             }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { undoTrackingOrText(redo: false) }.keyboardShortcut("z", modifiers: .command)
@@ -52,11 +55,13 @@ struct CornholeBiomechanicsApp: App {
             CommandMenu("Throw") {
                 Button("Import Throw Video…") { post(.importTrialVideo) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
-                Button("Import Reference Video…") { post(.importReferenceVideo) }
+                    .disabled(analysis.isRunning)
+                Button("Import Reference Video…") { post(.importReferenceVideo) }.disabled(analysis.isRunning)
                 Button("Analyze Selected Trial") { post(.analyzeSelectedTrial) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Add or Edit Outcome…") { post(.addTrialOutcome) }
                     .keyboardShortcut("u", modifiers: [.command, .shift])
+                    .disabled(analysis.isRunning)
                 Divider()
                 Button("Export Analysis…") { post(.exportSelectedTrial) }
                     .keyboardShortcut("e", modifiers: [.command, .shift])

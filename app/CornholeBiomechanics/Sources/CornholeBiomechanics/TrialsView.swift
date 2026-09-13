@@ -10,13 +10,13 @@ struct TrialsView: View {
         HSplitView {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("Recorded Throws").font(.headline)
+                    Text(store.selectedAthlete?.displayName ?? "Recorded Throws").font(.headline)
                     Spacer()
                     Button(action: beginImport) { Image(systemName: "plus") }.help("Import local video")
                 }
-                List(store.project?.trials ?? [], selection: $store.selectedTrialID) { trial in
+                List((store.project?.trials ?? []).filter { store.selectedAthleteID == nil || $0.athleteID == store.selectedAthleteID }, selection: $store.selectedTrialID) { trial in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(trial.originalFilename).lineLimit(1)
+                        Text(trial.displayName).lineLimit(1)
                         HStack {
                             Text(athleteName(trial.athleteID))
                             Text("·")
@@ -54,12 +54,13 @@ struct TrialDetailView: View {
     @State private var selectedTab = "Inspect"
     @State private var editingMetadata = false
     @State private var deletionTarget: String?
+    @State private var preparingVideo = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(trial.originalFilename).font(.title2.weight(.semibold)).lineLimit(1)
+                    Text(trial.displayName).font(.title2.weight(.semibold)).lineLimit(1)
                     Text("\(athleteName) · \(trial.cameraView.label) view · \(trial.throwingSide.label)-hand throw")
                         .foregroundStyle(.secondary)
                 }
@@ -76,7 +77,7 @@ struct TrialDetailView: View {
                     Button("Delete Analysis…", role: .destructive) { deletionTarget = "analysis" }
                         .disabled(trial.analysisRelativePath == nil)
                     Button("Delete Throw…", role: .destructive) { deletionTarget = "throw" }
-                } label: { Label("Manage", systemImage: "ellipsis.circle") }
+                } label: { Label("Manage", systemImage: "ellipsis.circle") }.disabled(analysis.isRunning)
             }.padding([.horizontal, .top], 20)
             Picker("Trial section", selection: $selectedTab) {
                 Text("Inspect & Correct").tag("Inspect")
@@ -85,6 +86,9 @@ struct TrialDetailView: View {
                 Text("Metadata").tag("Metadata")
             }.pickerStyle(.segmented).labelsHidden().padding()
             HStack {
+                Button("Trim / Crop / Rotate…") { preparingVideo = true }.disabled(analysis.isRunning || store.originalVideoURL(for: trial) == nil)
+                Button(trial.analysisRelativePath == nil ? "Analyze throw" : "Reanalyze") { Task { await analysis.analyze(trial: trial, store: store) } }
+                    .disabled(analysis.isRunning || store.videoURL(for: trial) == nil)
                 Button("Understand this throw") { store.selectedSection = .results }.buttonStyle(.borderedProminent).disabled(trial.analysisRelativePath == nil)
                 Button("Add / edit outcome") { NotificationCenter.default.post(name: .addTrialOutcome, object: nil) }.disabled(analysis.isRunning)
                 if let error = data.loadError { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -99,11 +103,14 @@ struct TrialDetailView: View {
                 default:
                     if case .missing = store.videoState(for: trial) {
                         ContentUnavailableView {
-                            Label("Missing source video", systemImage: "exclamationmark.triangle")
+                            Label("Recording unavailable", systemImage: "exclamationmark.triangle")
                         } description: {
-                            Text("The record and analysis were retained. Locate the moved file to relink this throw.")
+                            Text(trial.preparedVideoRelativePath == nil ? "The record and analysis were retained. Locate the moved original to relink this throw." : "The prepared copy is missing. Prepare a new copy from the original, or use the original again; fresh analysis will be required.")
                         } actions: {
-                            Button("Locate / Relink…") { store.locateAndRelinkVideo(for: trial) }
+                            Button(store.originalVideoURL(for: trial) == nil ? "Locate / Relink…" : "Prepare from original…") {
+                                if store.originalVideoURL(for: trial) == nil { store.locateAndRelinkVideo(for: trial) }
+                                else { preparingVideo = true }
+                            }
                                 .buttonStyle(.borderedProminent)
                         }
                     } else if let videoURL = store.videoURL(for: trial), data.pose != nil {
@@ -111,13 +118,10 @@ struct TrialDetailView: View {
                     } else if analysis.activeTrialID == trial.id {
                         ContentUnavailableView("Analyzing video", systemImage: "waveform.path.ecg", description: Text(analysis.detail))
                     } else {
-                        ContentUnavailableView {
-                            Label("Analysis required", systemImage: "figure.walk.motion")
-                        } description: {
-                            Text("Run the local markerless pose engine before inspecting landmarks or derived kinematics.")
-                        } actions: {
-                            Button("Analyze Trial") { Task { await analysis.analyze(trial: trial, store: store) } }.buttonStyle(.borderedProminent)
-                        }
+                        VStack(spacing: 16) {
+                            if let url = store.videoURL(for: trial) { UnanalyzedVideoPreview(url: url).id(url) }
+                            Text("1. Prepare video  →  2. Analyze  →  3. Review tracking and release  →  4. Record outcome and read results").font(.callout).foregroundStyle(.secondary)
+                        }.padding()
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).disabled(analysis.isRunning)
@@ -127,6 +131,8 @@ struct TrialDetailView: View {
             if oldValue && !newValue { data.load(analysisURL: store.analysisURL(for: store.selectedTrial ?? trial)) }
         }
         .sheet(isPresented: $editingMetadata) { TrialEditForm(trial: trial) }
+        .sheet(isPresented: $preparingVideo, onDismiss: { data.load(analysisURL: store.analysisURL(for: store.selectedTrial ?? trial)) }) { VideoPreparationView(trial: trial) }
+        .onChange(of: trial.analysisRelativePath) { _, _ in data.load(analysisURL: store.analysisURL(for: trial)) }
         .confirmationDialog(
             deletionTarget == "analysis" ? "Delete derived analysis?" : "Delete this throw?",
             isPresented: Binding(get: { deletionTarget != nil }, set: { if !$0 { deletionTarget = nil } }),
@@ -155,6 +161,20 @@ struct TrialDetailView: View {
 
     private var athleteName: String {
         store.project?.athletes.first { $0.id == trial.athleteID }?.displayName ?? "Unknown athlete"
+    }
+}
+
+private struct UnanalyzedVideoPreview: View {
+    let url: URL
+    @State private var player: AVPlayer
+    init(url: URL) {
+        self.url = url
+        _player = State(initialValue: AVPlayer(url: url))
+    }
+    var body: some View {
+        NativeVideoPlayer(player: player, showsControls: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onDisappear { player.pause() }
     }
 }
 
@@ -398,7 +418,7 @@ private struct BagSeedEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Seed Bag Tracker").font(.title2.weight(.semibold))
-            Text("Frame \(frame) · enter a tight rectangle around the bag in original video pixels (top-left origin). The tracker runs forward from this reviewed seed on reanalysis.")
+            Text("Frame \(frame) · enter a tight rectangle around the bag in this analysis video’s pixels (top-left origin). The tracker runs forward from this reviewed seed on reanalysis.")
                 .foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow { Text("Left x"); TextField("pixels", text: $x) }
@@ -447,7 +467,7 @@ private struct BagCoordinateEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Correct Bag Centroid").font(.title2.weight(.semibold))
-            Text("Frame \(frame) · original video pixels, measured from the top-left corner.").foregroundStyle(.secondary)
+            Text("Frame \(frame) · analysis video pixels, measured from the top-left corner.").foregroundStyle(.secondary)
             TextField("X pixel", text: $x)
             TextField("Y pixel", text: $y)
             Text("This adds a separate reviewed point; it never overwrites the immutable automatic track. Add anchors on both sides of a short gap to interpolate it explicitly.")

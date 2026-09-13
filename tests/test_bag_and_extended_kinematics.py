@@ -250,6 +250,8 @@ def test_pipeline_writes_separate_bag_artifacts_and_provenance(tmp_path):
     assert result["results"]["bag"]["tracker"]["effective_method"] == "synthetic_test"
     assert result["results"]["bag"]["launch"]["status"] == "suppressed_unreviewed_track"
     assert result["results"]["summaries"]["bag_release_speed_arm_lengths_s"] is None
+    assert result["results"]["summaries"]["shoulder_bag_radius_at_release_arm_lengths"] is None
+    assert 'bag' not in result["results"]["events"]["release"]["automatic_method"]
     assert result["manifest"]["bag_tracking"]["raw_track_sha256"] == file_sha256(output / "bag_raw.json")
     assert result["results"]["metrics_metadata"]["bag_release_speed_arm_lengths_s"]["units"] == "arm lengths/s"
 

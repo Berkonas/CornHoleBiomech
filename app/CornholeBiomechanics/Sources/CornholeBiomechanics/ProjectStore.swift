@@ -32,7 +32,7 @@ private func moveToTrash(_ url: URL) throws {
 final class ProjectStore: ObservableObject {
     @Published private(set) var project: StudyProject?
     @Published private(set) var projectURL: URL?
-    @Published var selectedSection: AppSection? = .overview
+    @Published var selectedSection: AppSection? = .athletes
     @Published var selectedAthleteID: UUID?
     @Published var selectedTrialID: UUID?
     @Published var selectedSessionID: UUID?
@@ -103,7 +103,7 @@ final class ProjectStore: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let source = try decodeProject(at: url)
-            if source.schemaVersion < currentProjectSchemaVersion {
+            if source.schemaVersion < 2 {
                 let summary = try importLegacyProject(at: url)
                 notice = migrationNotice(summary)
             } else {
@@ -127,10 +127,16 @@ final class ProjectStore: ObservableObject {
 
     func open(_ url: URL) throws {
         var decoded = try decodeProject(at: url)
-        guard decoded.schemaVersion >= currentProjectSchemaVersion else {
+        guard decoded.schemaVersion >= 2 else {
             throw ProjectStoreError.invalidProjectFolder
         }
         let normalizedLegacyReferences = normalizeLegacyReferences(in: &decoded)
+        if decoded.schemaVersion == 2 {
+            let backup = url.appendingPathComponent("project.schema2.backup.json")
+            if !fileManager.fileExists(atPath: backup.path) {
+                try fileManager.copyItem(at: url.appendingPathComponent("project.json"), to: backup)
+            }
+        }
         try beginAccessing(url)
         projectURL = url
         project = decoded
@@ -138,7 +144,7 @@ final class ProjectStore: ObservableObject {
         selectedAthleteID = decoded.athletes.first?.id
         selectedTrialID = decoded.trials.first?.id
         selectedReferenceSetID = decoded.referenceSets.first?.id
-        selectedSection = .overview
+        selectedSection = .athletes
         try ensureDirectoryStructure(at: url)
         if normalizedLegacyReferences { try save() } else { try persistLibraryLocation() }
         notice = "Opened \(decoded.name) athlete library."
@@ -150,10 +156,12 @@ final class ProjectStore: ObservableObject {
         value.appVersion = applicationVersion
         value.updatedAt = Date()
         let data = try JSONEncoder.projectEncoder.encode(value)
-        try data.write(to: root.appendingPathComponent("project.json"), options: .atomic)
-        project = value
         try writeAthleteProfiles()
         try persistLibraryLocation()
+        // Commit the authoritative index last so a failed auxiliary write does
+        // not leave a deletion committed on disk while files are rolled back.
+        try data.write(to: root.appendingPathComponent("project.json"), options: .atomic)
+        project = value
     }
 
     func addAthlete(_ draft: NewAthleteDraft) throws {
@@ -195,6 +203,12 @@ final class ProjectStore: ObservableObject {
                 if let path = value.trials[trialIndex].analysisRelativePath {
                     value.trials[trialIndex].analysisRelativePath = replacingPrefix(path, old: oldRelative, new: newRelative)
                 }
+                if let path = value.trials[trialIndex].preparedVideoRelativePath {
+                    value.trials[trialIndex].preparedVideoRelativePath = replacingPrefix(path, old: oldRelative, new: newRelative)
+                }
+                if let path = value.trials[trialIndex].preparationDirectoryRelativePath {
+                    value.trials[trialIndex].preparationDirectoryRelativePath = replacingPrefix(path, old: oldRelative, new: newRelative)
+                }
             }
         }
         value.athletes[index] = changed
@@ -218,7 +232,16 @@ final class ProjectStore: ObservableObject {
     }
 
     func updateTrialMetadata(_ changed: Trial) throws {
-        try updateTrial(changed)
+        guard let current = project?.trials.first(where: { $0.id == changed.id }) else { throw ProjectStoreError.recordNotFound("throw") }
+        var updated = changed
+        if current.cameraView != changed.cameraView || current.throwingSide != changed.throwingSide || current.targetDirection != changed.targetDirection {
+            if let directory = analysisURL(for: current) {
+                let marker = ["reason": "Camera view, throwing side, or target direction changed. Reanalyze before interpretation."]
+                try JSONEncoder().encode(marker).write(to: directory.appendingPathComponent("needs_reanalysis.json"), options: .atomic)
+                updated.analysisStatus = "Metadata changed — reanalyze"
+            }
+        }
+        try updateTrial(updated)
     }
 
     func setReference(_ isReference: Bool, for trial: Trial) throws {
@@ -345,6 +368,7 @@ final class ProjectStore: ObservableObject {
 
     func deleteTrial(_ trial: Trial) throws {
         var resources = comparisonURLs(for: trial.id)
+        if let path = trial.preparationDirectoryRelativePath, let url = containedURL(for: path) { resources.append(url) }
         if let video = containedURL(for: trial.sourceVideoRelativePath) { resources.append(video) }
         if let path = trial.analysisRelativePath, let analysis = containedURL(for: path) { resources.append(analysis) }
         try performRecoverableMutation(fileURLs: resources) { value in
@@ -371,6 +395,7 @@ final class ProjectStore: ObservableObject {
             resources.append(root.appendingPathComponent(athleteRelativeDirectory(for: athlete), isDirectory: true))
         }
         for trial in trials {
+            if let path = trial.preparationDirectoryRelativePath, let url = containedURL(for: path) { resources.append(url) }
             if let video = containedURL(for: trial.sourceVideoRelativePath) { resources.append(video) }
             if let path = trial.analysisRelativePath, let analysis = containedURL(for: path) { resources.append(analysis) }
             resources += comparisonURLs(for: trial.id)
@@ -397,6 +422,12 @@ final class ProjectStore: ObservableObject {
     }
 
     func relinkVideo(trialID: UUID, to sourceURL: URL) throws {
+        if let current = project?.trials.first(where: { $0.id == trialID }),
+           fileManager.fileExists(atPath: sourceURL.path),
+           current.analysisRelativePath != nil || current.preparedVideoRelativePath != nil {
+            // Replacement identity may differ. Never attach old coordinates to it.
+            try usePreparedVideo(nil, for: current)
+        }
         guard var value = project, let root = projectURL,
               let index = value.trials.firstIndex(where: { $0.id == trialID }) else {
             throw ProjectStoreError.recordNotFound("throw")
@@ -450,6 +481,10 @@ final class ProjectStore: ObservableObject {
         guard var value = project, let root = projectURL else { throw ProjectStoreError.noOpenProject }
         guard let athleteID = draft.athleteID else { throw ProjectStoreError.athleteRequired }
         guard value.athletes.contains(where: { $0.id == athleteID }) else { throw ProjectStoreError.recordNotFound("athlete") }
+        if let sessionID = draft.sessionID,
+           value.sessions?.contains(where: { $0.id == sessionID && $0.athleteID == athleteID }) != true {
+            throw ProjectStoreError.recordNotFound("session for this athlete")
+        }
         let trialID = UUID()
         let safeName = safeFilename(draft.videoURL.lastPathComponent)
         let relative = managedVideoRelativePath(athleteID: athleteID, trialID: trialID, filename: safeName)
@@ -514,8 +549,9 @@ final class ProjectStore: ObservableObject {
         guard let index = project?.trials.firstIndex(where: { $0.id == changed.id }) else {
             throw ProjectStoreError.recordNotFound("throw")
         }
+        let previous = project
         project?.trials[index] = changed
-        try save()
+        do { try save() } catch { project = previous; throw error }
     }
 
     func saveOutcome(_ outcome: TrialOutcome, for trial: Trial) throws {
@@ -584,7 +620,7 @@ final class ProjectStore: ObservableObject {
     }
 
     func videoState(for trial: Trial) -> LibraryFileState {
-        guard let url = containedURL(for: trial.sourceVideoRelativePath) else { return .unassigned }
+        guard let url = containedURL(for: trial.preparedVideoRelativePath ?? trial.sourceVideoRelativePath) else { return .unassigned }
         return fileManager.fileExists(atPath: url.path) ? .available(url) : .missing(url)
     }
 
@@ -599,6 +635,50 @@ final class ProjectStore: ObservableObject {
     func videoURL(for trial: Trial) -> URL? {
         guard case .available(let url) = videoState(for: trial) else { return nil }
         return url
+    }
+
+    func originalVideoURL(for trial: Trial) -> URL? {
+        guard let url = containedURL(for: trial.sourceVideoRelativePath), fileManager.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    func preparationOutput(for trial: Trial) throws -> URL {
+        // Keep revisions alongside the managed recording, including legacy libraries.
+        let directory = trial.preparationDirectoryRelativePath
+            ?? (trial.sourceVideoRelativePath as NSString).deletingLastPathComponent + "/\(trial.id.uuidString)-video-revisions"
+        guard let root = containedURL(for: directory) else { throw ProjectStoreError.invalidLibraryPath(directory) }
+        return root.appendingPathComponent(UUID().uuidString).appendingPathComponent("prepared.mp4")
+    }
+
+    func usePreparedVideo(_ output: URL?, for trial: Trial) throws {
+        guard let root = projectURL, let current = project?.trials.first(where: { $0.id == trial.id }) else {
+            throw ProjectStoreError.recordNotFound("throw")
+        }
+        let output = output?.standardizedFileURL
+        let relative = output.flatMap { relativePathIfContained($0, by: root) }
+        if let output, (relative == nil || !fileManager.fileExists(atPath: output.path)) {
+            throw ProjectStoreError.invalidLibraryPath(output.path)
+        }
+        let revision = try output ?? preparationOutput(for: current)
+        let archive = revision.deletingLastPathComponent().appendingPathComponent("previous-analysis")
+        let oldAnalysis = analysisURL(for: current)
+        if let oldAnalysis {
+            try fileManager.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.moveItem(at: oldAnalysis, to: archive)
+        }
+        do {
+            try performRecoverableMutation(fileURLs: comparisonURLs(for: trial.id)) { value in
+                guard let index = value.trials.firstIndex(where: { $0.id == trial.id }) else { return }
+                value.trials[index].preparedVideoRelativePath = relative
+                value.trials[index].preparationDirectoryRelativePath = relativePathIfContained(revision.deletingLastPathComponent().deletingLastPathComponent(), by: root)
+                value.trials[index].analysisRelativePath = nil
+                value.trials[index].analysisStatus = "Video changed — analyze again"
+            }
+        } catch {
+            if let oldAnalysis { try? fileManager.moveItem(at: archive, to: oldAnalysis) }
+            throw error
+        }
+        notice = "Video updated. The original and previous analysis are preserved in video revisions. Analyze again before reviewing measurements."
     }
 
     func analysisURL(for trial: Trial) -> URL? {
@@ -648,7 +728,7 @@ final class ProjectStore: ObservableObject {
         if paths.libraryRootWasOverridden {
             if fileManager.fileExists(atPath: paths.defaultLibraryURL.appendingPathComponent("project.json").path) {
                 let candidate = try decodeProject(at: paths.defaultLibraryURL)
-                guard candidate.schemaVersion >= currentProjectSchemaVersion else {
+                guard candidate.schemaVersion >= 2 else {
                     throw ProjectStoreError.invalidProjectFolder
                 }
                 try open(paths.defaultLibraryURL)
@@ -669,7 +749,7 @@ final class ProjectStore: ObservableObject {
                 return
             }
             let candidate = try decodeProject(at: savedURL)
-            guard candidate.schemaVersion >= currentProjectSchemaVersion else {
+            guard candidate.schemaVersion >= 2 else {
                 missingLibraryURL = savedURL
                 throw ProjectStoreError.invalidProjectFolder
             }
@@ -807,6 +887,18 @@ final class ProjectStore: ObservableObject {
                 warnings.append("Missing source video for throw \(imported.id.uuidString); its record was retained for Locate / Relink.")
             }
             imported.sourceVideoRelativePath = videoRelative
+
+            if let oldDirectory = sourceTrial.preparationDirectoryRelativePath,
+               let sourceDirectory = legacyResourceURL(oldDirectory, root: sourceRoot) {
+                let newDirectory = (videoRelative as NSString).deletingLastPathComponent + "/\(imported.id.uuidString)-video-revisions"
+                if fileManager.fileExists(atPath: sourceDirectory.path) {
+                    try copyItemPreservingExisting(from: sourceDirectory, to: targetRoot.appendingPathComponent(newDirectory))
+                }
+                imported.preparationDirectoryRelativePath = newDirectory
+                if let prepared = sourceTrial.preparedVideoRelativePath {
+                    imported.preparedVideoRelativePath = replacingPrefix(prepared, old: oldDirectory, new: newDirectory)
+                }
+            }
 
             if let analysisPath = sourceTrial.analysisRelativePath {
                 let analysisRelative = managedAnalysisRelativePath(
@@ -1032,13 +1124,19 @@ final class ProjectStore: ObservableObject {
 
         let operation = root.appendingPathComponent(".Deletion Staging/\(UUID().uuidString)", isDirectory: true)
         var moves: [(source: URL, destination: URL)] = []
-        if !selected.isEmpty {
-            try fileManager.createDirectory(at: operation, withIntermediateDirectories: true)
-            for (index, source) in selected.enumerated() {
-                let destination = operation.appendingPathComponent("\(index)-\(source.lastPathComponent)")
-                try fileManager.moveItem(at: source, to: destination)
-                moves.append((source, destination))
+        do {
+            if !selected.isEmpty {
+                try fileManager.createDirectory(at: operation, withIntermediateDirectories: true)
+                for (index, source) in selected.enumerated() {
+                    let destination = operation.appendingPathComponent("\(index)-\(source.lastPathComponent)")
+                    try fileManager.moveItem(at: source, to: destination)
+                    moves.append((source, destination))
+                }
             }
+        } catch {
+            for move in moves.reversed() { try? fileManager.moveItem(at: move.destination, to: move.source) }
+            // Keep staging if rollback fails; it contains recoverable user files.
+            throw error
         }
 
         let previous = project
@@ -1051,7 +1149,7 @@ final class ProjectStore: ObservableObject {
                 try? fileManager.createDirectory(at: move.source.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? fileManager.moveItem(at: move.destination, to: move.source)
             }
-            try? fileManager.removeItem(at: operation)
+            // Do not remove staging: a failed rollback must remain recoverable.
             throw error
         }
 

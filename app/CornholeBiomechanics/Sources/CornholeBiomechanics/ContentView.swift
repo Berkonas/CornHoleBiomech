@@ -14,13 +14,14 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $store.selectedSection) {
-                Section("Athlete Library") {
-                    ForEach(AppSection.allCases) { section in
+                Section("Workspace") {
+                    ForEach([AppSection.athletes, .trials, .results, .compare, .reference, .overview]) { section in
                         Label(section.rawValue, systemImage: section.symbol).tag(section)
                     }
                 }
             }
             .navigationSplitViewColumnWidth(min: 155, ideal: 175, max: 230)
+            .disabled(analysis.isRunning)
             .navigationTitle(store.project?.name ?? applicationName)
             .safeAreaInset(edge: .bottom) { projectStatus }
         } detail: {
@@ -31,6 +32,7 @@ struct ContentView: View {
                     destination
                 }
             }
+            .disabled(analysis.isRunning)
             .navigationTitle(store.selectedSection?.rawValue ?? applicationName)
             .toolbar { toolbar }
         }
@@ -46,6 +48,14 @@ struct ContentView: View {
             Button("OK") { store.errorMessage = nil; analysis.errorMessage = nil }
         } message: { Text(store.errorMessage ?? analysis.errorMessage ?? "Unknown error") }
         .safeAreaInset(edge: .bottom) { analysisProgress }
+        .onChange(of: store.selectedAthleteID) { _, id in
+            if store.project?.sessions?.first(where: { $0.id == store.selectedSessionID })?.athleteID != id {
+                store.selectedSessionID = nil
+            }
+            if store.selectedTrial?.athleteID != id {
+                store.selectedTrialID = store.project?.trials.first(where: { $0.athleteID == id })?.id
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .createStudyProject)) { _ in store.createProject() }
         .onReceive(NotificationCenter.default.publisher(for: .openStudyProject)) { _ in store.openProject() }
         .onReceive(NotificationCenter.default.publisher(for: .importLegacyProject)) { _ in store.importLegacyProject() }
@@ -72,22 +82,14 @@ struct ContentView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
+            Picker("Athlete", selection: $store.selectedAthleteID) {
+                Text("Choose athlete").tag(UUID?.none)
+                ForEach(store.project?.athletes ?? []) { Text($0.displayName).tag(Optional($0.id)) }
+            }.frame(maxWidth: 220).disabled(analysis.isRunning)
             Button { store.selectedSection = .athletes; showsAthleteSheet = true } label: { Label("Add Athlete", systemImage: "person.badge.plus") }
-                .disabled(store.project == nil)
+                .labelStyle(.titleAndIcon).disabled(store.project == nil || analysis.isRunning)
             Button { beginImport(asReference: false) } label: { Label("Import Throw", systemImage: "square.and.arrow.down") }
-                .disabled(store.project == nil || store.project?.athletes.isEmpty == true)
-            Button { beginImport(asReference: true) } label: { Label("Add Reference", systemImage: "bookmark.badge.plus") }
-                .disabled(store.project == nil || store.project?.athletes.isEmpty == true)
-            Button(action: analyzeSelected) { Label("Analyze", systemImage: "waveform.path.ecg") }
-                .disabled(store.selectedTrial == nil || analysis.isRunning)
-            Button { showsOutcomeSheet = true } label: { Label("Add Outcome", systemImage: "scope") }
-                .disabled(store.selectedTrial == nil || analysis.isRunning)
-            Button { store.selectedSection = .compare } label: { Label("Compare", systemImage: "rectangle.split.2x1") }
-                .disabled(store.analyzedTrials.isEmpty)
-            Button {
-                if let trial = store.selectedTrial { store.exportAnalysis(for: trial) }
-            } label: { Label("Export", systemImage: "square.and.arrow.up") }
-            .disabled(store.selectedTrial?.analysisRelativePath == nil)
+                .labelStyle(.titleAndIcon).disabled(store.project == nil || store.project?.athletes.isEmpty == true || analysis.isRunning)
         }
     }
 

@@ -91,7 +91,7 @@ def _summary_units(name: str) -> str:
         return "m/s"
     if name.endswith("_arm_lengths_s"):
         return "arm lengths/s"
-    if name.endswith("_deg_s"):
+    if name.endswith("_deg_s") or "_deg_s_" in name:
         return "degrees/s"
     if name.endswith("_deg") or "_deg_" in name:
         return "degrees"
@@ -140,7 +140,7 @@ def analyze_trial(
     device: str = "cpu",
     force_pose: bool = False,
     make_annotated_video: bool = True,
-    app_version: str = "0.3.0",
+    app_version: str = "0.4.0",
     progress: Progress = _no_progress,
     bag_track_input: str | Path | None = None,
     bag_seed_path: str | Path | None = None,
@@ -152,6 +152,9 @@ def analyze_trial(
     output.mkdir(parents=True, exist_ok=True)
     progress("loading_video", 0.02, "Reading video metadata without modifying the source")
     video = read_video_metadata(context.source_video)
+    preparation = _load_json(Path(video.path).with_suffix('.preparation.json'), None)
+    if preparation is not None and preparation.get('derived', {}).get('sha256') != video.sha256:
+        raise ValueError('Video preparation provenance does not match this clip. Prepare a new copy from the original.')
     config = merged_config(config_overrides)
     validate_config(config, video.fps)
 
@@ -276,7 +279,14 @@ def analyze_trial(
             float(config["bag_tracking"]["confidence_threshold"]),
             int(config["max_interpolation_gap_frames"]),
         )
-        bag_gap_handled = bag_derived["effective"]
+        # Never allow an unreviewed object identity into kinematics or the
+        # zero-phase filter (future background drift can contaminate release).
+        # The full effective track remains in bag_track.json for visual review.
+        bag_gap_handled = np.array(bag_derived["effective"], copy=True)
+        reviewed_through = bag_corrections.reviewed_through_frame
+        bag_gap_handled[max(0, (reviewed_through + 1) if reviewed_through is not None else 0):] = np.nan
+        if reviewed_through is None:
+            bag_warnings.append("Bag-derived radii, trajectories, release detection, and launch quantities require frame-by-frame identity review. Automatic tracking is available for inspection only.")
         if filter_config["enabled"] and filter_config["type"] != "none":
             bag_filtered, _, current_warnings = lowpass_zero_phase(
                 bag_gap_handled,
@@ -614,6 +624,7 @@ def analyze_trial(
         "pose_model_sha256": sequence.model_sha256,
         "pose_backend_metadata": sequence.backend_metadata,
         "source_video": video.to_dict(),
+        "video_preparation": preparation,
         "trial_context": asdict(context),
         "analysis_configuration": config,
         "effective_filter_cutoff_hz": effective_cutoff,

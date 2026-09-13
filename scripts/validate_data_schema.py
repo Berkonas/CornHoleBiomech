@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 def _field(value: dict[str, Any], snake_case: str, camel_case: str) -> Any:
@@ -71,6 +71,9 @@ def validate_project(document: dict[str, Any], source: Path) -> list[str]:
         analysis = _field(trial, "analysis_relative_path", "analysisRelativePath")
         if analysis is not None:
             _relative_path(analysis, f"{source}: trials[{index}].analysis_relative_path")
+        for name in ('preparedVideoRelativePath', 'preparationDirectoryRelativePath'):
+            if trial.get(name) is not None:
+                _relative_path(trial[name], f'{source}: trials[{index}].{name}')
 
     reference_sets = _field(document, "reference_sets", "referenceSets") or []
     if not isinstance(reference_sets, list):

@@ -209,7 +209,7 @@ def analyze_mediapipe(video: VideoMetadata, progress: Progress) -> PoseSequence:
         model_path = Path(
             __import__("os").environ.get(
                 "CORNHOLE_MEDIAPIPE_MODEL",
-                str(Path(__file__).resolve().parents[2] / "models" / "pose_landmarker_heavy.task"),
+                str(Path(__file__).resolve().parents[2] / "app" / "Resources" / "models" / "pose_landmarker_heavy.task"),
             )
         )
         if not model_path.is_file():

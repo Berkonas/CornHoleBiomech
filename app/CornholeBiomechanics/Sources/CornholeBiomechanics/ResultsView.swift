@@ -30,17 +30,7 @@ struct RelationshipScatter: View {
         }
     }
     private func featureValue(_ row: RelationshipDocument.DataRow) -> Double? {
-        switch feature {
-        case "elbow_angle_deg_at_release": row.elbowAngleAtRelease
-        case "elbow_angle_deg_rom": row.elbowROM
-        case "trunk_inclination_deg_at_release": row.trunkInclinationAtRelease
-        case "movement_duration_seconds": row.movementDuration
-        case "release_timing_cycle": row.releaseTimingCycle
-        case "reference_similarity_score": row.referenceSimilarityScore
-        case "wrist_reference_deviation_arm_lengths": row.wristReferenceDeviation
-        case "wrist_path_deviation_from_athlete_mean_arm_lengths": row.wristAthleteMeanDeviation
-        default: nil
-        }
+        row.numericFeatures[feature]
     }
     private var featureLabel: String { metricLabel(feature) }
     private var outcomeLabel: String { outcome == "radial_error_inches" ? "Approximate radial target error (in)" : "Cornhole score (0, 1, 3)" }

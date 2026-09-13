@@ -46,6 +46,15 @@ def parser() -> argparse.ArgumentParser:
     metadata.add_argument("video")
     metadata.set_defaults(handler=handle_video_info)
 
+    prepare = commands.add_parser('prepare-video', help='Create a trim/crop/rotation copy; preserve original')
+    prepare.add_argument('video')
+    prepare.add_argument('--output', required=True)
+    prepare.add_argument('--start-frame', type=int, default=0)
+    prepare.add_argument('--end-frame', type=int)
+    prepare.add_argument('--crop', nargs=4, type=int)
+    prepare.add_argument('--rotation', type=int, choices=(0, 90, 180, 270), default=0)
+    prepare.set_defaults(handler=handle_prepare_video)
+
     analyze = commands.add_parser("analyze", help="Analyze one local video trial")
     analyze.add_argument("video")
     analyze.add_argument("--output", required=True)
@@ -66,7 +75,7 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--bag-corrections", help="Apply separate reviewed bag centroid corrections JSON")
     analyze.add_argument("--calibration", help="Optional validated athlete-plane spatial calibration JSON")
     analyze.add_argument("--config")
-    analyze.add_argument("--app-version", default="0.3.0")
+    analyze.add_argument("--app-version", default=__version__)
     analyze.add_argument("--force-pose", action="store_true")
     analyze.add_argument("--no-annotated-video", action="store_true")
     analyze.set_defaults(handler=handle_analyze)
@@ -145,6 +154,11 @@ def handle_probe(args: argparse.Namespace) -> dict[str, Any]:
         "offline_after_model_cache": True,
         "openai_api_calls": False,
     }
+
+
+def handle_prepare_video(args: argparse.Namespace) -> dict[str, Any]:
+    from .preparation import prepare_video
+    return prepare_video(args.video, args.output, args.start_frame, args.end_frame, args.crop, args.rotation)
 
 
 def handle_video_info(args: argparse.Namespace) -> dict[str, Any]:
