@@ -193,6 +193,11 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
     variables = _selected_variables(rows)
     analyzed = {v.key: _analyze_variable(v, rows) for v in variables}
     by_key = {v.key: v for v in variables}
+    for key, a in analyzed.items():
+        # Individual throws for plotting; unknown outcomes keep group None.
+        a["points"] = [{"trial_id": r["trial_id"], "label": labels.get(r["trial_id"], r["trial_id"]),
+                        "value": float(r[key]), "group": group_label(r.get("score_category"))}
+                       for r in rows if r.get(key) is not None and np.isfinite(r[key])]
 
     if n_known == 0:
         result = "No observed outcomes yet. Record 0, 1 or 3 points for each throw to compare scored throws with misses."

@@ -238,6 +238,19 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(value.athlete.contains("SYNTHETIC"))
     }
 
+    func testPythonAthletePerformanceSummaryDecodes() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "insights_performance", withExtension: "json", subdirectory: "Fixtures"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let performance = try JSONSerialization.data(withJSONObject: XCTUnwrap(object["performance"]))
+        let value = try JSONDecoder.projectDecoder.decode(PerformanceSummary.self, from: performance)
+        let summary = try XCTUnwrap(value.summary)
+        XCTAssertTrue(summary.feedback.why.contains("lower release angle"))
+        let angle = try XCTUnwrap(summary.variables["bag_release_angle_deg"])
+        XCTAssertTrue(angle.distinguishes)
+        XCTAssertEqual(angle.points?.count, 11)
+        XCTAssertEqual(summary.counts["miss"], 5)
+    }
+
     func testCanonicalPythonCorrectionsDecodeAndEncodeSnakeCase() throws {
         let json = #"{"schema_version":1,"corrections":[{"frame_index":3,"landmark":"right_wrist","x":12,"y":34,"kind":"manual","created_at":"2026-09-07T12:00:00Z"}]}"#
         let document = try JSONDecoder.projectDecoder.decode(CorrectionDocument.self, from: Data(json.utf8))

@@ -26,16 +26,17 @@ struct ResultsView: View {
                 if insight.needs_reanalysis { Label("Corrections changed. Reanalyze before interpreting these measurements.", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange) }
                 if !insight.needs_reanalysis {
                 reviewReadiness
+                if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
                 measurementStrip(insight)
+                if let summary = insight.performance?.summary { ScoredVersusMissedPanel(summary: summary, currentTrialID: trial.id.uuidString) }
                 FlightPathPanel(flight: data.results?.flight)
                 board(insight, trial: trial)
-                if let performance = insight.performance { personalPerformance(performance) }
+                if let performance = insight.performance { landingGrouping(performance) }
                 if !insight.warnings.isEmpty {
                     DisclosureGroup("\(insight.warnings.count) measurement warning\(insight.warnings.count == 1 ? "" : "s") — review before interpreting") {
                         ForEach(Array(insight.warnings.enumerated()), id: \.offset) { _, warning in Text(warning).font(.callout).frame(maxWidth: .infinity, alignment: .leading) }
                     }.foregroundStyle(.orange)
                 }
-                Text(insight.coach_summary).font(.body).textSelection(.enabled).padding(.vertical, 6)
                 DisclosureGroup("Advanced · release components, body mechanics & research") {
                 if let bag = data.results?.bag {
                     Divider()
@@ -55,8 +56,6 @@ struct ResultsView: View {
                     DisclosureGroup("Explore movement and task performance") { relationshipPanel(relationships) }
                 }
                 qualityPanel(insight)
-                DisclosureGroup("Experimental indices · pilot tolerances, not skill scores") { scoreStrip(insight) }
-                if let similarity = insight.similarity { SimilarityBreakdown(similarity: similarity) }
                 HStack {
                     Button("Open local report") { openReport(trial) }
                     Button("Export research package…") { store.exportAnalysis(for: trial) }
@@ -101,50 +100,39 @@ struct ResultsView: View {
             Button("Compare…") { store.selectedSection = .compare }.disabled(store.selectedTrial?.analysisRelativePath == nil)
         }
     }
-    private func scoreStrip(_ value: TrialInsights) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), alignment: .leading)], alignment: .leading, spacing: 18) {
-            resultNumber(title: "ACL BAG RESULT", value: value.outcome?.score_category.map { "\($0)" } ?? "—", unit: "points", explanation: value.outcome.map { $0.score_category == 3 ? "Bag through the hole" : $0.score_category == 1 ? "Bag on the board" : $0.score_category == 0 ? "Off board / foul" : "Outcome unknown" } ?? "Outcome not recorded", color: .primary)
-            resultNumber(title: "REFERENCE SIMILARITY", value: number(value.similarity?.overall, digits: 0), unit: "/ 100", explanation: value.similarity == nil ? "Run a reference comparison" : "Resemblance to selected throws", color: athleteInk)
-            resultNumber(title: "TRACKING QUALITY", value: number(value.quality.score, digits: 0), unit: "/ 100", explanation: value.quality.score == nil ? "Reanalyze to calculate" : "Raw tracking visibility and confidence", color: value.quality.score ?? 0 < 65 ? .orange : .primary)
-            resultNumber(title: "ATHLETE CONSISTENCY", value: number(value.consistency.score, digits: 0), unit: "/ 100", explanation: value.consistency.score == nil ? "More trials needed · \(value.consistency.n)/\(value.consistency.minimum_trials)" : "Repeatability · \(value.consistency.n) throws", color: .primary)
-        }.padding(.vertical, 16)
-    }
     private func measurementStrip(_ value: TrialInsights) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Body → release → flight → outcome").font(.title2.weight(.semibold))
-            Text("Outcome colors describe observed points. Metric colors compare this athlete’s reviewed outcome groups; they are not universal technique targets. — means unavailable, never zero.").font(.callout).foregroundStyle(.secondary)
+        let summaries = data.results?.summaries ?? [:]
+        let hasMeters = (summaries["bag_release_speed_m_s"] ?? nil) != nil
+        let hasHeightMeters = (summaries["bag_release_height_m"] ?? nil) != nil
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("This throw").font(.title2.weight(.semibold))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], spacing: 16) {
-                resultNumber(title: "OBSERVED OUTCOME", value: value.outcome?.score_category.map(String.init) ?? "—", unit: "points", explanation: "Observed bag value · unknown stays gray", color: FeedbackZone(score: value.outcome?.score_category).color)
-                resultNumber(title: "FIRST-CONTACT ERROR", value: number(value.outcome?.spatial_error?.radial_error_inches), unit: "in", explanation: "Derived from approximate board observation and intended target", color: .primary)
-                measurement("Projected release angle", key: "bag_release_angle_deg", unit: "°", note: "Estimated · image horizontal, target-forward · reviewed release")
-                measurement("Projected release speed", key: (data.results?.summaries["bag_release_speed_m_s"] ?? nil) != nil ? "bag_release_speed_m_s" : "bag_release_speed_arm_lengths_s", unit: (data.results?.summaries["bag_release_speed_m_s"] ?? nil) != nil ? "m/s" : "arm lengths/s", note: "Estimated · projected; m/s requires verified scale and fixed side camera")
-                measurement("Elbow at release", key: "elbow_angle_deg_at_release", unit: "°", note: "Derived · 180° is a straight projected elbow")
+                resultNumber(title: "OUTCOME", value: value.outcome?.score_category.map(String.init) ?? "—", unit: "points",
+                             explanation: value.outcome.map { $0.score_category == 3 ? "In the hole" : $0.score_category == 1 ? "On the board" : $0.score_category == 0 ? "Missed" : "Not recorded" } ?? "Not recorded", color: .primary)
+                measurement("Release angle", key: "bag_release_angle_deg", unit: "°", digits: 0,
+                            note: plusMinus(summaries["bag_release_angle_se_deg"] ?? nil, "°") ?? "Above horizontal, toward the board")
+                measurement("Release speed", key: hasMeters ? "bag_release_speed_m_s" : "bag_release_speed_arm_lengths_s",
+                            unit: hasMeters ? "m/s" : "arm lengths/s", digits: 2,
+                            note: hasMeters ? (plusMinus(summaries["bag_release_speed_se_m_s"] ?? nil, " m/s") ?? "Scaled") : "No scale yet: add a meter stick or review the full flight")
+                measurement("Release height", key: hasHeightMeters ? "bag_release_height_m" : "bag_release_height_arm_lengths",
+                            unit: hasHeightMeters ? "m" : "arm lengths", digits: 2, note: "Bag above the lowest foot point")
+                measurement("Elbow at release", key: "elbow_angle_deg_at_release", unit: "°", digits: 0, note: "180° = straight (as seen by the camera)")
             }
-            DisclosureGroup("What do these metrics mean?") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Outcome is the observed bag value. First-contact error is distance from the intended target; final rest is a separate observation.")
-                    ForEach(["bag_release_angle_deg", "bag_release_speed_arm_lengths_s", "elbow_angle_deg_at_release"], id: \.self) { key in
-                        Text(metricMechanism(key))
-                    }
-                    Text("Green 3 · yellow 1 · red 0 describes observed points. Metric colors describe this athlete’s reviewed evidence, not universal good or bad technique. Open Personal zones below to inspect the thresholds and sample counts.")
-                }.font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
-            }
-            Text("Recorded at \(value.quality.frameRateFPS.formatted()) fps · frame-limited events · \(trialViewLabel)").font(.caption).foregroundStyle(.secondary)
-        }.padding(.vertical, 12)
+            Text("Release values need a confirmed release frame. — means not measured, never zero. Recorded at \(number(value.quality.frameRateFPS, digits: 0)) fps · \(trialViewLabel)")
+                .font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 8)
     }
-    private var trialViewLabel: String { store.selectedTrial?.cameraView == .side ? "side-view interpretation" : "non-side projection: exploratory interpretation" }
-    private func measurement(_ title: String, key: String, unit: String, note: String) -> some View {
+    private func plusMinus(_ value: Double?, _ unit: String) -> String? {
+        value.map { "± \(number($0, digits: unit == "°" ? 1 : 2))\(unit) tracking uncertainty" }
+    }
+    private var trialViewLabel: String { store.selectedTrial?.cameraView == .side ? "side view" : "non-side view: treat as exploratory" }
+    private func measurement(_ title: String, key: String, unit: String, digits: Int, note: String) -> some View {
         let releaseConfirmed = data.results?.events["release"]?.manualFrame != nil
         let value: Double? = releaseConfirmed ? (data.results?.summaries[key] ?? nil) : nil
         return VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.callout.weight(.medium))
-            HStack(alignment: .firstTextBaseline) { Text(number(value, digits: 1)).font(.title).monospacedDigit(); Text(unit).font(.caption).foregroundStyle(.secondary) }
+            HStack(alignment: .firstTextBaseline) { Text(number(value, digits: digits)).font(.title).monospacedDigit(); Text(unit).font(.caption).foregroundStyle(.secondary) }
             Text(note).font(.caption).foregroundStyle(.secondary)
-            if let feedback = insight?.performance?.personal_evidence.first(where: { $0.metric == key })?.feedback {
-                FeedbackBadge(zone: value == nil ? .neutral : FeedbackZone(rawValue: feedback.zone) ?? .neutral,
-                              text: value == nil ? "Measurement unavailable" : feedback.zone == "neutral" ? "More reviewed evidence needed" : feedback.explanation)
-                EvidenceRangeView(feedback: feedback, value: value)
-            }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private func resultNumber(title: String, value: String, unit: String, explanation: String, color: Color) -> some View {
@@ -247,14 +235,6 @@ struct ResultsView: View {
                 AngleComparisonPlot(tau: value.tau ?? [], trial: mean, reference: mean, sd: elbow.sd.scalars, field: "elbow_angle_deg", fraction: $fraction).frame(height: 200)
                 Text("Athlete mean elbow curve with ±1 sample SD. The band describes variability, not confidence in the mean.").font(.caption).foregroundStyle(.secondary)
             }
-            if let equation = value.equation {
-                DisclosureGroup("How Consistency is calculated") {
-                    Text(equation).font(.callout)
-                    ForEach(value.components) { c in
-                        LabeledContent(c.name, value: "SD \(number(c.variability, digits: 3)) \(c.units) · tolerance \(c.tolerance.formatted()) · weight \(c.weight.formatted()) · score \(number(c.score))")
-                    }
-                }
-            }
         }
     }
     private func relationshipPanel(_ value: RelationshipDocument) -> some View {
@@ -270,41 +250,11 @@ struct ResultsView: View {
             Text("At least eight complete pairs and variation in both variables are required. This within-athlete association does not establish causation.").font(.caption).foregroundStyle(.secondary)
         }
     }
-    private func personalPerformance(_ value: PerformanceSummary) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("This athlete’s comparable throws").font(.title2.weight(.semibold))
-            Text("Hole: \(value.observed_scores["3"] ?? 0) · Board: \(value.observed_scores["1"] ?? 0) · Miss/foul: \(value.observed_scores["0"] ?? 0) · Unknown: \(value.unknown_scores)")
-            HStack {
-                FeedbackBadge(zone: .green, text: "Hole-only range")
-                FeedbackBadge(zone: .yellow, text: "Overlap / unclassified")
-                FeedbackBadge(zone: .red, text: "Board/miss-only range")
-            }
-            Text("First-contact grouping: \(number(value.first_contact.rms_radius_inches)) in RMS radius · n = \(value.first_contact.n) · \(value.first_contact.missing) unlocated")
+    private func landingGrouping(_ value: PerformanceSummary) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("First-contact grouping: \(number(value.first_contact.rms_radius_inches)) in RMS radius around the group centre · n = \(value.first_contact.n) · \(value.first_contact.missing) without a board location")
+                .font(.callout).monospacedDigit()
             Text(value.first_contact.note).font(.caption).foregroundStyle(.secondary)
-            Text("Green: in the central range of hole throws only. Red: in the central range of board/miss throws only. Yellow: overlapping or unclassified. Gray: insufficient reviewed evidence. None of these colors establishes cause, optimal technique, safety or success probability.")
-                .font(.caption).foregroundStyle(.secondary)
-            DisclosureGroup("Personal zones · thresholds, counts & evidence") {
-                ForEach(value.personal_evidence) { evidence in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(metricLabel(evidence.metric)).font(.headline)
-                        if let feedback = evidence.feedback {
-                            FeedbackBadge(zone: FeedbackZone(rawValue: feedback.zone) ?? .neutral, text: feedback.explanation)
-                            ForEach(["hole","board_or_miss"], id: \.self) { label in
-                                if let range = feedback.ranges[label] {
-                                    Text("Color evidence · \(label.replacingOccurrences(of: "_", with: " ")): \(range.low != nil ? "\(number(range.low))–\(number(range.high))" : "Not available") · n = \(range.n)").font(.caption).monospacedDigit()
-                                }
-                            }
-                            Text("Color requires ≥\(feedback.minimum_per_group) other throws in each outcome group, reviewed release, ≥80% release visibility, ≥80% usable frames and a confirmed fixed side camera. This is a declared exploratory display rule, not a validated decision threshold.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        ForEach(["all", "hole", "board_or_miss"], id: \.self) { key in
-                            if let range = evidence.groups[key] {
-                                Text("\(key.replacingOccurrences(of: "_", with: " ").capitalized): \(range.low != nil ? "\(number(range.low))–\(number(range.high))" : "More observations needed") · n = \(range.n)").font(.callout)
-                            }
-                        }
-                        Text(evidence.note + " At least \(evidence.minimum) observations per displayed range; current throw excluded.").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 8)
-                }
-            }
         }
     }
 
@@ -328,7 +278,6 @@ struct ResultsView: View {
                 }
                 ForEach(q.lowConfidenceLandmarkCounts.keys.sorted(), id: \.self) { key in GridRow { Text(key.replacingOccurrences(of: "_", with: " ")); Text("\(q.lowConfidenceLandmarkCounts[key] ?? 0) low-confidence samples") } }
             }.font(.callout).padding(.vertical, 8)
-            Text(q.scoreNote ?? "Reanalyze to calculate the transparent tracking index.").font(.caption).foregroundStyle(.secondary)
             Text("Model confidence is not a calibrated position or angle error. Frame rate, camera geometry and corrections remain separate context.").font(.caption).foregroundStyle(.secondary)
             if let hash = value.provenance.model_hash { Text("Model SHA-256: \(hash)").font(.caption.monospaced()).textSelection(.enabled) }
             if let url = data.analysisURL {
@@ -352,25 +301,6 @@ struct ResultsView: View {
     }
     private func name(_ id: UUID) -> String { store.project?.athletes.first { $0.id == id }?.displayName ?? "Unknown athlete" }
     private func openReport(_ trial: Trial) { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } }
-}
-
-struct SimilarityBreakdown: View {
-    let similarity: ComparisonDocument.Similarity
-    var body: some View {
-        DisclosureGroup("Every Reference Similarity component") {
-            Text("Score = 100 × max(0, 1 − error / tolerance). Total = weighted mean of available components. Pilot tolerances are not population norms.").font(.callout).foregroundStyle(.secondary)
-            ForEach(similarity.components.keys.sorted(), id: \.self) { key in
-                if let c = similarity.components[key] {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack { Text(metricLabel(key)).font(.subheadline.weight(.medium)); Spacer(); Text("\(number(c.score)) / 100").monospacedDigit() }
-                        ProgressView(value: c.score, total: 100).tint(athleteInk)
-                        Text("Error \(number(c.rawError, digits: 3)) \(metricUnits(key)) · tolerance \(c.tolerance.formatted()) · weight \(c.weight.formatted())").font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 7)
-                }
-            }
-            if !similarity.omittedComponents.isEmpty { Text("Unavailable components: \(similarity.omittedComponents.map(metricLabel).joined(separator: ", "))").font(.caption).foregroundStyle(.orange) }
-        }
-    }
 }
 
 struct BoardMap: View {

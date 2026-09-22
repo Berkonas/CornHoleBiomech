@@ -30,7 +30,8 @@ struct PerformanceSummary: Decodable {
     }
     var first_contact: Dispersion; var final_rest: Dispersion
     var observed_scores: [String: Int]; var unknown_scores: Int
-    var personal_evidence: [Evidence]
+    var personal_evidence: [Evidence]?
+    var summary: AthletePerformance?
 }
 
 /// One explicit review document accompanies the existing immutable tracks/events.

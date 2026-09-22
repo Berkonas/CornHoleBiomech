@@ -66,7 +66,6 @@ struct CompareView: View {
                         Text("This video shares the movement-cycle cursor with the athlete and plots above.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                DisclosureGroup("Experimental similarity index · \(number(comparison.similarity.overall, digits: 0))/100") { SimilarityBreakdown(similarity: comparison.similarity) }
                 DisclosureGroup("Raw errors and waveform agreement") {
                     ForEach(comparison.rawMetrics.keys.sorted(), id: \.self) { key in
                         LabeledContent(metricLabel(key), value: number(comparison.rawMetrics[key] ?? nil, digits: 3)).font(.callout)

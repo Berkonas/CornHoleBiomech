@@ -146,3 +146,10 @@ def test_insights_lead_with_three_level_feedback_and_cli_compares_throws(tmp_pat
         assert main(["compare-throws", "--project", str(tmp_path), "--a", "T0", "--b", "T6"]) == 0
     payload = json.loads(stream.getvalue().strip().splitlines()[-1])
     assert "Throw 7" in payload["data"]["summary"] and "lower release angle" in payload["data"]["summary"]
+
+
+def test_summary_includes_individual_points_with_groups_for_plotting():
+    rows = rows_with([35, 36], [27]) + [{"trial_id": "u", "score_category": None, "bag_release_angle_deg": 30}]
+    points = performance_summary(rows, {"u": "Throw 4"})["variables"]["bag_release_angle_deg"]["points"]
+    assert [p["group"] for p in points] == ["scored", "scored", "miss", None]
+    assert points[-1]["label"] == "Throw 4" and points[-1]["value"] == 30
