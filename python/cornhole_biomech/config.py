@@ -96,8 +96,8 @@ def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
         if float(item["tolerance"]) <= 0 or float(item["weight"]) < 0:
             raise ValueError("similarity tolerances must be positive and weights non-negative")
     tracking = config["bag_tracking"]
-    if tracking["method"] not in {"auto", "csrt", "template_matching"}:
-        raise ValueError("bag_tracking.method must be auto, csrt, or template_matching")
+    if tracking["method"] not in {"auto", "csrt", "template_matching", "color_motion"}:
+        raise ValueError("bag_tracking.method must be auto, color_motion, csrt, or template_matching")
     for name in ("confidence_threshold", "template_quality_threshold"):
         if not 0.0 <= float(tracking[name]) <= 1.0:
             raise ValueError(f"bag_tracking.{name} must be between 0 and 1")

@@ -74,18 +74,21 @@ final class TrialDataController: ObservableObject {
         bagCorrections.corrections.last { $0.frameIndex == frame }
     }
 
-    func setBagSeed(frame: Int, bboxXYWH: [Double]) {
-        guard bboxXYWH.count == 4, bboxXYWH.allSatisfy(\.isFinite), bboxXYWH[2] > 1, bboxXYWH[3] > 1 else {
-            loadError = "The bag seed rectangle is invalid."
-            return
+    @discardableResult
+    func setBagSeed(frame: Int, bboxXYWH: [Double]) -> Bool {
+        guard let pose, (0..<pose.frameCount).contains(frame), bboxXYWH.count == 4,
+              bboxXYWH.allSatisfy(\.isFinite), bboxXYWH[0] >= 0, bboxXYWH[1] >= 0,
+              bboxXYWH[2] > 1, bboxXYWH[3] > 1,
+              bboxXYWH[0]+bboxXYWH[2] <= Double(pose.width), bboxXYWH[1]+bboxXYWH[3] <= Double(pose.height),
+              let url = analysisURL?.appendingPathComponent("bag_seed.json") else {
+            loadError = "Choose a valid bag rectangle inside an analyzed video frame."; return false
         }
         let seed = BagSeedDocument(frameIndex: frame, bboxXYWH: bboxXYWH)
-        bagSeed = seed
-        clearBagReview()
-        markDirty(reason: "bag_seed_changed")
-        guard let url = analysisURL?.appendingPathComponent("bag_seed.json") else { return }
-        do { try JSONEncoder.projectEncoder.encode(seed).write(to: url, options: .atomic) }
-        catch { loadError = "Could not save the bag seed: \(error.localizedDescription)" }
+        do {
+            try JSONEncoder.projectEncoder.encode(seed).write(to: url, options: .atomic)
+            bagSeed = seed; clearBagReview(); markDirty(reason: "bag_seed_changed")
+            return true
+        } catch { loadError = "Could not save the bag selection: \(error.localizedDescription)"; return false }
     }
 
     func setBagCorrection(frame: Int, x: Double, y: Double, kind: String = "manual") {
@@ -107,7 +110,10 @@ final class TrialDataController: ObservableObject {
             .sorted { $0.frameIndex < $1.frameIndex }
         guard let left = anchors.last(where: { $0.frameIndex < frame }),
               let right = anchors.first(where: { $0.frameIndex > frame }),
-              right.frameIndex > left.frameIndex + 1 else { return 0 }
+              right.frameIndex > left.frameIndex + 1, right.frameIndex - left.frameIndex <= 4 else {
+            loadError = "Interpolation is limited to three missing frames. Review and label longer gaps directly."
+            return 0
+        }
         clearBagReview(save: false)
         bagCorrections.corrections.removeAll {
             $0.kind == "interpolated" && $0.frameIndex > left.frameIndex && $0.frameIndex < right.frameIndex
@@ -235,7 +241,7 @@ final class TrialDataController: ObservableObject {
         document.manualOverrides[name] = frame
         if var entry = document.events[name] {
             entry.manualFrame = frame
-            entry.effectiveFrame = frame ?? entry.automaticFrame
+            entry.effectiveFrame = frame ?? (entry.suppressedReason == nil ? entry.automaticFrame : nil)
             document.events[name] = entry
         }
         markDirty()

@@ -46,6 +46,7 @@ from .export import (
 )
 from .filtering import lowpass_zero_phase
 from .kinematics import calculate_kinematics, movement_phase_summaries
+from .arm_motion import analyze_arm_motion, ARM_METRICS
 from .models import BoardPoint, CorrectionSet, PoseSequence, TrialContext, TrialOutcome, utc_now
 from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
@@ -125,6 +126,8 @@ def _metrics_metadata(summaries: dict[str, Any], camera_view: str) -> dict[str, 
             "units": _summary_units(name),
             "view_applicability": applicability,
             "claim_scope": claim,
+            "classification": "estimated" if name.startswith("bag_release_") else "derived",
+            "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
         }
     return result
 
@@ -229,6 +232,7 @@ def analyze_trial(
     bag_raw_path = output / "bag_raw.json"
     bag_cache_path = output / "bag_cache.json"
     bag_key: str | None = None
+    bag_track_replaced = False
     if bag_track_input is not None:
         bag_track = BagTrack.load(bag_track_input)
         bag_key = canonical_hash({
@@ -237,15 +241,22 @@ def analyze_trial(
             "method": "canonical_bag_track_import",
         })
         validate_bag_track_for_video(bag_track, video.path)
+        if bag_raw_path.exists():
+            previous_track = BagTrack.load(bag_raw_path)
+            bag_track_replaced = (previous_track.automatic_points != bag_track.automatic_points
+                                  or previous_track.seed != bag_track.seed
+                                  or previous_track.effective_method != bag_track.effective_method)
         bag_track.save(bag_raw_path)
         write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
     elif bag_seed_path is not None:
         seed = BagSeed.load(bag_seed_path)
+        from .bag import BAG_TRACKER_REVISION
         tracking_config = config["bag_tracking"]
         bag_key = canonical_hash({
             "source_video_sha256": video.sha256,
             "seed": asdict(seed),
             "tracker_configuration": tracking_config,
+            "tracker_revision": BAG_TRACKER_REVISION,
             "opencv_version": _version("opencv-contrib-python"),
         })
         bag_cache = _load_json(bag_cache_path, {})
@@ -253,6 +264,7 @@ def analyze_trial(
             bag_track = BagTrack.load(bag_raw_path)
             validate_bag_track_for_video(bag_track, video.path)
         else:
+            bag_track_replaced = bag_raw_path.exists()
             progress("tracking_bag", 0.48, "Tracking the bag forward from the reviewed seed rectangle")
             bag_track = track_bag_from_seed(
                 video.path,
@@ -260,6 +272,7 @@ def analyze_trial(
                 requested_method=str(tracking_config["method"]),
                 template_quality_threshold=float(tracking_config["template_quality_threshold"]),
                 search_scale=float(tracking_config["template_search_scale"]),
+                progress=lambda fraction, message: progress("tracking_bag", 0.48+0.1*fraction, message),
             )
             bag_track.save(bag_raw_path)
             write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
@@ -270,8 +283,17 @@ def analyze_trial(
         validate_bag_track_for_video(bag_track, video.path)
         bag_key = _load_json(bag_cache_path, {}).get("bag_key")
 
+    if bag_track is None:
+        bag_warnings.append("Body analysis completed; bag tracking has not started. Select the bag near release in the video, track it, and review its path to obtain release and flight measurements.")
+
     if bag_track is not None:
         bag_corrections = BagCorrectionSet.load(bag_corrections_path or (output / "bag_corrections.json"))
+        if bag_track_replaced and bag_corrections.reviewed_through_frame is not None:
+            bag_corrections.save(output / "bag_review_previous.json")
+            bag_corrections.reviewed_through_frame = None
+            bag_corrections.reviewed_at = None
+            bag_corrections.review_note = "Tracking changed; inspect the new path before approving it."
+            bag_warnings.append("Bag tracking changed. Prior review was preserved separately; review the new automatic path.")
         bag_corrections.save(output / "bag_corrections.json")
         bag_derived = effective_bag_track(
             bag_track,
@@ -333,6 +355,8 @@ def analyze_trial(
     )
     events = apply_manual_event_overrides(events, _manual_event_overrides(event_file))
     for event in events.values():
+        if event.suppressed_reason:
+            filter_warnings.append(f"{event.name}: {event.suppressed_reason}")
         if event.effective_frame is not None and not 0 <= event.effective_frame < sequence.frame_count:
             raise ValueError(f"{event.name} frame lies outside the video. Choose a frame from 0 to {sequence.frame_count - 1}.")
     start = events["motion_start"].effective_frame
@@ -387,7 +411,36 @@ def analyze_trial(
         release_frame,
     ))
 
+    arm_motion = analyze_arm_motion(kinematics.values, start, end,
+        events["forward_swing"].effective_frame, release_frame, context.camera_view)
+    summaries.update(arm_motion["summaries"])
+
     calibration = SpatialCalibration.load(calibration_path)
+    flight_review = _load_json(output / "flight_review.json", {})
+    contact_frame = flight_review.get("first_contact_frame")
+    if contact_frame is not None and (not isinstance(contact_frame, int) or isinstance(contact_frame, bool)
+                                      or not 0 <= contact_frame < sequence.frame_count):
+        raise ValueError("First-contact frame must be an integer inside this clip")
+    # Athlete-plane SI scale is never authorized for a front/oblique/moving camera.
+    if calibration and (context.camera_view != "side" or not flight_review.get("fixed_camera")):
+        bag_warnings.append("Physical units withheld: confirm a fixed side camera and an in-plane scale.")
+        calibration = None
+    if not flight_review.get("fixed_camera"):
+        bag_warnings.append("Fixed-camera geometry is unconfirmed. Projected bag velocity and angle describe image motion, including any camera motion; they are not world release conditions.")
+    flight_points = np.full((sequence.frame_count, 2), np.nan)
+    if bag_derived is not None:
+        flight_points = np.array(bag_derived["effective"], copy=True)
+        # Generated interpolation is not independent evidence for a launch fit.
+        for i, provenance in enumerate(bag_derived["provenance"]):
+            if "interpolat" in str(provenance):
+                flight_points[i] = np.nan
+    from .flight import flight_summary
+    flight = flight_summary(flight_points, release_frame, contact_frame, video.fps,
+        bag_corrections.reviewed_through_frame if bag_corrections else None,
+        events["release"].manual_frame is not None, context.camera_view,
+        bool(flight_review.get("fixed_camera")))
+    summaries["bag_time_of_flight_seconds"] = flight["time_of_flight_seconds"]
+
     projectile: dict[str, Any] | None = None
     bag_result: dict[str, Any] | None = None
     if bag_track is not None and bag_derived is not None and bag_filtered is not None:
@@ -401,9 +454,14 @@ def analyze_trial(
             else min(sequence.frame_count - 1, release_frame + fit_frame_count - 1)
         )
         bag_review_covers_fit = bag_corrections.covers(required_review_through)
+        if contact_frame is not None and release_frame is not None and contact_frame <= release_frame:
+            raise ValueError("First contact must follow release")
+        launch_points = np.array(flight_points, copy=True)
+        if contact_frame is not None:
+            launch_points[contact_frame:] = np.nan  # Never fit through impact.
         if bag_review_covers_fit:
             projectile = estimate_projectile_release_kinematics(
-                bag_filtered,
+                launch_points,
                 release_frame,
                 video.fps,
                 kinematics.arm_length_pixels,
@@ -479,7 +537,11 @@ def analyze_trial(
         ):
             summaries[destination] = acceleration.get(source)
         if bag_review_covers_fit and release_frame is not None and 0 <= release_frame < sequence.frame_count:
-            bag_position = kinematics.values["bag_path_arm_lengths"][release_frame]
+            # Release position uses the same direct centroid evidence as launch.
+            shoulder = filtered[release_frame, landmarks.index(f"{context.throwing_side}_shoulder")]
+            delta = flight_points[release_frame] - shoulder
+            delta *= np.array([1.0 if context.target_direction == "left_to_right" else -1.0, -1.0])
+            bag_position = delta / kinematics.arm_length_pixels if kinematics.arm_length_pixels > 0 else np.full(2, np.nan)
             summaries["bag_release_position_forward_arm_lengths"] = (
                 float(bag_position[0]) if np.isfinite(bag_position[0]) else None
             )
@@ -530,6 +592,27 @@ def analyze_trial(
             "quality_note": bag_track.quality_note,
         }
 
+    if events["release"].manual_frame is None:
+        bag_warnings.append("Release is an automatic candidate. Confirm visible separation before interpreting release measurements.")
+        for key in summaries:
+            if key.startswith("bag_release_") or key.endswith("_at_release"):
+                summaries[key] = None
+        if bag_result is not None:
+            if bag_result["launch"]["status"] == "estimated":
+                bag_result["launch"]["status"] = "needs_release_confirmation"
+            bag_result["launch"]["velocity"] = None
+            bag_result["launch"]["physical_units"] = {"status": "needs_release_confirmation"}
+            bag_result["launch"]["acceleration"] = {"status": "suppressed", "reason": "Release is not confirmed."}
+    if context.camera_view != "side":
+        for key in summaries:
+            if key.startswith("bag_release_"):
+                summaries[key] = None
+        if bag_result is not None:
+            bag_result["launch"]["status"] = "unsupported_camera_view"
+            bag_result["launch"]["velocity"] = None
+            bag_result["launch"]["physical_units"] = {"status": "unsupported_camera_view"}
+            bag_result["launch"]["acceleration"] = {"status": "suppressed", "reason": "Unsupported camera view."}
+
     quality = quality_summary(
         raw, confidence, effective, manual_mask, interpolated_mask, landmarks,
         video.fps, video.width, video.height, context.camera_view,
@@ -547,6 +630,8 @@ def analyze_trial(
         "target_direction": context.target_direction,
         "summaries": summaries,
         "metrics_metadata": _metrics_metadata(summaries, context.camera_view),
+        "arm_motion": arm_motion,
+        "flight": flight,
         "quality": quality,
         "bag": bag_result,
         "events": event_payload["events"],
@@ -613,6 +698,7 @@ def analyze_trial(
             "bag_corrections": None if bag_corrections is None else canonical_hash(asdict(bag_corrections)),
             "calibration": None if calibration is None else canonical_hash(asdict(calibration)),
             "config": config,
+            "flight_review": flight_review,
         }),
         "created_at": utc_now(),
         "app_version": app_version,
@@ -639,6 +725,7 @@ def analyze_trial(
             "manual_correction_hash": canonical_hash(asdict(bag_corrections)) if bag_corrections is not None else None,
             "coordinate_system": BAG_COORDINATE_SYSTEM,
         },
+        "flight_review": flight_review,
         "spatial_calibration": None if calibration is None else {
             **asdict(calibration),
             "physical_units_permitted": calibration.permits_physical_units,
@@ -751,17 +838,19 @@ def analyze_relationships(
     normalized_by_trial: dict[str, dict[str, Any]] = {}
     athlete_ids: set[str] = set()
     for directory in analysis_dirs:
+        if (Path(directory) / "needs_reanalysis.json").exists():
+            continue
         result = _load_json(Path(directory) / "results.json", None)
         if result is None:
             continue
         athlete_ids.add(result["athlete_id"])
         outcome = outcome_records.get(result["trial_id"], {})
-        if outcome and "spatial_error" not in outcome:
+        if outcome:
             def point(value: dict[str, Any] | None) -> BoardPoint | None:
                 return None if value is None else BoardPoint(**value)
             parsed = TrialOutcome(
                 intended_target=outcome.get("intended_target", "Hole center"),
-                score_category=int(outcome.get("score_category", 0)),
+                score_category=outcome.get("score_category"),
                 throw_type=outcome.get("throw_type", "Standard"),
                 notes=outcome.get("notes", ""),
                 intended_point=point(outcome.get("intended_point")),
@@ -787,13 +876,9 @@ def analyze_relationships(
         raise ValueError("Repeated-trial analysis requires matching camera views. Select one view at a time.")
     if len(athlete_ids) > 1:
         raise ValueError("Initial relationship analysis is within-person; provide one athlete at a time")
-    outcomes = [row.get("radial_error_inches") for row in rows]
-    finite_radial = [value for value in outcomes if value is not None and np.isfinite(value)]
-    if len(finite_radial) < minimum_trials:
-        outcomes = [row.get("score_category") for row in rows]
-        outcome_name = "score_category"
-    else:
-        outcome_name = "radial_error_inches"
+    # First contact remains first contact even when too few pairs exist.
+    outcome_name = "radial_error_inches" if any(row.get("radial_error_inches") is not None for row in rows) else "score_category"
+    outcomes = [row.get(outcome_name) for row in rows]
     wrist_paths = {
         trial_id: np.asarray(value.get("values", {}).get("wrist_path_arm_lengths"), float)
         for trial_id, value in normalized_by_trial.items()
@@ -810,6 +895,7 @@ def analyze_relationships(
                     path_rmse(path, athlete_mean_wrist) if path is not None else None
                 )
     feature_names = (
+        *ARM_METRICS,
         "elbow_angle_deg_at_release",
         "elbow_extension_deficit_deg_at_release",
         "elbow_angle_deg_rom",
@@ -841,6 +927,7 @@ def analyze_relationships(
     }
     consistency: dict[str, dict[str, Any]] = {}
     units = {
+        **{key: ("dimensionless" if key.endswith("ratio") else "degrees") for key in ARM_METRICS},
         "elbow_angle_deg_at_release": "degrees",
         "elbow_extension_deficit_deg_at_release": "degrees",
         "elbow_angle_deg_rom": "degrees",
@@ -878,6 +965,7 @@ def analyze_relationships(
         "athlete_id": next(iter(athlete_ids), None),
         "trial_count": len(rows),
         "outcome_variable": outcome_name,
+        "spatial_endpoint": "first_contact_point",
         "relationships": relationships,
         "grouped_by_score": groups,
         "within_athlete_consistency": consistency,

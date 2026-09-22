@@ -1,3 +1,5 @@
+> Current release/flight/outcome behavior is specified in [FULL_THROW_METHODS.md](FULL_THROW_METHODS.md). It supersedes older launch filtering, release-confirmation and endpoint fallback descriptions below.
+
 # Biomechanics methods
 
 **Stage 1 measurement contract — updated 10 September 2026, app 0.4**

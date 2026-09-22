@@ -48,6 +48,8 @@ def quality_index(quality, raw, confidence, landmarks, release, side, config):
 def compatible_key(trial, manifest):
     config = manifest.get('analysis_configuration', {})
     return (trial.get('cameraView'), trial.get('throwingSide'), trial.get('sessionID'),
+            (trial.get('outcome') or {}).get('throw_type','Standard'),
+            (trial.get('outcome') or {}).get('intended_target','Hole center'),
             manifest.get('pose_backend'),manifest.get('pose_model'),manifest.get('pose_model_version'),
             manifest.get('pose_model_sha256'),manifest.get('engine_source_sha256'),canonical_hash(config))
 
@@ -172,23 +174,33 @@ def generate_insights(project_path, trial_id, export_report=True):
         comparison=None
     if comparison and not comparison_references_are_current(project, trial, comparison):
         comparison = None
-    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[]
+    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[];feedback_eligible={};feedback_bag_eligible={}
     for t in project['trials']:
         if t['athleteID']!=trial['athleteID'] or not t.get('analysisRelativePath'):continue
         d=root/t['analysisRelativePath'];m=read(d/'manifest.json',{});r=read(d/'results.json',{});n=read(d/'normalized.json')
         if compatible_key(t,m)!=compatible_key(trial,manifest) or (d/'needs_reanalysis.json').exists():
             excluded.append(t['id']);continue
         if t.get('outcome'):board.append({'trial_id':t['id'],'label':t['originalFilename'],'outcome':t['outcome']})
+        outcomes[t['id']]=t.get('outcome') or {}
         if not n or r.get('quality',{}).get('usable_frame_percentage',0)<80:
             excluded.append(t['id']);continue
         compatible.append(n);eligible_dirs.append(d)
-        if t.get('outcome'):outcomes[t['id']]=t['outcome']
+        # Colors require an explicit reviewed side-camera setup and visible release landmarks.
+        feedback_eligible[t['id']] = bool(t.get('cameraView') == 'side'
+            and m.get('flight_review',{}).get('fixed_camera')
+            and r.get('events',{}).get('release',{}).get('manual_frame') is not None
+            and (r.get('quality',{}).get('release_visibility') or 0) >= .8)
+        bag = r.get('bag') or {}
+        feedback_bag_eligible[t['id']] = bool(feedback_eligible[t['id']]
+            and bag.get('review',{}).get('covers_launch_fit')
+            and bag.get('launch',{}).get('status') == 'estimated')
     consistency=consistency_model(compatible)
     from .outcomes import outcome_summary
     from .models import TrialOutcome,BoardPoint
     raw_outcome=trial.get('outcome');outcome=None
     if raw_outcome:
         kwargs=dict(raw_outcome)
+        kwargs.setdefault("score_category", None)
         for key in ('intended_point','first_contact_point','final_resting_point'):
             if kwargs.get(key):kwargs[key]=BoardPoint(**kwargs[key])
         outcome=outcome_summary(TrialOutcome(**kwargs))
@@ -196,28 +208,32 @@ def generate_insights(project_path, trial_id, export_report=True):
     diffs=differences(comparison,norm)
     sentences=[]
     if outcome:
-        points=outcome['score_category'];sentences.append(f"This throw scored {points} {'point' if points==1 else 'points'}.")
+        points=outcome['score_category'];sentences.append('Outcome is unobserved.' if points is None else f"Observed bag value: {points} {'point' if points==1 else 'points'} (not round cancellation score).")
     else:sentences.append('Task outcome has not been recorded.')
-    if comparison and comparison['similarity']['overall'] is not None:
-        sentences.append(f"Reference Similarity is {comparison['similarity']['overall']:.0f}/100 using {len(comparison['reference_trial_ids'])} selected reference throw(s).")
-    else:sentences.append('Select compatible reference throws and run a comparison to measure Reference Similarity.')
-    if diffs:
-        d=diffs[0];phase_phrase=d['phase'] if d['phase']=='around release' else 'during '+d['phase'];sentences.append(f"The largest difference relative to its pilot tolerance was {d['name'].lower()}: {d['amount']:.2f} {d['units']} {phase_phrase}.")
+    release=results.get('events',{}).get('release',{})
+    if release.get('manual_frame') is None:
+        sentences.append('Confirm the release candidate in the video before interpreting release mechanics.')
+    flight=results.get('flight',{})
+    if flight.get('time_of_flight_seconds') is not None:
+        sentences.append(f"Reviewed release-to-first-contact time: {flight['time_of_flight_seconds']:.2f} s.")
+    else:
+        sentences.append('Confirm first contact to connect release with flight duration; unseen contact stays unknown.')
     sentences.append(consistency['message'])
     if warnings:sentences.append('Review the measurement warnings before interpreting movement differences.')
     relationships=None
     if eligible_dirs:
         from .pipeline import analyze_relationships
-        # Use one spatial endpoint across observations. Never mix contact with rest.
-        endpoint='first_contact_point' if any(o.get('first_contact_point') for o in outcomes.values()) else 'final_resting_point'
-        paired_outcomes={}
-        for key,o in outcomes.items():
-            item=dict(o)
-            if endpoint=='first_contact_point':item['final_resting_point']=None
-            paired_outcomes[key]=item
         comparison_dirs=[root/'comparisons'/n['trial_id'] for n in compatible if valid_comparison(root/'comparisons'/n['trial_id']/'comparison.json')]
-        relationships=analyze_relationships(eligible_dirs,paired_outcomes,directory/'relationships.json',comparison_dirs,max(8,project.get('analysisSettings',{}).get('minimumRelationshipTrials',8)))
-        relationships['spatial_endpoint']=endpoint
+        relationships=analyze_relationships(eligible_dirs,outcomes,directory/'relationships.json',comparison_dirs,max(8,project.get('analysisSettings',{}).get('minimumRelationshipTrials',8)))
+    from .flight import landing_dispersion, personal_evidence
+    evidence_rows=[dict(row,feedback_eligible=feedback_eligible.get(row['trial_id'],False),
+                        feedback_bag_eligible=feedback_bag_eligible.get(row['trial_id'],False))
+                   for row in (relationships or {}).get('data_rows',[])]
+    performance = {"first_contact": landing_dispersion(list(outcomes.values())),
+                   "final_rest": landing_dispersion(list(outcomes.values()), 'final_resting_point'),
+                   "observed_scores": {str(k):sum(o.get('score_category')==k for o in outcomes.values()) for k in (0,1,3)},
+                   "unknown_scores":sum(o.get('score_category') is None for o in outcomes.values()),
+                   "personal_evidence": personal_evidence(evidence_rows,trial_id)}
     athlete=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
     payload={'schema_version':1,'trial_id':trial_id,'athlete':athlete.get('participantCode','Unknown athlete'),
              'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
@@ -228,7 +244,7 @@ def generate_insights(project_path, trial_id, export_report=True):
                            'sports2d_version':manifest.get('pose_backend_metadata',{}).get('sports2d_version'),
                            'configuration':manifest.get('analysis_configuration',{}),'analysis_id':manifest.get('analysis_id'),
                            'model_hash':manifest.get('pose_model_sha256'),'camera_view':trial['cameraView']},
-             'needs_reanalysis':dirty}
+             'needs_reanalysis':dirty, 'performance':performance}
     write_json(directory/'insights.json',payload)
     if export_report:
         from .report import create_report

@@ -1,8 +1,8 @@
 import Foundation
 
 let applicationName = "Cornhole Biomechanics Lab"
-let applicationVersion = "0.4.0"
-let currentProjectSchemaVersion = 3
+let applicationVersion = "0.6.1"
+let currentProjectSchemaVersion = 4
 
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
@@ -11,6 +11,8 @@ enum AppSection: String, CaseIterable, Identifiable {
     case trials = "Throws"
     case compare = "Compare"
     case results = "Results"
+    case mechanics = "Arm Mechanics"
+    case physics = "Physics Lab"
 
     var id: String { rawValue }
     var symbol: String {
@@ -21,6 +23,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .trials: "video"
         case .compare: "rectangle.split.2x1"
         case .results: "chart.xyaxis.line"
+        case .mechanics: "function"
+        case .physics: "basketball"
         }
     }
 }
@@ -72,7 +76,7 @@ struct BoardPoint: Codable, Equatable, Hashable {
 
 struct TrialOutcome: Codable, Equatable, Hashable {
     var intendedTarget = "Hole center"
-    var scoreCategory: ScoreCategory = .offBoard
+    var scoreCategory: ScoreCategory? = nil
     var throwType = "Standard"
     var notes = ""
     var intendedPoint: BoardPoint?
@@ -96,6 +100,8 @@ struct Athlete: Codable, Identifiable, Hashable {
     var dominantHand: ThrowingSide
     var heightCentimeters: Double?
     var armSpanCentimeters: Double?
+    var upperArmCentimeters: Double?
+    var forearmCentimeters: Double?
     var notes: String
 
     var displayName: String { participantCode.isEmpty ? "Unnamed participant" : participantCode }
@@ -298,6 +304,8 @@ struct NewAthleteDraft {
     var dominantHand: ThrowingSide = .right
     var height = ""
     var armSpan = ""
+    var upperArm = ""
+    var forearm = ""
     var notes = ""
 }
 
@@ -472,6 +480,7 @@ struct BagTrackDocument: Codable {
 }
 
 struct AnalysisResults: Codable {
+    var flight: FlightSummary?
     struct Quality: Codable {
         var score: Double?
         var releaseVisibility: Double?
@@ -617,6 +626,7 @@ struct AnalysisResults: Codable {
     var trialID: String
     var athleteID: String
     var summaries: [String: Double?]
+    var armMotion: ArmMotionAnalysis?
     var quality: Quality
     var bag: BagAnalysis?
     var events: [String: Event]
@@ -626,7 +636,8 @@ struct AnalysisResults: Codable {
     enum CodingKeys: String, CodingKey {
         case trialID = "trial_id"
         case athleteID = "athlete_id"
-        case summaries, quality, bag, events, warnings
+        case summaries, quality, bag, events, warnings, flight
+        case armMotion = "arm_motion"
         case claimScope = "claim_scope"
     }
 }
@@ -639,6 +650,7 @@ struct EventDocument: Codable {
         var automaticMethod: String?
         var manualFrame: Int?
         var effectiveFrame: Int?
+        var suppressedReason: String? = nil
 
         enum CodingKeys: String, CodingKey {
             case name
@@ -647,6 +659,7 @@ struct EventDocument: Codable {
             case automaticMethod = "automatic_method"
             case manualFrame = "manual_frame"
             case effectiveFrame = "effective_frame"
+            case suppressedReason = "suppressed_reason"
         }
     }
 

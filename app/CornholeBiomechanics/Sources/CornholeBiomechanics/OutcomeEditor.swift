@@ -28,8 +28,9 @@ struct OutcomeEditor: View {
                 Text(trial.originalFilename).foregroundStyle(.secondary)
                 Form {
                     TextField("Intended target", text: $outcome.intendedTarget)
-                    Picker("Score", selection: $outcome.scoreCategory) {
-                        ForEach(ScoreCategory.allCases) { Text($0.label).tag($0) }
+                    Picker("Observed bag value", selection: $outcome.scoreCategory) {
+                        Text("Unknown / not visible").tag(ScoreCategory?.none)
+                        ForEach(ScoreCategory.allCases) { Text($0.label).tag(Optional($0)) }
                     }
                     TextField("Throw type", text: $outcome.throwType)
                     TextField("Notes", text: $outcome.notes, axis: .vertical).lineLimit(3...6)
@@ -45,7 +46,7 @@ struct OutcomeEditor: View {
                     Button("Place point") { if let enteredPoint { setPoint(enteredPoint, kind: activePoint) } }
                         .disabled(enteredPoint == nil)
                 }
-                Text("Click the board or enter coordinates to place the selected point.").font(.caption).foregroundStyle(.secondary)
+                Text("Only place a point you observed on the board surface. Ground misses have no board-plane coordinate. A hole result does not imply contact at the hole center. Bag value is independent of landing location and is not round cancellation score.").font(.caption).foregroundStyle(.secondary)
             }.frame(width: 390)
 
             VStack(spacing: 12) {

@@ -50,6 +50,9 @@ final class AnalysisService: ObservableObject {
             let relativeOutput = destination.relativePath
             let output = destination.url
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            // A failed/cancelled run must not leave old measurements looking current.
+            try Data("{\"reason\":\"analysis_in_progress\"}".utf8)
+                .write(to: output.appendingPathComponent("needs_reanalysis.json"), options: .atomic)
             let configURL = output.appendingPathComponent("app-analysis-config.json")
             let configData = try JSONSerialization.data(withJSONObject: settings.pythonPayload, options: [.prettyPrinted, .sortedKeys])
             try configData.write(to: configURL, options: .atomic)
@@ -88,7 +91,7 @@ final class AnalysisService: ObservableObject {
             if FileManager.default.fileExists(atPath: calibration.path) {
                 arguments += ["--calibration", calibration.path]
             }
-            _ = try await run(arguments)
+            _ = try await run(arguments, diagnosticURL: output.appendingPathComponent("analysis-worker.log"))
             if let outcome = trial.outcome {
                 try await summarizeOutcome(outcome, analysisURL: output)
             }
@@ -97,7 +100,11 @@ final class AnalysisService: ObservableObject {
             if FileManager.default.fileExists(atPath: dirty.path) { try FileManager.default.removeItem(at: dirty) }
             store.selectedSection = .trials
             stage = "Complete"
-            detail = "Saved transparent JSON, CSV, plots, and annotated video."
+            let resultsURL = output.appendingPathComponent("results.json")
+            let payload = (try? Data(contentsOf: resultsURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            detail = (payload?["bag"] as? [String: Any]) == nil
+                ? "Body analysis ready. Select & track the bag in the video to complete the throw analysis."
+                : "Body and bag processed. Review tracking and release before interpreting Results."
             progress = 1
         } catch {
             errorMessage = cancelled ? nil : error.localizedDescription
@@ -224,7 +231,7 @@ final class AnalysisService: ObservableObject {
     }
 
     @discardableResult
-    private func run(_ arguments: [String], updateProgress: Bool = true) async throws -> [String: Any] {
+    private func run(_ arguments: [String], updateProgress: Bool = true, diagnosticURL: URL? = nil) async throws -> [String: Any] {
         guard activeProcess == nil else { throw AnalysisServiceError.processFailed("Wait for the current worker to finish, then try again.") }
         cancelled = false
         let manager = FileManager.default
@@ -243,6 +250,12 @@ final class AnalysisService: ObservableObject {
         guard manager.isExecutableFile(atPath: python.path) else {
             throw AnalysisServiceError.pythonNotReady(python.path)
         }
+        var diagnosticLog: FileHandle?
+        if let diagnosticURL {
+            manager.createFile(atPath: diagnosticURL.path, contents: nil)
+            diagnosticLog = try? FileHandle(forWritingTo: diagnosticURL)
+        }
+        defer { try? diagnosticLog?.close() }
         let process = Process()
         activeProcess = process
         defer { if activeProcess === process { activeProcess = nil } }
@@ -256,6 +269,9 @@ final class AnalysisService: ObservableObject {
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         if let model = Bundle.main.resourceURL?.appendingPathComponent("models/pose_landmarker_heavy.task"), manager.fileExists(atPath: model.path) { environment["CORNHOLE_MEDIAPIPE_MODEL"] = model.path }
         environment["PYTHONUNBUFFERED"] = "1"
+        let plottingCache = manager.temporaryDirectory.appendingPathComponent("cornhole-matplotlib", isDirectory: true)
+        try manager.createDirectory(at: plottingCache, withIntermediateDirectories: true)
+        environment["MPLCONFIGDIR"] = plottingCache.path
         process.environment = environment
         process.standardOutput = standardOutput
         process.standardError = standardError
@@ -267,6 +283,7 @@ final class AnalysisService: ObservableObject {
         var buffered = Data()
         for try await byte in standardOutput.fileHandleForReading.bytes {
             if byte == 10 {
+                try? diagnosticLog?.write(contentsOf: buffered + Data([10]))
                 if !buffered.isEmpty,
                    let object = try? JSONSerialization.jsonObject(with: buffered) as? [String: Any] {
                     if object["type"] as? String == "progress", updateProgress {
@@ -288,6 +305,7 @@ final class AnalysisService: ObservableObject {
         }
         await Task.detached { process.waitUntilExit() }.value
         let diagnosticData = try await errorData
+        try? diagnosticLog?.write(contentsOf: diagnosticData)
         let diagnostic = String(data: diagnosticData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let engineError { throw AnalysisServiceError.processFailed(engineError) }
         if cancelled { throw AnalysisServiceError.processFailed("Analysis cancelled. You can run it again when ready.") }

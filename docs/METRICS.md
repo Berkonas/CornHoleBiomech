@@ -1,6 +1,6 @@
 # Scientific metrics guide
 
-This is the authoritative Stage 1 metric specification for Cornhole Biomechanics Lab 0.2. Every angle is a projection into the image plane. None is a measured 3D anatomical rotation. Pilot scoring tolerances are configuration choices, not population norms or validated error limits.
+This guide documents projected body metrics. The current [full-throw contract](FULL_THROW_METHODS.md) defines release, flight, outcome, personal distributions and availability gates. Every angle is a projection into the image plane. None is a measured 3D anatomical rotation. Pilot scoring tolerances are configuration choices, not population norms or validated error limits.
 
 ## Coordinates and landmarks
 
@@ -103,7 +103,7 @@ Board: x 0–24 inches left→right; y 0–48 inches pitcher→back. Hole center
 - Longitudinal error `Py−Ty` (negative short, positive long), inches.
 - Radial target error `sqrt(lateral²+longitudinal²)`, inches.
 
-Trial summaries prefer first contact; if absent, use final resting point. The symbols remain different. Relationship analysis chooses one spatial endpoint across a set rather than mixing contact and rest. No spatial error exists without both target and an observed point. All clicks are approximate, not a calibrated board-camera measurement. Numerical coordinates can describe off-board observations when entered in outcome JSON.
+Trial summaries and spatial relationships use first contact only; final rest has a separate error. Unknown outcomes are null, not zero. No spatial error exists without both target and the observed endpoint. Board clicks are approximate deck-plane observations, not calibrated video measurements. Ground misses have no board-plane location.
 
 ## Performance relationships
 
@@ -116,3 +116,7 @@ Spearman rho is the correlation of ranks; report only with at least **eight comp
 Raw pose, corrections, configuration, effective events, source hashes, model hashes and normalized trajectories are retained. Corrections mark derived results stale until reanalysis; changing a source normalized file invalidates its comparison. The deterministic summary simply formats actual outcomes, differences, sample size and warning state. It supplies no diagnosis or prescriptive technique advice.
 
 Sports2D 0.8.34's pixel TRC header is corrected from its upstream hardcoded `m` to `px`; the original and repair hashes are retained. See [SPORTS2D](SPORTS2D.md). Zero Z never represents measured depth.
+
+## Arm-motion descriptors
+
+The `arm_motion_*` fields describe the inclusive forward-swing-to-release interval in native-rate filtered side-view data. They include mean flexion (180° minus included elbow angle), flexion excursion, sample SD and shoulder–wrist radius CV. The UI shows CV × 100 as percent; saved values are ratios. They require ≥5 usable samples and ≥80% coverage, with a separate radius gate. Null values mean unavailable. These gates do not establish anatomical accuracy. See [definitions, equations and limitations](PENDULUM_MODELS.md).

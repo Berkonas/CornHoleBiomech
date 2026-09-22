@@ -213,6 +213,10 @@ class SpatialCalibration:
     source: str
     schema_version: int = 1
 
+    known_length_m: float | None = None
+    observed_length_px: float | None = None
+    frame_index: int | None = None
+
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "SpatialCalibration":
         version = int(value.get("schema_version", 1))
@@ -224,6 +228,9 @@ class SpatialCalibration:
             valid=bool(value.get("valid", False)),
             source=str(value.get("source", "unspecified")),
             schema_version=version,
+            known_length_m=value.get("known_length_m"),
+            observed_length_px=value.get("observed_length_px"),
+            frame_index=value.get("frame_index"),
         )
 
     @classmethod
@@ -244,12 +251,14 @@ class SpatialCalibration:
 
 def _bounded_bbox(bbox: tuple[float, float, float, float], width: int, height: int) -> tuple[float, float, float, float]:
     x, y, w, h = bbox
-    x = min(max(0.0, x), max(0.0, width - 2.0))
-    y = min(max(0.0, y), max(0.0, height - 2.0))
-    w = min(w, width - x)
-    h = min(h, height - y)
+    if not all(math.isfinite(v) for v in bbox) or w <= 1 or h <= 1:
+        raise ValueError("Bag rectangle is invalid")
+    # Intersect with the frame; never relocate an offscreen box to the edge.
+    x1, y1 = min(float(width), x+w), min(float(height), y+h)
+    x, y = max(0.0, x), max(0.0, y)
+    w, h = x1-x, y1-y
     if w <= 1 or h <= 1:
-        raise ValueError("Bag seed rectangle lies outside the video image")
+        raise ValueError("Bag rectangle lies outside the video image")
     return x, y, w, h
 
 
@@ -312,21 +321,77 @@ def _template_update(
     return (float(sx0 + location[0]), float(sy0 + location[1]), float(w), float(h)), float(np.clip(quality, 0.0, 1.0))
 
 
+BAG_TRACKER_REVISION = "color_motion_v1"
+
+
+def _seed_color_model(template):
+    """Circular HSV hue from saturated seed pixels; no hard-coded bag color."""
+    hsv = cv2.cvtColor(template, cv2.COLOR_BGR2HSV)
+    usable = (hsv[...,1] >= 65) & (hsv[...,2] >= 35)
+    if usable.sum() < max(8, template.shape[0]*template.shape[1]*0.03):
+        return None
+    yy,xx = np.indices(usable.shape)
+    spatial = np.exp(-0.5*(((xx-(template.shape[1]-1)/2)/max(1,template.shape[1]*0.22))**2
+                           +((yy-(template.shape[0]-1)/2)/max(1,template.shape[0]*0.22))**2))
+    histogram = np.bincount(hsv[...,0][usable], weights=(hsv[...,1].astype(float)**2*spatial)[usable], minlength=180)
+    smooth = sum(np.roll(histogram, offset) for offset in range(-6,7))
+    hue = int(np.argmax(smooth))
+    delta = np.abs(hsv[...,0].astype(float)-hue)
+    selected = usable & (np.minimum(delta,180-delta) <= 12)
+    central = (((xx-(template.shape[1]-1)/2)/max(1,template.shape[1]*0.25))**2
+               +((yy-(template.shape[0]-1)/2)/max(1,template.shape[0]*0.25))**2) <= 1
+    if selected.sum() < 8 or np.count_nonzero(selected & central) < max(3,0.2*np.count_nonzero(central)):
+        return None
+    return hue, max(45.,float(np.median(hsv[...,1][selected]))*0.45), float(selected.sum())
+
+
+def _color_motion_candidate(image, center, radius, model, previous_mask=None):
+    hue, saturation, seed_area = model
+    x0,y0 = max(0,int(center[0]-radius)),max(0,int(center[1]-radius))
+    x1,y1 = min(image.shape[1],int(center[0]+radius)+1),min(image.shape[0],int(center[1]+radius)+1)
+    if x1 <= x0 or y1 <= y0: return None
+    hsv=cv2.cvtColor(image[y0:y1,x0:x1],cv2.COLOR_BGR2HSV)
+    delta=np.abs(hsv[...,0].astype(float)-hue)
+    mask=((np.minimum(delta,180-delta)<=12)&(hsv[...,1]>=saturation)&(hsv[...,2]>=30)).astype(np.uint8)
+    count, labels, stats, centroids=cv2.connectedComponentsWithStats(mask,8)
+    best=None
+    for i in range(1,count):
+        area=float(stats[i,cv2.CC_STAT_AREA])
+        if not max(3,seed_area*0.08)<=area<=seed_area*5: continue
+        x,y=centroids[i]+np.array([x0,y0])
+        distance=math.hypot(x-center[0],y-center[1])
+        if distance>radius: continue
+        if previous_mask is not None:
+            component = labels == i
+            occupied_before = np.count_nonzero(previous_mask[y0:y1,x0:x1][component])
+            if 1-occupied_before/area < 0.15:
+                continue  # Static same-colored fixtures are not a moving bag.
+        size_score=min(area,seed_area)/max(area,seed_area)
+        quality=math.exp(-0.5*(distance/max(8,radius*0.45))**2)*size_score**0.25
+        if best is None or quality>best[1]:
+            # Position is the component centroid; bounding box is retained for QA.
+            box=(float(x0+stats[i,0]),float(y0+stats[i,1]),float(max(2,stats[i,2])),float(max(2,stats[i,3])))
+            best=(box,float(quality),(float(x),float(y)))
+    return best
+
+
 def track_bag_from_seed(
     video_path: str | Path,
     seed: BagSeed,
     requested_method: str = "auto",
     template_quality_threshold: float = 0.25,
     search_scale: float = 2.5,
+    progress=None,
 ) -> BagTrack:
     """Track forward from a manual rectangle without changing the source video.
 
-    ``auto`` uses OpenCV CSRT when available. If it is unavailable, a local
+    ``auto`` uses seed-color segmentation with constant-velocity search when the
+    selected bag has distinct color; otherwise it uses OpenCV CSRT when available. If it is unavailable, a local
     template-matching fallback is selected and the reason is saved explicitly.
     A specifically requested unavailable method fails instead of substituting.
     """
-    if requested_method not in {"auto", "csrt", "template_matching"}:
-        raise ValueError("Bag tracker method must be auto, csrt, or template_matching")
+    if requested_method not in {"auto", "csrt", "template_matching", "color_motion"}:
+        raise ValueError("Bag tracker method must be auto, color_motion, csrt, or template_matching")
     if not 0.0 <= template_quality_threshold <= 1.0:
         raise ValueError("Template tracker quality threshold must be between 0 and 1")
     if search_scale <= 0:
@@ -350,7 +415,13 @@ def track_bag_from_seed(
 
     factory = _csrt_factory()
     fallback_reason: str | None = None
-    if requested_method == "template_matching":
+    color_model = _seed_color_model(template)
+    if requested_method == "color_motion" and color_model is None:
+        capture.release()
+        raise ValueError("The selected bag has insufficient distinct color. Select a tighter box or use CSRT/template tracking.")
+    if requested_method == "color_motion" or (requested_method == "auto" and color_model is not None):
+        effective_method = "color_motion"
+    elif requested_method == "template_matching":
         effective_method = "template_matching"
     elif factory is None:
         if requested_method == "csrt":
@@ -377,19 +448,52 @@ def track_bag_from_seed(
         for i in range(seed.frame_index)
     ]
     center = (bbox[0] + 0.5 * bbox[2], bbox[1] + 0.5 * bbox[3])
+    if effective_method == "color_motion":
+        initial = _color_motion_candidate(seed_image, center, max(bbox[2:])/2+1, color_model)
+        if initial is not None: center = initial[2]
     points.append(BagAutomaticPoint(seed.frame_index, center[0], center[1], 1.0, bbox, "manual_seed"))
     failures: list[int] = []
     previous = bbox
+    last_center = np.asarray(center,float)
+    last_valid_frame = seed.frame_index
+    velocity = np.zeros(2)
+    previous_image = seed_image
     frame_index = seed.frame_index + 1
     try:
         while frame_index < metadata.frame_count:
+            if progress is not None and (frame_index-seed.frame_index) % 30 == 1:
+                fraction = (frame_index-seed.frame_index)/max(1, metadata.frame_count-seed.frame_index)
+                progress(fraction, f"Tracking bag: frame {frame_index} of {metadata.frame_count-1}")
             ok, image = capture.read()
             if not ok:
                 for missing in range(frame_index, metadata.frame_count):
                     failures.append(missing)
                     points.append(BagAutomaticPoint(missing, None, None, 0.0, None, "decode_failed"))
                 break
-            if effective_method == "csrt":
+            component_center = None
+            if effective_method == "color_motion":
+                gap = frame_index-last_valid_frame
+                predicted = last_center+velocity*gap
+                radius = max(3*max(bbox[2:]), 2*np.linalg.norm(velocity)+max(bbox[2:]))*min(2,1+0.15*(gap-1))
+                previous_mask = None
+                if np.linalg.norm(velocity) > 3:
+                    hue,saturation,_ = color_model
+                    old_hsv=cv2.cvtColor(previous_image,cv2.COLOR_BGR2HSV)
+                    delta=np.abs(old_hsv[...,0].astype(float)-hue)
+                    old_mask=((np.minimum(delta,180-delta)<=12)&(old_hsv[...,1]>=saturation)&(old_hsv[...,2]>=30)).astype(np.uint8)
+                    # Translation-only camera compensation for the rejection mask,
+                    # never a world-coordinate calibration or a change to centroids.
+                    factor=320/image.shape[1]
+                    old_gray=cv2.resize(cv2.cvtColor(previous_image,cv2.COLOR_BGR2GRAY),None,fx=factor,fy=factor).astype(np.float32)
+                    new_gray=cv2.resize(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY),None,fx=factor,fy=factor).astype(np.float32)
+                    shift,response=cv2.phaseCorrelate(old_gray,new_gray)
+                    dx,dy=shift[0]/factor,shift[1]/factor
+                    if response < 0.1 or abs(dx)>image.shape[1]*0.03 or abs(dy)>image.shape[0]*0.03: dx=dy=0
+                    previous_mask=cv2.warpAffine(old_mask,np.float32([[1,0,dx],[0,1,dy]]),(image.shape[1],image.shape[0]),flags=cv2.INTER_NEAREST)
+                candidate = _color_motion_candidate(image,predicted,radius,color_model,previous_mask)
+                result = None if candidate is None else candidate[:2]
+                if candidate is not None: component_center = candidate[2]
+            elif effective_method == "csrt":
                 tracked, candidate = tracker.update(image)
                 result = None if not tracked else (tuple(float(item) for item in candidate), None)
             else:
@@ -399,7 +503,13 @@ def track_bag_from_seed(
                 points.append(BagAutomaticPoint(frame_index, None, None, 0.0, None, "tracker_update_failed"))
             else:
                 candidate, template_quality = result
-                candidate = _bounded_bbox(candidate, metadata.width, metadata.height)
+                try:
+                    candidate = _bounded_bbox(candidate, metadata.width, metadata.height)
+                except ValueError:
+                    failures.append(frame_index)
+                    points.append(BagAutomaticPoint(frame_index, None, None, 0.0, None, "outside_frame"))
+                    frame_index += 1
+                    continue
                 quality = _appearance_score(template, image, candidate) if template_quality is None else template_quality
                 if quality < template_quality_threshold:
                     failures.append(frame_index)
@@ -408,7 +518,12 @@ def track_bag_from_seed(
                     previous = candidate
                     cx = candidate[0] + 0.5 * candidate[2]
                     cy = candidate[1] + 0.5 * candidate[3]
+                    if component_center is not None: cx,cy = component_center
+                    observed = np.array([cx,cy])
+                    velocity = 0.65*(observed-last_center)/max(1,frame_index-last_valid_frame)+0.35*velocity
+                    last_center, last_valid_frame = observed, frame_index
                     points.append(BagAutomaticPoint(frame_index, cx, cy, quality, candidate, "tracked"))
+            previous_image = image
             frame_index += 1
     finally:
         capture.release()
@@ -657,7 +772,7 @@ def estimate_projectile_release_kinematics(
     # centroid occurs one frame later, the polynomial is extrapolated back by
     # at most one frame rather than mislabeled as velocity at release.
     time = (sample_indices - release_frame) / fps
-    degree = 2 if len(sample_indices) >= acceleration_minimum_points else 1
+    degree = 2  # Four or more samples identify curvature; linear fits bias launch velocity toward mid-window.
     coeff_x, residual_x = _robust_polynomial(time, points[sample_indices, 0], degree)
     coeff_y, residual_y = _robust_polynomial(time, points[sample_indices, 1], degree)
     x_sign = 1.0 if target_direction == "left_to_right" else -1.0
@@ -667,7 +782,16 @@ def estimate_projectile_release_kinematics(
         fit_rmse_pixels / arm_length_pixels
         if math.isfinite(arm_length_pixels) and arm_length_pixels > 0 else None
     )
+    # Residual is a descriptive gate, not a probability of physical accuracy.
+    if fit_rmse_arm_lengths is None or fit_rmse_arm_lengths > acceleration_maximum_fit_rmse_arm_lengths:
+        base.update(status="suppressed_poor_fit", fit_rmse_pixels=fit_rmse_pixels,
+                    fit_rmse_arm_lengths=fit_rmse_arm_lengths,
+                    reason="Release fit lacks scale support or exceeds the documented pilot residual gate.")
+        return base
     speed_pixels = float(np.linalg.norm(velocity_pixels))
+    if speed_pixels <= 1e-8:
+        base.update(status="suppressed_no_motion", reason="A stationary centroid has no defined launch direction.")
+        return base
     angle = float(np.degrees(np.arctan2(velocity_pixels[1], velocity_pixels[0])))
     velocity: dict[str, Any] = {
         "forward_px_s": float(velocity_pixels[0]),

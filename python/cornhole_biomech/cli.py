@@ -84,7 +84,7 @@ def parser() -> argparse.ArgumentParser:
     bag_track.add_argument("video")
     bag_track.add_argument("--seed", required=True)
     bag_track.add_argument("--output", required=True)
-    bag_track.add_argument("--method", choices=("auto", "csrt", "template_matching"), default="auto")
+    bag_track.add_argument("--method", choices=("auto", "csrt", "template_matching", "color_motion"), default="auto")
     bag_track.add_argument("--quality-threshold", type=float, default=0.25)
     bag_track.add_argument("--search-scale", type=float, default=2.5)
     bag_track.set_defaults(handler=handle_bag_track)
@@ -276,7 +276,7 @@ def handle_outcome(args: argparse.Namespace) -> dict[str, Any]:
     value = load_json(args.input)
     outcome = TrialOutcome(
         intended_target=value["intended_target"],
-        score_category=int(value["score_category"]),
+        score_category=value.get("score_category"),
         throw_type=value["throw_type"],
         notes=value.get("notes", ""),
         intended_point=_point(value.get("intended_point")),

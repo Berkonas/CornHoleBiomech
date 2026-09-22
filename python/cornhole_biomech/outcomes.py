@@ -34,14 +34,16 @@ def point_errors(target: BoardPoint, actual: BoardPoint) -> dict[str, float]:
 
 
 def outcome_summary(outcome: TrialOutcome) -> dict[str, Any]:
-    if outcome.score_category not in (0, 1, 3):
-        raise ValueError("score_category must be 0, 1, or 3")
+    if outcome.score_category not in (None, 0, 1, 3):
+        raise ValueError("score_category must be unknown (null), 0, 1, or 3")
     result: dict[str, Any] = asdict(outcome)
-    actual = outcome.first_contact_point or outcome.final_resting_point
-    if outcome.intended_point and actual:
-        result["spatial_error"] = point_errors(outcome.intended_point, actual)
-    else:
-        result["spatial_error"] = None
+    for endpoint in ("first_contact", "final_resting"):
+        actual = getattr(outcome, endpoint + "_point")
+        result[endpoint + "_error"] = point_errors(outcome.intended_point, actual) if outcome.intended_point and actual else None
+    # Legacy field now has ONE stable definition. Never substitute rest for contact.
+    result["spatial_error"] = result["first_contact_error"]
+    result["spatial_endpoint"] = "first_contact_point"
+    result["score_status"] = "unobserved" if outcome.score_category is None else "observed_per_bag_value"
     result["precision_note"] = (
         "Board coordinates are approximate manual clicks and must not be interpreted as instrument-level precision."
     )

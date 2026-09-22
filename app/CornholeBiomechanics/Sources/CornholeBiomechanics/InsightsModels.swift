@@ -1,6 +1,7 @@
 import Foundation
 
 struct TrialInsights: Decodable {
+    var performance: PerformanceSummary?
     struct Difference: Decodable, Identifiable {
         var metric: String; var name: String; var amount: Double; var signed_difference: Double?
         var units: String; var percent: Double; var phase: String; var explanation: String
@@ -8,7 +9,7 @@ struct TrialInsights: Decodable {
     }
     struct Outcome: Decodable {
         struct Error: Decodable { var radial_error_inches: Double; var lateral_error_inches: Double; var longitudinal_error_inches: Double }
-        var score_category: Int; var spatial_error: Error?
+        var score_category: Int?; var spatial_error: Error?
         var error_point_kind: String?
     }
     struct Consistency: Decodable {
@@ -42,6 +43,10 @@ struct TrialInsights: Decodable {
 
 func metricLabel(_ key: String) -> String {
     let extended = [
+        "arm_motion_mean_flexion_deg": "Mean projected elbow flexion (°)",
+        "arm_motion_flexion_rom_deg": "Forward-swing elbow excursion (°)",
+        "arm_motion_flexion_sd_deg": "Within-swing elbow flexion SD (°)",
+        "arm_motion_radius_cv_ratio": "Forward-swing radius CV (ratio)",
         "elbow_extension_deficit_deg_at_release": "Elbow extension deficit at release (°)",
         "shoulder_translation_net_arm_lengths": "Shoulder net translation (arm lengths)",
         "shoulder_peak_speed_arm_lengths_s": "Peak projected shoulder speed (arm lengths/s)",
@@ -69,3 +74,12 @@ func metricLabel(_ key: String) -> String {
 }
 func metricUnits(_ key: String) -> String { key.contains("arm_lengths") ? "arm lengths" : key.contains("cycle") ? "cycle fraction" : "degrees" }
 func number(_ value: Double?, digits: Int = 1) -> String { value?.formatted(.number.precision(.fractionLength(digits))) ?? "—" }
+
+func metricMechanism(_ key: String) -> String {
+    switch key {
+    case "bag_release_angle_deg": "Why it matters: angle divides release velocity between forward travel and height; its effect depends on speed and release position."
+    case "bag_release_speed_m_s", "bag_release_speed_arm_lengths_s": "Why it matters: speed changes flight distance and impact velocity at a given angle; projected video speed is not automatically true 3D speed."
+    case "elbow_angle_deg_at_release": "Why it matters: elbow configuration changes hand position and the velocity produced by joint motion. The same angle can accompany many different throws."
+    default: "Interpret within the same athlete and recording setup; an association with outcome is not a causal effect."
+    }
+}

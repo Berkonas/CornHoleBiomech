@@ -1,6 +1,6 @@
 """Cornhole Biomechanics Lab scientific analysis package."""
 
-__version__ = "0.4.0"
+__version__ = "0.6.1"
 
 REQUIRED_LANDMARKS = (
     "left_shoulder",

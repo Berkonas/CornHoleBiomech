@@ -263,4 +263,61 @@ def test_pipeline_writes_separate_bag_artifacts_and_provenance(tmp_path):
         make_annotated_video=False,
     )
     assert reviewed["results"]["bag"]["review"]["covers_launch_fit"] is True
-    assert reviewed["results"]["bag"]["launch"]["status"] == "estimated"
+    # Identity approval is not release-event confirmation.
+    assert reviewed["results"]["bag"]["launch"]["status"] == "needs_release_confirmation"
+    assert reviewed["results"]["summaries"]["bag_release_speed_arm_lengths_s"] is None
+
+
+def test_offscreen_tracker_candidate_is_missing_not_clamped_or_fatal(tmp_path, monkeypatch):
+    video = tmp_path / "exit.mp4"
+    _video(video, frames=4, moving_square=True)
+    class Tracker:
+        def init(self, *_): return True
+        def update(self, _): return True, (200, 30, 12, 12)
+    monkeypatch.setattr("cornhole_biomech.bag._csrt_factory", lambda: lambda: Tracker())
+    track = track_bag_from_seed(video, BagSeed(0, (10, 30, 12, 12)), "csrt")
+    assert track.failure_frames == [1, 2, 3]
+    assert all(p.x is None and p.status == "outside_frame" for p in track.automatic_points[1:])
+
+
+def test_reviewed_release_withholds_conflicting_automatic_phases():
+    from cornhole_biomech.events import EVENT_ORDER
+    from cornhole_biomech.models import EventValue
+    events = {n: EventValue(n, automatic_frame=i*10) for i,n in enumerate(EVENT_ORDER)}
+    fixed = apply_manual_event_overrides(events, {"release": 45})
+    assert fixed['release'].effective_frame == 45
+    assert fixed['peak_follow_through'].automatic_frame == 40
+    assert fixed['peak_follow_through'].effective_frame is None
+    assert fixed['peak_follow_through'].suppressed_reason
+    with pytest.raises(ValueError, match="Reviewed events are out of order"):
+        apply_manual_event_overrides(events, {"release": 45, "motion_end": 44})
+
+
+def test_color_motion_follows_fast_bag_and_leaves_occlusion_gaps(tmp_path):
+    video = tmp_path / 'color.mp4'
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'mp4v'), 60, (128,96))
+    truth={}
+    for f in range(18):
+        image=np.full((96,128,3),70,np.uint8)
+        image[10:19,45:54]=(0,0,220)  # same-colored stationary distractor
+        x,y=10+5*f,35-f
+        if f not in (6,7,8): image[y:y+9,x:x+9]=(0,0,220)
+        truth[f]=(x+4,y+4)
+        writer.write(image)
+    writer.release()
+    track=track_bag_from_seed(video,BagSeed(0,(9,34,11,11)),'auto')
+    assert track.effective_method=='color_motion'
+    for point in track.automatic_points:
+        if point.frame_index in (6,7,8):
+            assert point.x is None
+        else:
+            assert point.x is not None
+            assert np.linalg.norm(np.array([point.x,point.y])-truth[point.frame_index]) < 2
+
+
+def test_neutral_bag_does_not_take_its_seed_color_from_background():
+    from cornhole_biomech.bag import _seed_color_model
+    seed=np.zeros((30,30,3),np.uint8)
+    seed[:]=(20,100,180)  # warm, saturated background
+    seed[5:25,5:25]=(200,200,200)  # neutral bag centered in selected box
+    assert _seed_color_model(seed) is None

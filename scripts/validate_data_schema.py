@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 def _field(value: dict[str, Any], snake_case: str, camel_case: str) -> Any:

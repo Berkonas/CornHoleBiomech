@@ -130,10 +130,11 @@ class EventValue:
     automatic_confidence: float | None = None
     automatic_method: str | None = None
     manual_frame: int | None = None
+    suppressed_reason: str | None = None
 
     @property
     def effective_frame(self) -> int | None:
-        return self.manual_frame if self.manual_frame is not None else self.automatic_frame
+        return self.manual_frame if self.manual_frame is not None else (None if self.suppressed_reason else self.automatic_frame)
 
 
 @dataclass
@@ -162,7 +163,7 @@ class BoardPoint:
 @dataclass
 class TrialOutcome:
     intended_target: str
-    score_category: Literal[0, 1, 3]
+    score_category: Literal[0, 1, 3] | None
     throw_type: str
     notes: str = ""
     intended_point: BoardPoint | None = None

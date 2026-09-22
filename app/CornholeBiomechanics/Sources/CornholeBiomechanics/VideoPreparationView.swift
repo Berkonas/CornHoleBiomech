@@ -29,7 +29,7 @@ struct VideoPreparationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Prepare this throw").font(.title2.bold())
-            Text("Trim one complete throw, keep the athlete and bag in view, and correct camera rotation. All edits start from your original recording.").foregroundStyle(.secondary)
+            Text("Trim to one complete throw; keep the athlete, entire flight and receiving board in view. All edits start from your original recording.").foregroundStyle(.secondary)
             if let player, sourceWidth > 0 {
                 GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
@@ -66,12 +66,14 @@ struct VideoPreparationView: View {
                 coordinateField("Last frame + 1", value: $end)
                 Button("End here") { end = Int(frame) + 1 }
             }
-            Text("Keep frames \(start)…\(max(start, end - 1)) · \((Double(max(0, end - start)) / fps).formatted(.number.precision(.fractionLength(2)))) s. Include preparation, backswing, release, and follow-through.").font(.caption).foregroundStyle(.secondary)
+            Text("Keep frames \(start)…\(max(start, end - 1)) · \((Double(max(0, end - start)) / fps).formatted(.number.precision(.fractionLength(2)))) s. Include backswing, release, full flight, first contact and final outcome.").font(.caption).foregroundStyle(.secondary)
+            DisclosureGroup("Advanced spatial crop · may remove flight evidence") {
             HStack {
                 coordinateField("Crop X (px)", value: $x)
                 coordinateField("Crop Y (px)", value: $y)
                 coordinateField("Width (px)", value: $width)
                 coordinateField("Height (px)", value: $height)
+            }
             }
             HStack {
                 Picker("Rotate clockwise", selection: $rotation) {

@@ -111,8 +111,19 @@ def apply_manual_event_overrides(
     for name, frame in overrides.items():
         if name in result:
             result[name].manual_frame = None if frame is None else int(frame)
-    effective = [result[name].effective_frame for name in EVENT_ORDER]
-    known = [v for v in effective if v is not None]
-    if known != sorted(known):
-        raise ValueError("manual event frames must preserve movement-event order")
+    manual = [result[name].manual_frame for name in EVENT_ORDER if result[name].manual_frame is not None]
+    if manual != sorted(manual):
+        raise ValueError("Reviewed events are out of order. Check the manually marked start, backswing, release and follow-through frames.")
+    # A corrected release can legitimately precede/follow the wrist-only proxy.
+    # Preserve automatic provenance but withhold conflicting automatic phases;
+    # never force the user to accept an incorrect release to satisfy a heuristic.
+    for index, name in enumerate(EVENT_ORDER):
+        event = result[name]
+        event.suppressed_reason = None
+        if event.manual_frame is not None or event.automatic_frame is None:
+            continue
+        before = [result[n].manual_frame for n in EVENT_ORDER[:index] if result[n].manual_frame is not None]
+        after = [result[n].manual_frame for n in EVENT_ORDER[index+1:] if result[n].manual_frame is not None]
+        if (before and event.automatic_frame < max(before)) or (after and event.automatic_frame > min(after)):
+            event.suppressed_reason = "Automatic candidate conflicts with a reviewed event; review this phase separately."
     return result

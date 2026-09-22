@@ -131,8 +131,8 @@ final class ProjectStore: ObservableObject {
             throw ProjectStoreError.invalidProjectFolder
         }
         let normalizedLegacyReferences = normalizeLegacyReferences(in: &decoded)
-        if decoded.schemaVersion == 2 {
-            let backup = url.appendingPathComponent("project.schema2.backup.json")
+        if decoded.schemaVersion < currentProjectSchemaVersion {
+            let backup = url.appendingPathComponent("project.schema\(decoded.schemaVersion).backup.json")
             if !fileManager.fileExists(atPath: backup.path) {
                 try fileManager.copyItem(at: url.appendingPathComponent("project.json"), to: backup)
             }
@@ -171,6 +171,8 @@ final class ProjectStore: ObservableObject {
             dominantHand: draft.dominantHand,
             heightCentimeters: Double(draft.height),
             armSpanCentimeters: Double(draft.armSpan),
+            upperArmCentimeters: Double(draft.upperArm),
+            forearmCentimeters: Double(draft.forearm),
             notes: draft.notes
         )
         project?.athletes.append(athlete)
