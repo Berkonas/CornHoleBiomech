@@ -44,7 +44,7 @@ struct ResultsView: View {
                 }
                 Divider()
                 if let normalized = data.normalized {
-                    MovementWorkspace(normalized: normalized, comparison: insight.similarity == nil ? nil : data.comparison,
+                    MovementWorkspace(normalized: normalized, comparison: insight.comparison_available == true ? data.comparison : nil,
                                       videoURL: store.videoURL(for: trial), events: data.events, fps: insight.quality.frameRateFPS, fraction: $fraction)
                 }
                 ArmMotionPanel(result: data.results?.armMotion, normalized: data.normalized, stale: insight.needs_reanalysis, fraction: $fraction)

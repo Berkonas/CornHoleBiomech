@@ -40,7 +40,7 @@ For 2D vectors, define `A(u,v) = atan2(|ux vy − uy vx|, u·v) × 180/π`. Zero
 
 Manual event values retain automatic candidates and must be within the video and ordered. Empty event fields remain missing. All dates/settings and effective frame indices are exported.
 
-## Reference similarity
+## Reference comparison (raw errors only)
 
 A reference may be one selected throw or a set. The pointwise mean represents the set; ±1 sample SD describes its spread, not uncertainty in the mean. A trial cannot include itself as a reference. Camera views and normalized grids must match.
 
@@ -53,45 +53,38 @@ A reference may be one selected throw or a set. The pointwise mean represents th
 | Wrist / elbow path RMSE | `sqrt(mean(||ptrial−preference||²))` | arm lengths; Euclidean path discrepancy |
 | Largest movement difference | Maximum absolute angle error or Euclidean point error at a normalized sample | degrees or arm lengths, with cycle percentage and phase; ranked after division by pilot tolerance |
 
-For segment orientation and trunk inclination, signed error is wrapped into `[-180°,180°)`. The elbow included angle and unsigned arm/trunk angle use ordinary subtraction. The largest-difference UI uses **pointwise** error; the similarity score uses **whole-cycle** errors.
+For segment orientation and trunk inclination, signed error is wrapped into `[-180°,180°)`. The elbow included angle and unsigned arm/trunk angle use ordinary subtraction. The largest-difference UI uses **pointwise** error; the error table uses **whole-cycle** errors.
 
-For each configured component:
-
-`component = 100 × max(0, 1 − error/tolerance)`
-
-`Reference Similarity = Σ(weight × component) / Σ(available weights)`
-
-| Component | Tolerance | Weight |
-|---|---:|---:|
-| Elbow angle MAE | 15° | 1.0 |
-| Upper-arm orientation MAE | 15° | 0.75 |
-| Forearm orientation MAE | 15° | 0.75 |
-| Arm/trunk angle MAE | 15° | 0.75 |
-| Trunk inclination MAE | 10° | 0.75 |
-| Wrist-path RMSE | 0.25 arm lengths | 1.0 |
-| Release timing difference | 0.10 cycle | 0.75 |
-
-Missing components are named and omitted. A score with incomplete components is less comparable. Scores measure resemblance to a selected pattern, not skill, perfect form, accuracy or safety. Tracking warnings remain visible beside high scores.
+A 0–100 "Reference Similarity" composite was removed on 22 September 2026. Its tolerances (15°, 10°, 0.25 arm lengths, 0.10 cycle) and weights (1.0/0.75) had no empirical basis, and the single number hid which component differed. The raw errors above are reported instead. Resemblance to a reference is not skill, correct form, accuracy or safety.
 
 ## Athlete consistency
 
-At least **five comparable throws** are required. Comparable means same athlete, session (including unassigned session group), camera view, throwing side, pose backend/model and processing configuration, with ≥80% usable frames and no pending corrections. Five is a pilot display threshold, not evidence of adequate sample size. The score is suppressed unless all four components have sufficient data.
+At least **five comparable throws** are required. Comparable means same athlete, session (including unassigned session group), camera view, throwing side, pose backend/model and processing configuration, with ≥80% usable frames and no pending corrections. Five is a pilot display threshold, not evidence of adequate sample size.
 
-At each cycle point, calculate sample SD across throws (`ddof=1`). A waveform's variability is the RMS of its pointwise SD. Wrist variability is `sqrt(mean(SDx²+SDy²))`. Timing variability is sample SD of release-cycle fractions. A point needs at least five supporting throws; a waveform needs ≥80% supported points.
-
-`Consistency = mean[100 × max(0, 1 − variability/tolerance)]`
-
-The four equal-weight tolerances are elbow **15°**, trunk **10°**, wrist **0.25 arm lengths**, release timing **0.10 cycle**. These are transparent pilot tolerances. A repeatable movement can still perform poorly. Own-mean comparison separately excludes the selected trial to avoid self-inflation.
+At each cycle point, calculate sample SD across throws (`ddof=1`). A waveform's variability is the RMS of its pointwise SD. Wrist variability is `sqrt(mean(SDx²+SDy²))`. Timing variability is sample SD of release-cycle fractions. A point needs at least five supporting throws; a waveform needs ≥80% supported points. The variabilities are reported in their own units. The former 0–100 consistency index, built from arbitrary tolerances, was removed. A repeatable movement can still perform poorly.
 
 ## Tracking quality
 
-This is a **pilot measurement index**, not a biomechanical performance score:
+There is no composite tracking score; the former 50/30/20-weighted index was removed. The following are reported separately:
+- usable-frame percentage;
+- release-window visibility (share of frames within ±50 ms of release where all throwing-arm and trunk landmarks are raw-visible above the confidence threshold);
+- mean pose confidence;
+- manual and interpolated point counts;
+- per-landmark low-confidence counts;
+- fps, resolution and view.
 
-`Q = weighted mean(100 × raw coverage, 100 × required-point mean confidence, 100 × release-window visibility)`
+Manual corrections never inflate raw tracking confidence. Model confidence is not a calibrated physical error. Real accuracy comes from the annotation workflow in [VALIDATION_PROTOCOL.md](VALIDATION_PROTOCOL.md).
 
-Weights: **0.50, 0.30, 0.20**. Required points: both shoulders, both hips, throwing elbow and wrist. Raw coverage is the fraction of frames where all required raw points are finite and pass the confidence threshold. Missing confidence is zero for the mean. Release-window visibility is raw coverage within ±50 ms of the effective release frame. If release is unavailable, omit that component and renormalize weights.
+## Scored versus missed throws
 
-Manual corrections never inflate raw tracking confidence. Usable-frame percentage after correction, manual point count, interpolation count, missing samples, resolution, fps, view and per-landmark low-confidence counts are shown separately. Warnings address cropping, poor visibility, interpolation and coarse temporal sampling. Model confidence is not a calibrated physical error.
+`performance.py` compares scored throws (1 or 3 points) with misses (0) for one athlete. Unknown outcomes are excluded. It uses a fixed list of release variables: angle, speed, height, forward position, elbow and trunk at release, and duration. For each variable it reports n, median, quartiles, SD, CV (ratio-scale variables only), Cliff's δ = P(scored > miss) − P(scored < miss), and Hedges' g.
+
+A variable "differed" only when all of these hold:
+- at least 5 throws per group;
+- |δ| ≥ 0.474 (large; Romano et al., 2006);
+- the median difference exceeds the variable's noise floor.
+
+The release-angle noise floor is 2 × the median per-throw fit standard error. The other floors are provisional estimates listed in the code, to be replaced by validation results. The analysis is exploratory and is not corrected for the number of variables. Wording is associational.
 
 ## Cornhole outcomes
 
@@ -107,7 +100,7 @@ Trial summaries and spatial relationships use first contact only; final rest has
 
 ## Performance relationships
 
-Within-athlete scatter plots retain observations, sample size and separate task outcomes. Features include release elbow/trunk, elbow ROM, movement duration, release timing, reference similarity and wrist deviations. Use target error when available; otherwise use 0/1/3 bag result. Never mix inches and score categories in one response variable.
+Within-athlete scatter plots retain observations, sample size and separate task outcomes. Features include release elbow/trunk, elbow ROM, movement duration, release timing and wrist deviations. Use target error when available; otherwise use 0/1/3 bag result. Never mix inches and score categories in one response variable.
 
 Spearman rho is the correlation of ranks; report only with at least **eight complete pairs** and variation in both variables. The 95% interval is a percentile bootstrap from 2,000 resamples using a fixed seed. Constant bootstrap samples are omitted. These exploratory intervals do not solve dependence, multiple comparisons, selection bias or small samples. No trend line is imposed and no association is described as causal.
 
@@ -119,4 +112,4 @@ Sports2D 0.8.34's pixel TRC header is corrected from its upstream hardcoded `m` 
 
 ## Arm-motion descriptors
 
-The `arm_motion_*` fields describe the inclusive forward-swing-to-release interval in native-rate filtered side-view data. They include mean flexion (180° minus included elbow angle), flexion excursion, sample SD and shoulder–wrist radius CV. The UI shows CV × 100 as percent; saved values are ratios. They require ≥5 usable samples and ≥80% coverage, with a separate radius gate. Null values mean unavailable. These gates do not establish anatomical accuracy. See [definitions, equations and limitations](PENDULUM_MODELS.md).
+The `arm_motion_*` fields describe the inclusive forward-swing-to-release interval in native-rate filtered side-view data. They include mean flexion (180° minus included elbow angle), flexion excursion, sample SD and shoulder–wrist radius CV. The UI shows CV × 100 as percent; saved values are ratios. They require ≥5 usable samples and ≥80% coverage, with a separate radius gate. Null values mean unavailable. These gates do not establish anatomical accuracy. Earlier passive-pendulum notes are archived in `archive/PENDULUM_MODELS.md`.

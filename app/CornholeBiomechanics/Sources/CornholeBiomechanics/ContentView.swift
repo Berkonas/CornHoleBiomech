@@ -20,7 +20,7 @@ struct ContentView: View {
                     }
                 }
                 DisclosureGroup("Research tools") {
-                    ForEach([AppSection.compare, .reference, .mechanics, .overview]) { section in
+                    ForEach([AppSection.compare, .reference, .overview]) { section in
                         Label(section.rawValue, systemImage: section.symbol).tag(section)
                     }
                 }
@@ -82,8 +82,7 @@ struct ContentView: View {
         case .trials: TrialsView(beginImport: beginImport)
         case .compare: CompareView()
         case .results: ResultsView()
-        case .mechanics: PendulumLabView()
-        case .physics: CornholePhysicsView()
+        case .physics: LaunchExplorerView()
         }
     }
 

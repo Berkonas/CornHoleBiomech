@@ -70,8 +70,8 @@ struct CompareView: View {
                 ForEach(comparison.rawMetrics.keys.filter { $0.contains("mae_deg") || $0 == "wrist_path_rmse_arm_lengths" }.sorted(), id: \.self) { key in
                     LabeledContent(metricLabel(key), value: number(comparison.rawMetrics[key] ?? nil, digits: 2)).font(.callout)
                 }
-                Text("A high similarity does not imply a better outcome. Review both recordings and tracking quality before interpreting differences.").font(.callout).foregroundStyle(.secondary)
-                if let q = data.results?.quality { Label("Tracking Quality: \(number(q.score, digits: 0))/100 · \(q.warnings.count) measurement warnings", systemImage: "viewfinder").foregroundStyle(q.warnings.isEmpty ? Color.secondary : Color.orange) }
+                Text("Looking more like a reference does not mean a better outcome. Review both recordings and tracking quality before interpreting differences.").font(.callout).foregroundStyle(.secondary)
+                if let q = data.results?.quality { Label("Usable frames \(number(q.usableFramePercentage, digits: 0))% · \(q.warnings.count) measurement warnings", systemImage: "viewfinder").foregroundStyle(q.warnings.isEmpty ? Color.secondary : Color.orange) }
                 MovementWorkspace(normalized: normalized, comparison: comparison, videoURL: store.videoURL(for: trial), events: data.events, fps: data.pose?.fps ?? 30, fraction: $fraction)
                 if let reference = references.first, let video = store.videoURL(for: reference) {
                     DisclosureGroup("Reference video\(references.count > 1 ? " — first member of the set, not the mean" : "")", isExpanded: $showReferenceVideo) {

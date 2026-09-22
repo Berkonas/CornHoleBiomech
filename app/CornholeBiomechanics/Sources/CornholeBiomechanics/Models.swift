@@ -11,8 +11,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case trials = "Throws"
     case compare = "Compare"
     case results = "Results"
-    case mechanics = "Arm Mechanics"
-    case physics = "Physics Lab"
+    case physics = "Launch Explorer"
 
     var id: String { rawValue }
     var symbol: String {
@@ -23,8 +22,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .trials: "video"
         case .compare: "rectangle.split.2x1"
         case .results: "chart.xyaxis.line"
-        case .mechanics: "function"
-        case .physics: "basketball"
+        case .physics: "point.topleft.down.to.point.bottomright.curvepath"
         }
     }
 }
@@ -482,10 +480,8 @@ struct BagTrackDocument: Codable {
 struct AnalysisResults: Codable {
     var flight: FlightSummary?
     struct Quality: Codable {
-        var score: Double?
         var releaseVisibility: Double?
         var releaseConfidence: Double?
-        var scoreNote: String?
         var averagePoseConfidence: Double?
         var usableFramePercentage: Double
         var missingDataPercentage: Double
@@ -500,10 +496,8 @@ struct AnalysisResults: Codable {
 
         struct Resolution: Codable { var width: Int; var height: Int }
         enum CodingKeys: String, CodingKey {
-            case score
             case releaseVisibility = "release_visibility"
             case releaseConfidence = "release_confidence"
-            case scoreNote = "score_note"
             case averagePoseConfidence = "average_pose_confidence"
             case usableFramePercentage = "usable_frame_percentage"
             case missingDataPercentage = "missing_data_percentage"
@@ -733,34 +727,11 @@ struct ComparisonDocument: Codable {
             case referenceSD = "reference_sd"
         }
     }
-    struct Similarity: Codable {
-        struct Component: Codable, Identifiable {
-            var rawError: Double
-            var tolerance: Double
-            var weight: Double
-            var score: Double
-            var formula: String
-            var id = UUID()
-            enum CodingKeys: String, CodingKey {
-                case rawError = "raw_error"
-                case tolerance, weight, score, formula
-            }
-        }
-        var overall: Double?
-        var components: [String: Component]
-        var omittedComponents: [String]
-        var interpretation: String
-        enum CodingKeys: String, CodingKey {
-            case overall, components, interpretation
-            case omittedComponents = "omitted_components"
-        }
-    }
     var testTrialID: String
     var referenceTrialIDs: [String]
     var cameraView: String
     var label: String
     var rawMetrics: [String: Double?]
-    var similarity: Similarity
     var curves: Curves?
     var testEventTiming: [String: Double?]?
     var referenceEventTiming: [String: Double?]?
@@ -771,7 +742,7 @@ struct ComparisonDocument: Codable {
         case cameraView = "camera_view"
         case label
         case rawMetrics = "raw_metrics"
-        case similarity, curves
+        case curves
         case testEventTiming = "test_event_timing"
         case referenceEventTiming = "reference_event_timing"
         case claimScope = "claim_scope"

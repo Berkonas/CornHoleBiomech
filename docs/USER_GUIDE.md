@@ -93,25 +93,16 @@ This is a projected 2D research prototype. It does not measure true 3D joint rot
 
 For equations and units, read [BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md). For checks actually completed, read [VERIFICATION.md](VERIFICATION.md).
 
-## Arm Mechanics
+## Elbow motion
 
-Use **Research tools → Arm Mechanics** for the four-model explorer. Choose Single simple, Single compound, Double simple, or Double compound, adjust the initial conditions and scrub time. All displayed motion is hypothetical, passive and planar. Expand the equations to inspect corrected formulas and assumptions.
+Reanalyze old recordings to fill the **Results → Advanced → Elbow motion during the forward swing** panel. It covers forward swing through release and needs a side view and enough tracking coverage. Mean flexion describes how bent the elbow is. Excursion and SD describe how much it changes during the swing. None of these is a skill score.
 
-Reanalyze old recordings to populate the **Results → Elbow motion & the pendulum hypothesis** panel. It analyzes forward swing through release, subject to side-view and coverage requirements. Drag the flexion chart to seek the existing synchronized video below. Mean flexion describes bend; excursion and SD describe how much the elbow changes. Radius variability is displayed as percent CV, while exported data and outcome correlations use a ratio. None is a validated skill score.
+## Launch Explorer
 
-Select these features in **Movement and task performance** to explore within-athlete associations across comparable throws with outcomes. Export the research package or open the local report to include the measured metrics, phase plot and model equations. [Full definitions and equation audit](PENDULUM_MODELS.md).
+Open **Launch Explorer** in the sidebar. Move the release angle, speed, height and distance-to-board sliders to see where a drag-free bag first lands on a regulation board. **Find speed that reaches the hole** solves for the speed. **Start from … median release** loads the selected athlete's measured median.
 
-## Physics Lab and practice round
-
-Open **Physics Lab** in the main sidebar. Adjust the animated swing, or choose **Direct release controls** to set speed, elevation and aim, then press **Throw / replay**. Use **Save comparison** to keep a baseline and change one parameter. Use **Board, bag & environment** for board incline and mass; expand the wind and contact controls for more detail, and expand the mathematics for the equations. **Practice round** hides the prediction and counts four independent throws. These are temporary simulated scenarios, not athlete trials. See [Physics Lab methods](PHYSICS_LAB.md) for assumptions, geometry, units and model limitations.
-
-
-### Animated arm swing (0.6)
-
-Physics Lab now starts in **Animated arm swing**. Press **Throw / replay** to animate from the backswing endpoint through release and follow-through. Negative clock times are before release. Edit release phase, duration and direction; expand **Body size, standing position & joint motion** for height, segment lengths, throwing hand, stance, shoulder/elbow endpoints and segment masses. **Forces, joint torques & swing equations** explains the prescribed motion and calculated net loads. The distal length reaches the bag center, including the grip offset. The **Direct release controls** option retains independent speed/angle experiments.
-
-The board-map colors are geometric model regions; the sensitivity rows recompute actual simulated outcomes. In Results, observed 3/1/0 bag values are green/yellow/red, while missing outcomes stay gray. Release metrics receive empirical comparison colors only after sufficient comparable, reviewed data exists. Open **Personal zones · thresholds, counts & evidence** to inspect the basis. See [Performance Zones](PERFORMANCE_ZONES.md) for precise eligibility and interpretation.
+The sensitivity table shows how far the landing moves per 1°, per 0.1 m/s and per 5 cm. It also multiplies each sensitivity by the athlete's measured SD, to show which inconsistency costs the most distance under this model. These are model values, not athlete trials.
 
 ### Simpler review workflow
 
-In **Results**, the five main measurements stay visible. Open **What do these metrics mean?** for the explanations, or **Review video** to return to the original recording. Personal-zone evidence, movement relationships, advanced mechanics and research details expand only when needed. In Physics Lab, **Inspect release** freezes the exact detachment frame; **Explore what changes the outcome** reveals one-input comparisons.
+In **Results**, the athlete summary (result, what differed, next practice) comes first. Then come this throw's release values, the scored-vs-missed plots, the flight and the board. Movement relationships, body mechanics and provenance expand only when needed. In **Compare → Trial vs trial**, two throws from one athlete are explained side by side.

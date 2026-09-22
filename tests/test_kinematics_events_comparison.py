@@ -5,9 +5,7 @@ from cornhole_biomech.comparison import (
     assert_compatible_views,
     build_reference_set,
     compare_normalized,
-    similarity_score,
 )
-from cornhole_biomech.config import DEFAULT_CONFIG
 from cornhole_biomech.events import EVENT_ORDER, apply_manual_event_overrides, detect_events
 from cornhole_biomech.kinematics import calculate_kinematics
 
@@ -72,7 +70,7 @@ def test_events_are_ordered_and_manual_values_preserve_automatic():
     assert corrected["release"].manual_frame == automatic + 1
 
 
-def test_comparison_and_score_show_raw_components():
+def test_comparison_reports_raw_errors():
     reference = {"elbow_angle_deg": np.linspace(80, 140, 101),
                  "wrist_path_arm_lengths": np.column_stack((np.linspace(0, 1, 101), np.zeros(101)))}
     test = {"elbow_angle_deg": reference["elbow_angle_deg"] + 3,
@@ -81,9 +79,6 @@ def test_comparison_and_score_show_raw_components():
     metrics = compare_normalized(test, refset, {"release": 0.55}, {"release": 0.50})
     assert metrics["elbow_angle_mae_deg"] == pytest.approx(3)
     assert metrics["wrist_path_rmse_arm_lengths"] == pytest.approx(0.1)
-    score = similarity_score(metrics, DEFAULT_CONFIG["similarity"])
-    assert score["components"]["elbow_angle_mae_deg"]["raw_error"] == pytest.approx(3)
-    assert score["interpretation"] == "reference_similarity_not_performance_quality"
 
 
 def test_incompatible_views_are_blocked():

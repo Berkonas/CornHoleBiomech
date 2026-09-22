@@ -1,14 +1,14 @@
 # Full-throw measurement contract
 
-This is the authoritative supplement for the September 2026 revision. It supersedes older descriptions of first-contact/final-rest fallback, unconfirmed release metrics and filtered bag launch fits. Body-angle equations, anatomical landmarks and filtering details remain in [BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md); passive models remain in [PENDULUM_MODELS.md](PENDULUM_MODELS.md).
+This is the authoritative supplement for the September 2026 revision. It supersedes older descriptions of first-contact/final-rest fallback, unconfirmed release metrics and filtered bag launch fits. Body-angle equations, anatomical landmarks and filtering details remain in [BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md). Scored-versus-miss statistics are defined in [METRICS.md](METRICS.md).
 
 ## Scientific question and metric hierarchy
 
 Study **within-athlete associations** between projected body configuration, release conditions and observed performance. Similarity to a professional player is not performance. A tightly grouped set of misses is consistent but inaccurate. Tactical blocks may be effective without entering the hole.
 
-The main screen has five values: observed per-bag value, first-contact target error, projected release angle, projected release speed, and elbow included angle at release. Flight time/path and the board map connect these values. Advanced controls contain release velocity components, shoulder-relative release position, trunk and arm waveforms, and the preserved pendulum hypothesis. Reference/consistency indices retain their original pilot tolerances but are collapsed and are never presented as validated skill scores.
+Results opens with a three-line athlete summary (result → what differed between scored throws and misses → next practice). Below it are this throw's release values: angle ± fit uncertainty, speed, height and elbow at release. Then come the scored-vs-missed dot plots, flight path and board map. Body waveforms, velocity components and provenance are in Advanced. No composite 0–100 scores are computed or shown; reference, consistency and tracking indices were removed on 22 Sep 2026.
 
-No red/yellow/green movement thresholds are assigned. Personal ranges are the middle 50% (25th–75th percentiles) of other comparable throws, excluding the current throw. At least five observations are needed for each displayed range; this is a display guardrail, not evidence of adequate statistical power. Hole versus board/miss distributions describe scoring categories, not universal tactical success.
+No red/yellow/green movement thresholds or colored personal zones are assigned. The scored-vs-missed comparison reports group medians, quartiles and Cliff's δ, and claims a difference only under the rules in the table below. Scored versus missed describes scoring categories, not universal tactical success.
 
 ## Definitions and traceability
 
@@ -26,7 +26,7 @@ No red/yellow/green movement thresholds are assigned. Personal ranges are the mi
 | Observed apex/rise | Derived; frame, px; research export | Minimum image y within complete reviewed flight, strictly interior; rise=y_release−y_apex | Only a fixed side camera and complete samples permit this descriptor. Discrete apex is frame-limited and not fitted world height. | `flight.flight_summary` |
 | Horizontal image travel | Derived; px; research export | Absolute difference in release/contact x | Complete reviewed path and fixed side-camera confirmation required; no meters extrapolated using a release-only scale. | `flight.flight_summary` |
 | First-contact grouping | Derived; in | centroid c=mean(P); RMS radius=√[mean(||P−c||²)]; n≥2. Axis SD uses n−1. | Repeatability independent of target accuracy. **Conditional on visible board contacts**; excluding misses can bias apparent precision. Report n and unlocated observations. Rest has its own grouping. | `flight.landing_dispersion` |
-| Personal ranges | Derived; source feature units | 25th–75th quantiles and median of other comparable throws, split by 3 versus 0/1 and all | Descriptive baseline; optional outcome-group colors follow the explicit [performance-zone rules](PERFORMANCE_ZONES.md), with no causal inference or claim of an optimal interval. Unknown scores excluded from scored groups. | `flight.personal_evidence` |
+| Scored vs miss comparison | Derived; source feature units | Median, quartiles, SD per group (scored = 1 or 3, miss = 0); Cliff's δ; noise floor | Claimed only with ≥5 throws per group, \|δ\| ≥ 0.474 and a median difference above the noise floor. Associational, exploratory, unknown outcomes excluded. Replaces the earlier colored personal zones. | `performance.performance_summary` |
 | Movement–outcome association | Derived; Spearman rho | Complete pairs for named feature and first-contact error or observed bag value; ≥8 varying pairs | Raw scatter and n shown before inference. Exploratory 95% percentile bootstrap interval, 2,000 resamples, seed 20260906; not a confirmatory test or causal coaching prescription. | `statistics.relationship`, `pipeline.analyze_relationships` |
 
 ## Frames, filtering and release fit

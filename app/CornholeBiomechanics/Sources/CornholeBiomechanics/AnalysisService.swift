@@ -142,7 +142,7 @@ final class AnalysisService: ObservableObject {
         _ = try await run(arguments)
         progress = 1
         stage = "Comparison complete"
-        detail = "Reference similarity remains separate from performance."
+        detail = "Resemblance to a reference is kept separate from performance."
         return output
     }
 

@@ -30,7 +30,6 @@ from .comparison import (
     build_reference_set,
     compare_normalized,
     path_rmse,
-    similarity_score,
 )
 from .config import merged_config, validate_config
 from .corrections import apply_corrections, interpolate_short_gaps, pose_arrays
@@ -122,8 +121,6 @@ def _metrics_metadata(summaries: dict[str, Any], camera_view: str) -> dict[str, 
             claim = "projected_radial_distance_proxy_not_moment_arm_or_torque"
         elif "acceleration" in name:
             claim = "exploratory_noise_sensitive_projected_measurement"
-        elif "similarity" in name:
-            claim = "reference_similarity_not_performance_quality"
         result[name] = {
             "units": _summary_units(name),
             "view_applicability": applicability,
@@ -666,8 +663,8 @@ def analyze_trial(
         video.fps, video.width, video.height, context.camera_view,
         float(config["confidence_threshold"]), context.throwing_side,
     )
-    from .insights import quality_index
-    quality.update(quality_index(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
+    from .insights import release_window_quality
+    quality.update(release_window_quality(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
     warnings = sorted(set(filter_warnings + kinematics.warnings + bag_warnings))
     results = {
         "schema_version": 1,
@@ -829,13 +826,12 @@ def compare_trial(
     metrics = compare_normalized(
         test_values, reference_set, test_payload["event_timing"], reference_event_timing
     )
-    config = merged_config(config_overrides)
-    score = similarity_score(metrics, config["similarity"])
+    merged_config(config_overrides)  # validate overrides even though comparison has no tunables
     output = Path(output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     label = (
-        "Prototype reference similarity - single reference trial"
-        if len(references) == 1 else f"Prototype reference similarity - reference set of {len(references)} trials"
+        "Movement comparison - single reference trial"
+        if len(references) == 1 else f"Movement comparison - reference set of {len(references)} trials"
     )
     tau = np.asarray(test_payload["tau"], float)
     result = {
@@ -848,7 +844,6 @@ def compare_trial(
         "test_event_timing": test_payload["event_timing"],
         "reference_event_timing": reference_event_timing,
         "raw_metrics": metrics,
-        "similarity": score,
         "curves": {
             "tau": tau,
             "test": test_values,
@@ -909,7 +904,6 @@ def analyze_relationships(
         row = {"trial_id": result["trial_id"], "score_category": outcome.get("score_category")}
         row.update(result.get("summaries", {}))
         comparison = comparison_by_trial.get(result["trial_id"], {})
-        row["reference_similarity_score"] = comparison.get("similarity", {}).get("overall")
         row["wrist_reference_deviation_arm_lengths"] = comparison.get("raw_metrics", {}).get(
             "wrist_path_rmse_arm_lengths"
         )
@@ -961,7 +955,6 @@ def analyze_relationships(
         "bag_release_angle_deg",
         "bag_release_position_forward_arm_lengths",
         "bag_release_position_vertical_arm_lengths",
-        "reference_similarity_score",
         "wrist_reference_deviation_arm_lengths",
         "wrist_path_deviation_from_athlete_mean_arm_lengths",
     )
@@ -993,7 +986,6 @@ def analyze_relationships(
         "bag_release_angle_deg": "degrees",
         "bag_release_position_forward_arm_lengths": "arm lengths",
         "bag_release_position_vertical_arm_lengths": "arm lengths",
-        "reference_similarity_score": "0-100 reference similarity index",
         "wrist_reference_deviation_arm_lengths": "arm lengths",
         "wrist_path_deviation_from_athlete_mean_arm_lengths": "arm lengths",
     }

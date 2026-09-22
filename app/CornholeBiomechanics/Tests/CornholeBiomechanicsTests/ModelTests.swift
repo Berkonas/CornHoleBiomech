@@ -233,7 +233,6 @@ final class ModelTests: XCTestCase {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "insights", withExtension: "json", subdirectory: "Fixtures"))
         let value = try JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: url))
         XCTAssertEqual(value.consistency.n, 9)
-        XCTAssertNotNil(value.quality.score)
         XCTAssertNotNil(value.provenance.configuration?.filter?.cutoff_hz)
         XCTAssertTrue(value.athlete.contains("SYNTHETIC"))
     }

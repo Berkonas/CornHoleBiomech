@@ -37,19 +37,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "acceleration_minimum_points": 6,
         "acceleration_maximum_fit_rmse_arm_lengths": 0.03,
     },
-    "similarity": {
-        "formula": "linear_to_zero_at_tolerance",
-        "components": {
-            "elbow_angle_mae_deg": {"tolerance": 15.0, "weight": 1.0},
-            "upper_arm_orientation_mae_deg": {"tolerance": 15.0, "weight": 0.75},
-            "forearm_orientation_mae_deg": {"tolerance": 15.0, "weight": 0.75},
-            "arm_to_trunk_mae_deg": {"tolerance": 15.0, "weight": 0.75},
-            "trunk_inclination_mae_deg": {"tolerance": 10.0, "weight": 0.75},
-            "wrist_path_rmse_arm_lengths": {"tolerance": 0.25, "weight": 1.0},
-            "release_timing_abs_difference_cycle": {"tolerance": 0.10, "weight": 0.75},
-        },
-        "status": "provisional_pilot_tolerances_not_population_norms",
-    },
 }
 
 
@@ -92,9 +79,6 @@ def validate_config(config: dict[str, Any], fps: float | None = None) -> None:
         raise ValueError("filter.cutoff_hz must be positive")
     if filt["enabled"] and fps is not None and float(filt["cutoff_hz"]) >= 0.5 * fps:
         raise ValueError("filter.cutoff_hz must be below the Nyquist frequency")
-    for item in config["similarity"]["components"].values():
-        if float(item["tolerance"]) <= 0 or float(item["weight"]) < 0:
-            raise ValueError("similarity tolerances must be positive and weights non-negative")
     tracking = config["bag_tracking"]
     if tracking["method"] not in {"auto", "csrt", "template_matching", "color_motion"}:
         raise ValueError("bag_tracking.method must be auto, color_motion, csrt, or template_matching")

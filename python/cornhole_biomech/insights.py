@@ -21,28 +21,22 @@ def read(path, default=None):
     return json.loads(p.read_text()) if p.exists() else default
 
 
-def quality_index(quality, raw, confidence, landmarks, release, side, config):
+def release_window_quality(quality, raw, confidence, landmarks, release, side, config):
+    """Visibility of throwing-arm/trunk landmarks within ±50 ms of release (no composite score)."""
     required = [landmarks.index(n) for n in ("left_shoulder", "right_shoulder", f"{side}_elbow", f"{side}_wrist", "left_hip", "right_hip") if n in landmarks]
     conf = np.asarray(confidence)[:, required]
     finite = np.isfinite(np.asarray(raw)[:, required]).all(axis=-1)
     usable = finite & np.isfinite(conf) & (conf >= config["confidence_threshold"])
-    visibility = float(np.mean(np.all(usable, axis=1))) if usable.size else 0
-    mean_conf = float(np.mean(np.where(finite & np.isfinite(conf), np.clip(conf, 0, 1), 0))) if conf.size else 0
     release_visibility = None
     if release is not None and 0 <= release < len(raw):
         radius = max(1, int(round(quality["frame_rate_fps"] * .05)))
         release_visibility = float(np.mean(np.all(usable[max(0,release-radius):release+radius+1], axis=1)))
-    components = {"raw_landmark_coverage": {"score":100*visibility, "weight":.5},
-                  "mean_required_confidence": {"score":100*mean_conf,"weight":.3}}
-    if release_visibility is not None:
-        components["release_window_visibility"]={"score":100*release_visibility,"weight":.2}
-    total=sum(v['score']*v['weight'] for v in components.values())/sum(v['weight'] for v in components.values())
     warnings = list(quality['warnings'])
     if release_visibility is not None and release_visibility < .8:
         warnings.append("Throwing-arm or trunk landmarks were obscured within 50 ms of the release candidate.")
-    return {"score":total,"score_components":components,"release_visibility":release_visibility,
+    return {"release_visibility":release_visibility,
             "release_confidence":float(np.nanmean(conf[release])) if release is not None and 0 <= release < len(conf) else None,
-            "warnings":warnings,"score_note":"Pilot tracking index: 50% raw coverage + 30% required-landmark confidence + 20% release-window visibility. Missing release component omitted. Manual correction does not inflate raw tracking confidence. FPS/view warnings remain separate."}
+            "warnings":warnings}
 
 
 def compatible_key(trial, manifest):
@@ -55,13 +49,13 @@ def compatible_key(trial, manifest):
 
 
 def consistency_model(normalized: list[dict], minimum=MINIMUM_CONSISTENCY):
-    result = {"n":len(normalized),"minimum_trials":minimum,"score":None,"components":[],"curves":{},"traces":[],
+    result = {"n":len(normalized),"minimum_trials":minimum,"components":[],"curves":{},"traces":[],
               "message":f"More trials needed: record at least {minimum} comparable throws with usable tracking."}
     if len(normalized)<minimum:
         return result
     n_samples=len(normalized[0]['tau'])
-    fields = {"elbow_angle_deg":(15.0,"degrees"), "trunk_inclination_deg":(10.0,"degrees"), "wrist_path_arm_lengths":(.25,"arm lengths")}
-    for field,(tolerance,units) in fields.items():
+    fields = {"elbow_angle_deg":"degrees", "trunk_inclination_deg":"degrees", "wrist_path_arm_lengths":"arm lengths"}
+    for field,units in fields.items():
         arrays=[np.asarray(n['values'].get(field,[]),float) for n in normalized]
         if not arrays or any(len(a)!=n_samples for a in arrays):
             continue
@@ -76,21 +70,17 @@ def consistency_model(normalized: list[dict], minimum=MINIMUM_CONSISTENCY):
         sd=np.nanstd(stack,axis=0,ddof=1)
         sd=np.where(count>=minimum,sd,np.nan)
         variability=float(np.sqrt(np.nanmean(np.sum(sd**2,axis=-1)))) if sd.ndim==2 else float(np.sqrt(np.nanmean(sd**2)))
-        result['components'].append({'name':LABELS[field], 'variability':variability,'units':units,'tolerance':tolerance,'weight':1.0,'score':100*max(0,1-variability/tolerance)})
+        result['components'].append({'name':LABELS[field], 'variability':variability,'units':units})
         result['curves'][field]={'mean':mean,'sd':sd,'count':count}
     timings=np.array([n.get('event_timing',{}).get('release') for n in normalized],float)
     if np.isfinite(timings).sum()>=minimum:
         sd=float(np.nanstd(timings,ddof=1))
-        result['components'].append({'name':'Release timing','variability':sd,'units':'cycle fraction','tolerance':.1,'weight':1.0,'score':100*max(0,1-sd/.1)})
-    # All four components required so scores remain comparable across athletes/sessions.
-    if len(result['components'])==4:
-        result['score']=float(np.mean([c['score'] for c in result['components']]))
-        result['message']=f"Across {len(normalized)} comparable throws, this pilot index describes repeatability of elbow, trunk, wrist path and release timing. It does not rate technique quality."
-    else:
-        result['message']='More complete tracking needed for all four consistency components.'
+        result['components'].append({'name':'Release timing','variability':sd,'units':'cycle fraction'})
+    result['message']=(f"Across {len(normalized)} comparable throws: typical throw-to-throw spread (RMS pointwise SD) of each curve. "
+                       "Smaller means more repeatable; it does not rate technique quality.") if result['components'] else 'More complete tracking needed to describe repeatability.'
     result['tau']=normalized[0]['tau']
     result['traces']=[{'trial_id':n['trial_id'],'wrist':n['values'].get('wrist_path_arm_lengths',[]),'elbow':n['values'].get('elbow_angle_deg',[])} for n in normalized]
-    result['equation']='100 × mean(max(0, 1 − variability / tolerance)); waveform variability = RMS pointwise sample SD; wrist uses sqrt(mean(SDx² + SDy²)); release uses sample SD. Four equally weighted components, pilot tolerances 15°, 10°, 0.25 arm lengths, 0.10 cycle.'
+    result['equation']='Waveform variability = RMS over the cycle of the pointwise sample SD; wrist uses sqrt(mean(SDx² + SDy²)); release timing uses the sample SD of the release fraction.'
     return json_ready(result)
 
 
@@ -174,7 +164,7 @@ def generate_insights(project_path, trial_id, export_report=True):
         comparison=None
     if comparison and not comparison_references_are_current(project, trial, comparison):
         comparison = None
-    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[];feedback_eligible={};feedback_bag_eligible={}
+    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[]
     trial_labels={t['id']:(t.get('name') or t.get('originalFilename') or t['id']) for t in project['trials']}
     for t in project['trials']:
         if t['athleteID']!=trial['athleteID'] or not t.get('analysisRelativePath'):continue
@@ -186,15 +176,6 @@ def generate_insights(project_path, trial_id, export_report=True):
         if not n or r.get('quality',{}).get('usable_frame_percentage',0)<80:
             excluded.append(t['id']);continue
         compatible.append(n);eligible_dirs.append(d)
-        # Colors require an explicit reviewed side-camera setup and visible release landmarks.
-        feedback_eligible[t['id']] = bool(t.get('cameraView') == 'side'
-            and m.get('flight_review',{}).get('fixed_camera')
-            and r.get('events',{}).get('release',{}).get('manual_frame') is not None
-            and (r.get('quality',{}).get('release_visibility') or 0) >= .8)
-        bag = r.get('bag') or {}
-        feedback_bag_eligible[t['id']] = bool(feedback_eligible[t['id']]
-            and bag.get('review',{}).get('covers_launch_fit')
-            and bag.get('launch',{}).get('status') == 'estimated')
     consistency=consistency_model(compatible)
     from .outcomes import outcome_summary
     from .models import TrialOutcome,BoardPoint
@@ -226,15 +207,11 @@ def generate_insights(project_path, trial_id, export_report=True):
         from .pipeline import analyze_relationships
         comparison_dirs=[root/'comparisons'/n['trial_id'] for n in compatible if valid_comparison(root/'comparisons'/n['trial_id']/'comparison.json')]
         relationships=analyze_relationships(eligible_dirs,outcomes,directory/'relationships.json',comparison_dirs,max(8,project.get('analysisSettings',{}).get('minimumRelationshipTrials',8)))
-    from .flight import landing_dispersion, personal_evidence
-    evidence_rows=[dict(row,feedback_eligible=feedback_eligible.get(row['trial_id'],False),
-                        feedback_bag_eligible=feedback_bag_eligible.get(row['trial_id'],False))
-                   for row in (relationships or {}).get('data_rows',[])]
+    from .flight import landing_dispersion
     performance = {"first_contact": landing_dispersion(list(outcomes.values())),
                    "final_rest": landing_dispersion(list(outcomes.values()), 'final_resting_point'),
                    "observed_scores": {str(k):sum(o.get('score_category')==k for o in outcomes.values()) for k in (0,1,3)},
-                   "unknown_scores":sum(o.get('score_category') is None for o in outcomes.values()),
-                   "personal_evidence": personal_evidence(evidence_rows,trial_id)}
+                   "unknown_scores":sum(o.get('score_category') is None for o in outcomes.values())}
     from .performance import performance_summary
     rows=(relationships or {}).get('data_rows',[])
     performance["summary"]=performance_summary(rows,trial_labels)
@@ -244,7 +221,7 @@ def generate_insights(project_path, trial_id, export_report=True):
     athlete=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
     payload={'schema_version':1,'trial_id':trial_id,'athlete':athlete.get('participantCode','Unknown athlete'),
              'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
-             'outcome':outcome,'similarity':comparison.get('similarity') if comparison else None,
+             'outcome':outcome,'comparison_available':comparison is not None,
              'differences':diffs,'coach_summary':payload_summary,'consistency':consistency,
              'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,
              'provenance':{'backend':manifest.get('pose_backend','unknown'),'model':manifest.get('pose_model','unknown'),

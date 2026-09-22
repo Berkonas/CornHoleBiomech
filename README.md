@@ -19,35 +19,44 @@ On a fresh Mac, run `./setup.sh` once, then `./build_app.sh`. Setup needs intern
 5. Review the video frame by frame. Check the throwing shoulder, elbow, wrist, hip, and release event. Correct bad points and reanalyze when prompted.
 6. Use **Flight & scale** to confirm release and first board/ground contact. Review bag identity through the contact frame, then reanalyze. Calibration is optional and requires an independently measured length in the release plane.
 7. Record the observed 0/1/3 bag value or leave it **unknown**. Approximate board contact and final rest stay separate; never assign board coordinates to a ground miss.
-8. Open **Results** for movement measurements, outcome, trajectories, consistency, and limitations. Use **Compare** only with suitable reference throws.
+8. Open **Results** for the athlete summary, this throw's release, scored-vs-missed plots, flight and board. Use **Compare** to explain two throws.
 
 Athlete profiles can be added, edited, or deleted from **Athletes**. Throw management is in **Throws → Manage**. Deletions need confirmation and use recoverable Trash staging. Removing an analysis keeps its video; deleting an athlete removes that profile and its managed data. Your external source recordings are not deleted.
 
 ## What the numbers mean
 
-The five primary results are **observed outcome, first-contact error, projected release angle, projected release speed, and elbow angle at release**. Flight time, reviewed trajectories, board maps, grouping and personal distributions connect movement to performance. Body waveforms and diagnostics remain in Advanced. An elbow included angle of 180° means straight in this camera projection. Most distances are in arm lengths, not meters.
+**Results** opens with an **Athlete summary** in three lines:
+- **Result:** how many of this athlete's comparable throws scored.
+- **What differed:** which release variable, if any, separated scored throws (1 or 3 points) from misses (0).
+- **Next practice:** which typical scored throws to review.
 
-Bag measurements require separate tracking and frame-by-frame identity review. A tracker can confidently follow the wrong object. Unreviewed bag points do not contribute to release detection or bag-derived measurements. Physical speed in m/s requires a valid calibration in the athlete’s movement plane; a board-plane calibration cannot be reused for this.
+The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when there are at least 5 throws in each group, the effect is large (Cliff's δ ≥ 0.474), and it exceeds that variable's measurement noise. The dot plots below the summary show every throw.
 
-These are not true 3D joint angles, joint forces, torque, muscle activation, or joint loading. A shoulder-to-bag distance is not a moment arm. Reference similarity tells you how much movements resemble one another; it does not prove better technique. Associations with outcomes do not establish cause and effect. Missing estimates stay missing.
+**This throw** shows the release angle with its tracking uncertainty, plus the release speed and release height. An elbow included angle of 180° means straight in this camera projection. There are no composite 0–100 scores: individual measurements are shown instead.
 
-Use a fixed, level side-view camera for the primary analysis. Keep the athlete, entire bag flight and receiving board in view, use a clear background, and record at a known constant frame rate. Trimming or cropping creates a silent derived clip without stretching or changing nominal playback speed. Previous analysis is archived because its frame labels and coordinates no longer apply.
+Bag measurements require separate tracking and frame-by-frame identity review. Unreviewed bag points never contribute to release detection or bag-derived measurements. Release speed and height are reported in meters when a scale exists. The scale comes from either a meter stick held in the throwing plane, or the reviewed bag flight's own fall under gravity (fixed side camera only). See [the methods](docs/FULL_THROW_METHODS.md).
 
-## Interactive Physics Lab
+These are not true 3D joint angles, joint forces, torque, muscle activation, or joint loading. Resemblance to a reference throw does not prove better technique. Associations with outcomes do not establish cause and effect. Missing estimates stay missing.
 
-Choose **Physics Lab** in the sidebar to simulate throws without importing video. Animate a two-link stick-figure swing with editable height, arm lengths, stance, throwing hand, joint angles and release timing, or set release speed/angle directly. Animate or scrub from the swing through flight, bounce and sliding. Explore release height, lateral position, board distance/tilt, wind, drag, mass, friction and restitution. Computed hand motion sets release conditions; force and net torque calculations expose the mechanical demands of that prescribed motion. Save a comparison or try a four-bag practice round; expand the mathematics for equations and live calculations.
+Record with the [session-day protocol](docs/RECORDING_PROTOCOL.md): tripods, the athlete filling most of the frame, a second camera on the board, and a meter stick at the start. Trimming or cropping creates a silent derived clip without changing playback speed. The previous analysis is archived.
 
-This is a 3D point-mass teaching model with simplified bag contact and hole capture, not a validated prediction of a deformable bag. Simulated throws stay separate from athlete records. Read [the Physics Lab methods and controls](docs/PHYSICS_LAB.md) and [the color-zone definitions](docs/PERFORMANCE_ZONES.md).
+## Compare two throws
+
+In **Compare → Trial vs trial**, choose two throws from the same athlete. You get:
+- a one-sentence explanation;
+- a table of release differences next to the athlete's usual throw-to-throw spread;
+- both bag flights overlaid from their release points, on equal axis scales;
+- synchronized body curves and video.
+
+## Launch Explorer
+
+**Launch Explorer** is a drag-free 2D model of release angle, speed and height and where the bag first lands on a regulation board. It can start from the selected athlete's median measured release. It shows how far the landing moves per degree of angle or per 0.1 m/s of speed, and how much landing spread the athlete's own measured variability implies. It is a model, not measured data. The earlier 3D physics, pendulum and swing labs were removed; their notes are in `docs/archive`.
 
 The **Cornhole Biomechanics Lab.app** shortcut on the Desktop opens the same installed build as `dist`; rebuilding updates both launchers.
 
-## Arm Mechanics and elbow-motion analysis
+## Measuring tracking accuracy
 
-Open **Research tools → Arm Mechanics** to explore the four corrected pendulum models. Change initial angle, elbow bend (double models), link length, or bag mass, then scrub the simulation. Expand **Corrected equations & assumptions** for formulas, SI coefficients and sources. The lab uses hypothetical passive mechanical models; it does not estimate human joint torque.
-
-In **Results → Advanced**, **Elbow motion & the pendulum hypothesis** shows mean projected flexion, forward-swing elbow excursion, within-swing SD and wrist-radius variability, plus a synchronized phase-shaded curve. Reanalyze existing throws to calculate these new metrics. Missing or low-coverage data stays unavailable. The descriptors remain available in research exports and the HTML report.
-
-A fixed bent elbow can behave as one rigid link too. The straight-arm idea is a testable hypothesis, not a proven coaching rule. Read [the equation audit and methods](docs/PENDULUM_MODELS.md) and [feature verification](docs/ARM_MECHANICS_VERIFICATION.md).
+`cornhole-biomech annotation-frames` exports blinded frames. Teammates mark them in `tools/annotator.html`. `cornhole-biomech validate-tracking` then reports landmark, elbow-angle, bag and release-frame error, plus agreement between raters. See [VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md).
 
 ## Where things live
 

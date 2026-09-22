@@ -251,13 +251,7 @@ Primary raw comparisons are:
 
 Orientation errors use the shortest signed circular difference. A reference set uses its pointwise mean and may show ±1 sample SD as a variability band; this is not a confidence interval.
 
-An optional summary uses:
-
-`component_score = 100 * max(0, 1−raw_error/tolerance)`
-
-`reference_similarity = weighted mean(available component scores)`.
-
-Every component shows raw error, unit, tolerance, weight, and missing reason. Single-trial summaries are labeled **Prototype Reference Similarity**. Tolerances are pilot configuration values, not population norms, validity limits, or technique-quality thresholds. Raw measurements appear before the composite.
+The raw errors above are the comparison. The former weighted 0–100 similarity composite was removed on 22 Sep 2026 because its tolerances and weights had no empirical basis.
 
 ## 15. Personal consistency
 

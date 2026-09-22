@@ -11,7 +11,7 @@ from cornhole_biomech.insights import (
     comparison_references_are_current,
     consistency_model,
     differences,
-    quality_index,
+    release_window_quality,
     valid_comparison,
 )
 from cornhole_biomech.sports2d_adapter import availability, build_config, read_trc, read_mot, elbow_included_from_sports2d, Sports2DAdapter
@@ -87,25 +87,27 @@ def normalized_trial(i,offset=0):
         'wrist_path_arm_lengths':np.column_stack((t,np.sin(t)+offset/100)).tolist()}}
 
 
-def test_consistency_requires_five_complete_comparable_trials():
-    assert consistency_model([normalized_trial(i) for i in range(4)])['score'] is None
+def test_consistency_requires_five_trials_and_reports_raw_spread_without_a_score():
+    assert consistency_model([normalized_trial(i) for i in range(4)])['components'] == []
     equal=consistency_model([normalized_trial(i) for i in range(5)])
-    assert equal['score']==pytest.approx(100)
+    assert all(c['variability']==pytest.approx(0) for c in equal['components'])
     varied=consistency_model([normalized_trial(i,i) for i in range(5)])
-    assert 0<varied['score']<100
+    assert 'score' not in varied and all('score' not in c for c in varied['components'])
+    elbow=next(c for c in varied['components'] if c['name']=='Elbow angle')
+    assert elbow['variability']==pytest.approx(np.std(range(5),ddof=1))
     assert len(varied['components'])==4
     assert len(varied['traces'])==5
     bad=[normalized_trial(i) for i in range(5)]
     for t in bad:t['values']['elbow_angle_deg']=[None]*101
-    assert consistency_model(bad)['score'] is None
+    assert 'Elbow angle' not in [c['name'] for c in consistency_model(bad)['components']]
 
 
 def test_raw_tracking_quality_not_inflated_by_manual_points():
     names=('left_shoulder','right_shoulder','right_elbow','right_wrist','left_hip','right_hip')
     raw=np.ones((20,6,2));conf=np.full((20,6),.1)
     quality={'warnings':[],'frame_rate_fps':60}
-    low=quality_index(quality,raw,conf,names,10,'right',merged_config())
-    assert low['score']<10
+    low=release_window_quality(quality,raw,conf,names,10,'right',merged_config())
+    assert 'score' not in low
     assert low['release_visibility']==0
     assert 'obscured' in low['warnings'][0]
 

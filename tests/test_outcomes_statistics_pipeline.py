@@ -147,7 +147,6 @@ def test_relationships_use_raw_board_outcomes_and_separate_consistency_features(
         comparison_dirs.append(comparison)
         (comparison / "comparison.json").write_text(json.dumps({
             "test_trial_id": trial_id,
-            "similarity": {"overall": 90 - index},
             "raw_metrics": {"wrist_path_rmse_arm_lengths": index / 100},
         }))
         outcomes[trial_id] = {
@@ -162,7 +161,8 @@ def test_relationships_use_raw_board_outcomes_and_separate_consistency_features(
         analysis_dirs, outcomes, output, comparison_dirs=comparison_dirs, minimum_trials=8
     )
     assert result["outcome_variable"] == "radial_error_inches"
-    assert result["relationships"]["reference_similarity_score"]["n"] == 8
+    assert "reference_similarity_score" not in result["relationships"]
+    assert result["relationships"]["wrist_reference_deviation_arm_lengths"]["n"] == 8
     assert result["within_athlete_consistency"]["elbow_angle_deg_at_release"]["standard_deviation"] > 0
     assert result["data_rows"][4]["radial_error_inches"] == pytest.approx(4)
     assert result["data_rows"][4]["wrist_path_deviation_from_athlete_mean_arm_lengths"] is not None

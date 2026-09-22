@@ -1,4 +1,4 @@
-"""Time-preserving reference comparison and transparent similarity scoring."""
+"""Time-preserving comparison of normalized movement curves (raw errors only)."""
 
 from __future__ import annotations
 
@@ -141,43 +141,6 @@ def compare_normalized(
             None if a is None or b is None else abs(float(a) - float(b))
         )
     return metrics
-
-
-def similarity_score(metrics: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    """Transform configured errors into visible component scores and weighted mean.
-
-    score = 100 * max(0, 1 - error/tolerance). Tolerances are configuration,
-    not norms. Missing components are omitted and explicitly listed.
-    """
-    components: dict[str, Any] = {}
-    weighted_sum = 0.0
-    weight_sum = 0.0
-    omitted: list[str] = []
-    for metric, settings in config["components"].items():
-        value = metrics.get(metric)
-        if value is None or not math.isfinite(float(value)):
-            omitted.append(metric)
-            continue
-        tolerance = float(settings["tolerance"])
-        weight = float(settings["weight"])
-        score = 100.0 * max(0.0, 1.0 - float(value) / tolerance)
-        components[metric] = {
-            "raw_error": float(value),
-            "units": "degrees" if metric.endswith("deg") else "arm lengths" if "arm_lengths" in metric else "cycle fraction",
-            "tolerance": tolerance,
-            "weight": weight,
-            "score": score,
-            "formula": "100 * max(0, 1 - raw_error / tolerance)",
-        }
-        weighted_sum += score * weight
-        weight_sum += weight
-    return {
-        "overall": weighted_sum / weight_sum if weight_sum > 0 else None,
-        "components": components,
-        "omitted_components": omitted,
-        "tolerance_status": "provisional_pilot_tolerances_not_population_norms",
-        "interpretation": "reference_similarity_not_performance_quality",
-    }
 
 
 def assert_compatible_views(test_view: str, reference_views: list[str]) -> None:

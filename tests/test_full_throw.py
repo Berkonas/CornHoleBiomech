@@ -2,7 +2,7 @@
 import json
 import numpy as np
 import pytest
-from cornhole_biomech.flight import flight_summary, landing_dispersion, personal_evidence
+from cornhole_biomech.flight import flight_summary, landing_dispersion
 from cornhole_biomech.bag import estimate_projectile_release_kinematics, SpatialCalibration
 from cornhole_biomech.models import TrialOutcome, BoardPoint
 from cornhole_biomech.outcomes import outcome_summary
@@ -91,15 +91,6 @@ def test_dispersion_is_about_centroid_not_target_and_no_n1_claim():
     assert landing_dispersion(points[:1])['rms_radius_inches'] is None
 
 
-def test_personal_ranges_exclude_current_throw_and_unknown_scores():
-    rows=[dict(trial_id=str(i),bag_release_angle_deg=i,score_category=3) for i in range(6)]
-    rows.append(dict(trial_id='unknown',bag_release_angle_deg=99,score_category=None))
-    r=personal_evidence(rows,'5')[0]
-    assert r['groups']['hole']['n']==5 and r['groups']['hole']['median']==2
-    assert r['groups']['board_or_miss']['n']==0
-    assert personal_evidence(rows[:5],'4')[0]['groups']['hole']['median'] is None
-
-
 def test_relationship_never_relabels_final_rest_as_contact(tmp_path):
     paths=[];outcomes={}
     for i in range(8):
@@ -128,74 +119,3 @@ def test_native_unknown_score_omission_loads_in_insights(tmp_path):
 def test_stationary_bag_does_not_get_an_arbitrary_launch_angle():
     r=estimate_projectile_release_kinematics(np.tile([10.,20.],(15,1)),0,60,100,'left_to_right')
     assert r['velocity'] is None
-
-
-def evidence_rows(current=25):
-    rows=[dict(trial_id=f'h{i}',score_category=3,bag_release_angle_deg=20+i,
-               feedback_eligible=True,feedback_bag_eligible=True) for i in range(10)]
-    rows += [dict(trial_id=f'o{i}',score_category=0 if i%2 else 1,bag_release_angle_deg=40+i,
-                  feedback_eligible=True,feedback_bag_eligible=True) for i in range(10)]
-    rows.append(dict(trial_id='current',score_category=3,bag_release_angle_deg=current,
-                     feedback_eligible=True,feedback_bag_eligible=True))
-    return rows
-
-
-@pytest.mark.parametrize('value,zone',[(25,'green'),(45,'red'),(35,'yellow'),(90,'yellow')])
-def test_empirical_colors_are_leave_current_out_iqr_membership(value,zone):
-    result=personal_evidence(evidence_rows(value),'current')[0]['feedback']
-    assert result['zone']==zone
-    assert result['ranges']['hole']==dict(n=10,low=22.25,high=26.75)
-    assert result['ranges']['board_or_miss']==dict(n=10,low=42.25,high=46.75)
-
-
-def test_color_requires_both_groups_reviewed_current_and_bag_identity():
-    rows=evidence_rows()
-    assert personal_evidence(rows[1:],'current')[0]['feedback']['zone']=='neutral'
-    rows[-1]['feedback_eligible']=False
-    assert personal_evidence(rows,'current')[0]['feedback']['zone']=='neutral'
-    rows[-1]['feedback_eligible']=True;rows[-1]['feedback_bag_eligible']=False
-    assert personal_evidence(rows,'current')[0]['feedback']['zone']=='neutral'
-    rows=evidence_rows(); rows[0]['feedback_bag_eligible']=False
-    assert personal_evidence(rows,'current')[0]['feedback']['ranges']['hole']['n']==9
-
-
-def test_overlapping_outcome_groups_are_yellow_not_a_claim_of_success():
-    rows=evidence_rows()
-    for row in rows:
-        if row['score_category'] in (0,1): row['bag_release_angle_deg']-=20
-    assert personal_evidence(rows,'current')[0]['feedback']['zone']=='yellow'
-
-
-def test_unknown_nan_and_unreviewed_trials_never_inflate_color_evidence():
-    rows=evidence_rows()
-    for i,(score,value,reviewed) in enumerate([(None,25,True),(3,float('nan'),True),(3,25,False)]):
-        rows.append(dict(trial_id=f'bad{i}',score_category=score,bag_release_angle_deg=value,
-                         feedback_eligible=reviewed,feedback_bag_eligible=reviewed))
-    r=personal_evidence(rows,'current')[0]['feedback']
-    assert r['ranges']['hole']['n']==10
-    assert r['ranges']['board_or_miss']['n']==10
-
-
-def test_insights_derives_color_eligibility_from_reviewed_sources(tmp_path):
-    from cornhole_biomech.insights import generate_insights
-    trials=[]
-    for i,row in enumerate(evidence_rows()):
-        d=tmp_path/f't{i}'; d.mkdir()
-        trial=dict(id=row['trial_id'],athleteID='A',analysisRelativePath=f't{i}',cameraView='side',
-                   throwingSide='right',sessionID='S',originalFilename=f'{i}.mov',
-                   outcome=dict(intended_target='Hole center',throw_type='Standard',score_category=row['score_category']))
-        trials.append(trial)
-        (d/'results.json').write_text(json.dumps(dict(trial_id=row['trial_id'],athlete_id='A',camera_view='side',
-            events=dict(release=dict(manual_frame=5)),
-            quality=dict(warnings=[],usable_frame_percentage=100,release_visibility=1),
-            summaries=dict(bag_release_angle_deg=row['bag_release_angle_deg']),
-            bag=dict(review=dict(covers_launch_fit=True),launch=dict(status='estimated')))))
-        (d/'normalized.json').write_text(json.dumps(dict(trial_id=row['trial_id'],camera_view='side',tau=[0,1],values={})))
-        (d/'manifest.json').write_text(json.dumps(dict(flight_review=dict(fixed_camera=True))))
-    (tmp_path/'project.json').write_text(json.dumps(dict(trials=trials,athletes=[dict(id='A',participantCode='Synthetic QA')])))
-    r=generate_insights(tmp_path,'current',export_report=False)
-    assert r['performance']['personal_evidence'][0]['feedback']['zone']=='green'
-    # Legacy/unreviewed metadata must not become green merely because the scalar exists.
-    (tmp_path/'t0/manifest.json').write_text('{}')
-    r=generate_insights(tmp_path,'current',export_report=False)
-    assert r['performance']['personal_evidence'][0]['feedback']['zone']=='neutral'

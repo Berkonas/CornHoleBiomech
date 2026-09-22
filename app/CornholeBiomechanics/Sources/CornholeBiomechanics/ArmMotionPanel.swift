@@ -14,7 +14,6 @@ struct ArmMotionAnalysis: Codable {
 }
 
 struct ArmMotionPanel: View {
-    @EnvironmentObject private var store: ProjectStore
     let result: ArmMotionAnalysis?
     let normalized: NormalizedDocument?
     let stale: Bool
@@ -23,9 +22,8 @@ struct ArmMotionPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Elbow motion & the pendulum hypothesis").font(.title2.weight(.semibold))
+                Text("Elbow motion during the forward swing").font(.title2.weight(.semibold))
                 Spacer()
-                Button("Explore models") { store.selectedSection = .mechanics }
             }
             if stale {
                 Label("Reanalyze this throw after corrections to update arm-motion measurements.", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
@@ -55,7 +53,7 @@ struct ArmMotionPanel: View {
             } else {
                 Text("Analyze or reanalyze this throw to calculate the new arm-motion metrics. The model explorer is available now.").foregroundStyle(.secondary)
             }
-            Text("Low excursion can support a fixed-elbow description. It does not establish a passive pendulum, a stationary shoulder, or better performance. Use the movement–performance chart below across comparable throws to test the hypothesis.")
+            Text("Low excursion describes a more fixed elbow within this throw. It does not by itself mean better performance; compare scored and missed throws to see whether it matters for this athlete.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(18).background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
     }

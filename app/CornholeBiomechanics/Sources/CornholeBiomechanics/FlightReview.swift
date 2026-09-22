@@ -18,19 +18,8 @@ struct PerformanceSummary: Decodable {
         var n: Int; var missing: Int; var rms_radius_inches: Double?
         var lateral_sd_inches: Double?; var longitudinal_sd_inches: Double?; var note: String
     }
-    struct Evidence: Decodable, Identifiable {
-        struct Range: Decodable { var n: Int; var median: Double?; var low: Double?; var high: Double? }
-        struct Feedback: Decodable {
-            var zone: String; var explanation: String; var minimum_per_group: Int
-            var ranges: [String: Range]; var meaning: String
-        }
-        var metric: String; var groups: [String: Range]; var minimum: Int; var note: String
-        var feedback: Feedback?
-        var id: String { metric }
-    }
     var first_contact: Dispersion; var final_rest: Dispersion
     var observed_scores: [String: Int]; var unknown_scores: Int
-    var personal_evidence: [Evidence]?
     var summary: AthletePerformance?
 }
 
