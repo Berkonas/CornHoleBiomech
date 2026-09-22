@@ -96,7 +96,7 @@ Board: x 0–24 inches left→right; y 0–48 inches pitcher→back. Hole center
 - Longitudinal error `Py−Ty` (negative short, positive long), inches.
 - Radial target error `sqrt(lateral²+longitudinal²)`, inches.
 
-Trial summaries and spatial relationships use first contact only; final rest has a separate error. Unknown outcomes are null, not zero. No spatial error exists without both target and the observed endpoint. Board clicks are approximate deck-plane observations, not calibrated video measurements. Ground misses have no board-plane location.
+Trial summaries and spatial relationships use first contact only; final rest has a separate error. Unknown outcomes are null, not zero. No spatial error exists without both target and the observed endpoint. Points clicked on the schematic are approximate. Points measured on a board-camera clip use a four-corner homography of the deck plane, `precision = board_camera_homography`. Their precision is the view's inches-per-pixel conditioning at the hole, which the app reports. Ground misses have no board-plane location.
 
 ## Performance relationships
 

@@ -879,4 +879,14 @@ struct RecordingSession: Codable, Identifiable, Hashable {
     var targetDirection: TargetDirection = .leftToRight
     var notes: String = ""
     var referenceTrialIDs: [UUID] = []
+    /// Optional board-camera clip for this session (library-relative) and its
+    /// clicked deck corners in that clip's pixels: front-left, front-right, back-right, back-left.
+    var boardVideoRelativePath: String? = nil
+    var boardCorners: [ImagePoint]? = nil
+}
+
+struct ImagePoint: Codable, Hashable {
+    var x: Double
+    var y: Double
+    var cgPoint: CGPoint { CGPoint(x: x, y: y) }
 }

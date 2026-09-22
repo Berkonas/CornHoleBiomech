@@ -20,6 +20,7 @@ struct OutcomeEditor: View {
     @State private var isSaving = false
     @State private var pointX = ""
     @State private var pointY = ""
+    @State private var showBoardCamera = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 26) {
@@ -38,8 +39,11 @@ struct OutcomeEditor: View {
                 Picker("Point to place", selection: $activePoint) {
                     ForEach(BoardPointKind.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented)
-                Text("Board coordinates are approximate manual clicks in inches: x is left-to-right (0–24); y is pitcher-to-back (0–48). The hole center is (12, 39).")
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Measure on board video…") { showBoardCamera = true }.disabled(trial.sessionID == nil)
+                    if trial.sessionID == nil { Text("Add this throw to a session to use a board camera.").font(.caption).foregroundStyle(.secondary) }
+                }
+                Text(pointSourceNote).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     TextField("X inches", text: $pointX).accessibilityLabel("Board X inches")
                     TextField("Y inches", text: $pointY).accessibilityLabel("Board Y inches")
@@ -62,6 +66,26 @@ struct OutcomeEditor: View {
             }
         }.padding(24).frame(minWidth: 780)
         .onAppear { outcome = trial.outcome ?? TrialOutcome(intendedPoint: BoardPoint(xInches: 12, yInches: 39)) }
+        .sheet(isPresented: $showBoardCamera) {
+            if let sessionID = trial.sessionID {
+                BoardCameraMarker(sessionID: sessionID) { mark, point in
+                    switch mark {
+                    case .contact: outcome.firstContactPoint = point
+                    case .rest: outcome.finalRestingPoint = point
+                    case .corners: break
+                    }
+                }
+            }
+        }
+    }
+
+    /// Say how the landing points were obtained, since precision differs a lot.
+    private var pointSourceNote: String {
+        let points = [outcome.firstContactPoint, outcome.finalRestingPoint].compactMap { $0 }
+        if !points.isEmpty && points.allSatisfy({ $0.precision == "board_camera_homography" }) {
+            return "Landing points measured on the board camera via its four corners (deck plane only). x is left-to-right (0–24 in); y is pitcher-to-back (0–48 in); hole centre (12, 39)."
+        }
+        return "Board coordinates are approximate manual clicks in inches: x is left-to-right (0–24); y is pitcher-to-back (0–48). The hole center is (12, 39). Use the board camera for measured positions."
     }
 
     private var enteredPoint: BoardPoint? {

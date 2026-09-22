@@ -10,6 +10,7 @@ enum ProjectStoreError: LocalizedError {
     case unsupportedSchema(Int)
     case invalidLibraryPath(String)
     case recordNotFound(String)
+    case invalidBoardCorners
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ enum ProjectStoreError: LocalizedError {
         case .unsupportedSchema(let version): "This library uses schema \(version), which is newer than this version of the app supports."
         case .invalidLibraryPath(let path): "The saved library path is invalid or outside the selected data root: \(path)"
         case .recordNotFound(let kind): "The selected \(kind) no longer exists in the library index."
+        case .invalidBoardCorners: "Click the four deck corners in order (front-left, front-right, back-right, back-left) so they outline the board."
         }
     }
 }
@@ -597,6 +599,32 @@ final class ProjectStore: ObservableObject {
         project?.sessions?.append(session)
         selectedSessionID = session.id; selectedAthleteID = session.athleteID
         try save()
+    }
+
+    /// Copy a board-camera clip into the athlete's library and attach it to a session.
+    /// Replacing the clip clears the corners, which belong to the old framing.
+    func setBoardVideo(_ source: URL, for sessionID: UUID) throws {
+        guard let root = projectURL, var session = project?.sessions?.first(where: { $0.id == sessionID }) else {
+            throw ProjectStoreError.recordNotFound("session")
+        }
+        let relative = "\(athleteRelativeDirectory(for: session.athleteID))/board-camera/\(String(sessionID.uuidString.prefix(8)))-\(UUID().uuidString.prefix(4))-\(safeFilename(source.lastPathComponent))"
+        let destination = root.appendingPathComponent(relative)
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.copyItem(at: source, to: destination)
+        session.boardVideoRelativePath = relative
+        session.boardCorners = nil
+        try updateSession(session)
+    }
+
+    func setBoardCorners(_ corners: [ImagePoint]?, for sessionID: UUID) throws {
+        guard var session = project?.sessions?.first(where: { $0.id == sessionID }) else {
+            throw ProjectStoreError.recordNotFound("session")
+        }
+        if let corners, BoardHomography(imageCorners: corners.map(\.cgPoint)) == nil {
+            throw ProjectStoreError.invalidBoardCorners
+        }
+        session.boardCorners = corners
+        try updateSession(session)
     }
 
     func updateSettings(_ settings: AnalysisSettings) throws {

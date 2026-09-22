@@ -97,6 +97,17 @@ For equations and units, read [BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md)
 
 Reanalyze old recordings to fill the **Results → Advanced → Elbow motion during the forward swing** panel. It covers forward swing through release and needs a side view and enough tracking coverage. Mean flexion describes how bent the elbow is. Excursion and SD describe how much it changes during the swing. None of these is a skill score.
 
+## Measuring landings with the board camera
+
+Record the receiving board with a second, raised camera (see [RECORDING_PROTOCOL.md](RECORDING_PROTOCOL.md)). In **Add/Edit outcome**, choose **Measure on board video…**. The throw must belong to a session.
+
+1. The first time, choose the session's board-camera clip, then click the four deck corners in order: front-left, front-right, back-right, back-left. "Front" is the end nearest the thrower.
+2. Check that the yellow hole outline sits on the real hole. If it doesn't, choose **Redo corners**.
+3. Read the precision line. It gives the worst-case inches of error from a 1-pixel click error at the hole. Above 0.5 in/px, the camera sees the deck too edge-on; the pilot hallway clips gave about 1.6 in/px.
+4. Scrub to the first frame the bag touches the deck and click its centre. Optionally do the same for final rest.
+
+Points are stored in deck inches with precision `board_camera_homography`. Clicks off the deck are refused, because the floor is a different plane; record a floor landing as 0 points with no location.
+
 ## Launch Explorer
 
 Open **Launch Explorer** in the sidebar. Move the release angle, speed, height and distance-to-board sliders to see where a drag-free bag first lands on a regulation board. **Find speed that reaches the hole** solves for the speed. **Start from … median release** loads the selected athlete's measured median.

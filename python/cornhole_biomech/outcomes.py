@@ -44,7 +44,11 @@ def outcome_summary(outcome: TrialOutcome) -> dict[str, Any]:
     result["spatial_error"] = result["first_contact_error"]
     result["spatial_endpoint"] = "first_contact_point"
     result["score_status"] = "unobserved" if outcome.score_category is None else "observed_per_bag_value"
+    precisions = {p.precision for p in (outcome.first_contact_point, outcome.final_resting_point) if p is not None}
     result["precision_note"] = (
+        "Landing points were measured on the board camera through a four-corner deck homography; "
+        "see the view's inches-per-pixel conditioning for their precision."
+        if precisions == {"board_camera_homography"} else
         "Board coordinates are approximate manual clicks and must not be interpreted as instrument-level precision."
     )
     return result

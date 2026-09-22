@@ -119,3 +119,11 @@ def test_native_unknown_score_omission_loads_in_insights(tmp_path):
 def test_stationary_bag_does_not_get_an_arbitrary_launch_angle():
     r=estimate_projectile_release_kinematics(np.tile([10.,20.],(15,1)),0,60,100,'left_to_right')
     assert r['velocity'] is None
+
+
+def test_precision_note_follows_how_points_were_measured():
+    measured=TrialOutcome('hole',1,'Standard',intended_point=BoardPoint(12,39),
+                          first_contact_point=BoardPoint(11,37,'board_camera_homography'))
+    assert 'homography' in outcome_summary(measured)['precision_note']
+    measured.final_resting_point=BoardPoint(12,40)
+    assert 'approximate' in outcome_summary(measured)['precision_note']
