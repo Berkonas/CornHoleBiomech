@@ -59,7 +59,7 @@ A 0–100 "Reference Similarity" composite was removed on 22 September 2026. Its
 
 ## Athlete consistency
 
-At least **five comparable throws** are required. Comparable means same athlete, session (including unassigned session group), camera view, throwing side, pose backend/model and processing configuration, with ≥80% usable frames and no pending corrections. Five is a pilot display threshold, not evidence of adequate sample size.
+At least **five comparable throws** are required. Comparable means same athlete, session (including unassigned session group), camera view, throwing side, pose backend/model, processing configuration and **measurement method version** (`METHOD_VERSION` in `python/cornhole_biomech/__init__.py`, bumped only when a saved number's meaning changes), with ≥80% usable frames and no pending corrections. Five is a pilot display threshold, not evidence of adequate sample size.
 
 At each cycle point, calculate sample SD across throws (`ddof=1`). A waveform's variability is the RMS of its pointwise SD. Wrist variability is `sqrt(mean(SDx²+SDy²))`. Timing variability is sample SD of release-cycle fractions. A point needs at least five supporting throws; a waveform needs ≥80% supported points. The variabilities are reported in their own units. The former 0–100 consistency index, built from arbitrary tolerances, was removed. A repeatable movement can still perform poorly.
 

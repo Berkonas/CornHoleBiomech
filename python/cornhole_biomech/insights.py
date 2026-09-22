@@ -40,12 +40,13 @@ def release_window_quality(quality, raw, confidence, landmarks, release, side, c
 
 
 def compatible_key(trial, manifest):
+    from .pipeline import method_signature
     config = manifest.get('analysis_configuration', {})
     return (trial.get('cameraView'), trial.get('throwingSide'), trial.get('sessionID'),
             (trial.get('outcome') or {}).get('throw_type','Standard'),
             (trial.get('outcome') or {}).get('intended_target','Hole center'),
             manifest.get('pose_backend'),manifest.get('pose_model'),manifest.get('pose_model_version'),
-            manifest.get('pose_model_sha256'),manifest.get('engine_source_sha256'),canonical_hash(config))
+            manifest.get('pose_model_sha256'),method_signature(manifest),canonical_hash(config))
 
 
 def consistency_model(normalized: list[dict], minimum=MINIMUM_CONSISTENCY):

@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 
-from . import REQUIRED_LANDMARKS, __version__
+from . import METHOD_VERSION, REQUIRED_LANDMARKS, __version__
 from .bag import (
     ANALYSIS_COORDINATE_SYSTEM,
     BAG_COORDINATE_SYSTEM,
@@ -57,6 +57,15 @@ from .statistics import grouped_summary, relationship
 from .video import file_sha256, read_video_metadata
 
 Progress = Callable[[str, float, str], None]
+
+
+def method_signature(manifest: dict[str, Any]) -> str | None:
+    """Compatibility key for measurement definitions.
+
+    Legacy manifests without a method version fall back to their source hash,
+    so they stay comparable only with themselves until reanalysed.
+    """
+    return manifest.get("method_version") or manifest.get("engine_source_sha256")
 
 
 def _no_progress(stage: str, fraction: float, message: str) -> None:
@@ -731,6 +740,7 @@ def analyze_trial(
     engine_source_hash = canonical_hash({p.name: file_sha256(p) for p in Path(__file__).parent.glob("*.py")})
     manifest = {
         "engine_source_sha256": engine_source_hash,
+        "method_version": METHOD_VERSION,
         "schema_version": 1,
         "analysis_id": canonical_hash({
             "engine_source_sha256": engine_source_hash,
@@ -797,7 +807,7 @@ def compare_trial(
         if (Path(directory) / "needs_reanalysis.json").exists():
             raise ValueError("Tracking or event corrections changed. Reanalyze every selected throw before comparison.")
     manifests = [_load_json(Path(d) / "manifest.json", {}) for d in [test_dir, *reference_dirs]]
-    signatures = [(m.get("pose_backend"), m.get("pose_model"), m.get("pose_model_version"), m.get("pose_model_sha256"), m.get("engine_source_sha256"), canonical_hash(m.get("analysis_configuration", {}))) for m in manifests]
+    signatures = [(m.get("pose_backend"), m.get("pose_model"), m.get("pose_model_version"), m.get("pose_model_sha256"), method_signature(m), canonical_hash(m.get("analysis_configuration", {}))) for m in manifests]
     if any(signature != signatures[0] for signature in signatures[1:]):
         raise ValueError("These throws use different pose models or analysis settings. Reanalyze them with matching settings before comparison.")
     test_payload = _load_json(Path(test_dir) / "normalized.json", None)

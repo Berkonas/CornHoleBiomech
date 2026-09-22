@@ -235,3 +235,15 @@ def test_pixel_trc_unit_repair_preserves_original_bytes_and_coordinates(tmp_path
     assert read_trc(p)['units']=='px'
     np.testing.assert_array_equal(read_trc(p)['coordinates'],before)
     assert correct_pixel_trc_units(p) is None
+
+
+def test_compatibility_uses_method_version_not_source_hash():
+    from cornhole_biomech.insights import compatible_key
+    trial={'cameraView':'side','throwingSide':'right','sessionID':'S'}
+    a={'method_version':'v1','engine_source_sha256':'aaa'}
+    b={'method_version':'v1','engine_source_sha256':'bbb'}      # code edited, same definitions
+    c={'method_version':'v2','engine_source_sha256':'aaa'}      # definitions changed
+    legacy={'engine_source_sha256':'aaa'}
+    assert compatible_key(trial,a)==compatible_key(trial,b)
+    assert compatible_key(trial,a)!=compatible_key(trial,c)
+    assert compatible_key(trial,legacy)!=compatible_key(trial,a)
