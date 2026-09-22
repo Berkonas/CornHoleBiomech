@@ -98,6 +98,8 @@ def _summary_units(name: str) -> str:
         return "degrees"
     if name.endswith("_arm_lengths"):
         return "arm lengths"
+    if name.endswith("_m"):
+        return "m"
     if name.endswith("_seconds"):
         return "seconds"
     if name.endswith("_cycle"):
@@ -226,6 +228,7 @@ def analyze_trial(
     bag_track: BagTrack | None = None
     bag_derived: dict[str, Any] | None = None
     bag_filtered: np.ndarray | None = None
+    bag_reviewed: np.ndarray | None = None  # unfiltered, identity-reviewed centroids
     bag_corrections: BagCorrectionSet | None = None
     bag_release_candidate = None
     bag_warnings: list[str] = []
@@ -307,6 +310,7 @@ def analyze_trial(
         bag_gap_handled = np.array(bag_derived["effective"], copy=True)
         reviewed_through = bag_corrections.reviewed_through_frame
         bag_gap_handled[max(0, (reviewed_through + 1) if reviewed_through is not None else 0):] = np.nan
+        bag_reviewed = bag_gap_handled
         if reviewed_through is None:
             bag_warnings.append("Bag-derived radii, trajectories, release detection, and launch quantities require frame-by-frame identity review. Automatic tracking is available for inspection only.")
         if filter_config["enabled"] and filter_config["type"] != "none":
@@ -336,13 +340,15 @@ def analyze_trial(
         float(config["minimum_velocity_coverage"]),
         bag_coords=bag_filtered,
     )
-    if bag_filtered is not None:
+    if bag_reviewed is not None:
         lookup = {name: index for index, name in enumerate(landmarks)}
         wrist_pixels = filtered[:, lookup[f"{context.throwing_side}_wrist"], :]
         release_config = config["bag_release"]
+        # Unfiltered bag: a zero-phase low-pass spreads the release kink backwards
+        # in time and across impact, which makes divergence appear early.
         bag_release_candidate = detect_bag_wrist_release(
             wrist_pixels,
-            bag_filtered,
+            bag_reviewed,
             kinematics.arm_length_pixels,
             video.fps,
             float(release_config["minimum_divergence_arm_lengths"]),
@@ -440,6 +446,20 @@ def analyze_trial(
         events["release"].manual_frame is not None, context.camera_view,
         bool(flight_review.get("fixed_camera")))
     summaries["bag_time_of_flight_seconds"] = flight["time_of_flight_seconds"]
+    from .flight import gravity_scale_from_flight, release_height
+    flight_reviewed = (events["release"].manual_frame is not None and contact_frame is not None
+                       and bag_corrections is not None and bag_corrections.covers(contact_frame))
+    measured_scale = calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None
+    gravity_scale = gravity_scale_from_flight(
+        flight_points, release_frame if flight_reviewed else None, contact_frame if flight_reviewed else None,
+        video.fps, bool(flight_review.get("fixed_camera")), context.camera_view,
+        reference_pixels_per_meter=measured_scale)
+    flight["gravity_scale"] = gravity_scale
+    summaries["bag_flight_apparent_gravity_m_s2"] = gravity_scale["apparent_gravity_m_s2"]
+    if calibration is None and gravity_scale["status"] == "estimated":
+        # No measured scale: the flight's own gravity sets the bag-plane scale.
+        calibration = SpatialCalibration(gravity_scale["pixels_per_meter"], "bag_flight_plane_gravity",
+                                         True, "reviewed_flight_gravity_fit")
 
     projectile: dict[str, Any] | None = None
     bag_result: dict[str, Any] | None = None
@@ -516,7 +536,28 @@ def analyze_trial(
         }
         for source, destination in velocity_names.items():
             summaries[destination] = velocity.get(source)
+        standard_error = projectile.get("velocity_standard_error") or {}
+        summaries["bag_release_angle_se_deg"] = standard_error.get("angle_deg")
+        constrained = projectile.get("gravity_constrained")
+        projectile["primary_model"] = constrained["model"] if constrained else "free_quadratic"
+        if constrained:
+            # With a valid scale, gravity is known rather than estimated, so the
+            # constrained fit replaces the free fit as the reported launch.
+            arm = kinematics.arm_length_pixels
+            summaries.update({
+                "bag_release_forward_velocity_px_s": constrained["forward_px_s"],
+                "bag_release_vertical_velocity_px_s": constrained["vertical_px_s"],
+                "bag_release_speed_px_s": constrained["speed_px_s"],
+                "bag_release_angle_deg": constrained["angle_deg"],
+                "bag_release_angle_se_deg": constrained["standard_error"]["angle_deg"],
+                "bag_release_speed_se_m_s": constrained["standard_error"]["speed_m_s"],
+                "bag_release_forward_velocity_arm_lengths_s": constrained["forward_px_s"] / arm if arm > 0 else None,
+                "bag_release_vertical_velocity_arm_lengths_s": constrained["vertical_px_s"] / arm if arm > 0 else None,
+                "bag_release_speed_arm_lengths_s": constrained["speed_px_s"] / arm if arm > 0 else None,
+            })
         physical_velocity = projectile.get("physical_units", {}).get("velocity", {})
+        if constrained:
+            physical_velocity = {k: constrained[k] for k in ("forward_m_s", "vertical_m_s", "speed_m_s")}
         for source, destination in (
             ("forward_m_s", "bag_release_forward_velocity_m_s"),
             ("vertical_m_s", "bag_release_vertical_velocity_m_s"),
@@ -548,6 +589,13 @@ def analyze_trial(
             summaries["bag_release_position_vertical_arm_lengths"] = (
                 float(bag_position[1]) if np.isfinite(bag_position[1]) else None
             )
+            height = release_height(
+                flight_points, {name: filtered[:, i, :] for i, name in enumerate(landmarks)}, release_frame,
+                kinematics.arm_length_pixels,
+                calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None)
+            projectile["release_height"] = height
+            summaries["bag_release_height_arm_lengths"] = height["height_arm_lengths"]
+            summaries["bag_release_height_m"] = height["height_m"]
         automatic_present = np.isfinite(bag_derived["raw"]).all(axis=-1)
         effective_present = np.isfinite(bag_derived["effective"]).all(axis=-1)
         after_seed = slice(bag_track.seed.frame_index, None)

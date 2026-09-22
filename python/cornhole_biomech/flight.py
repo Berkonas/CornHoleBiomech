@@ -4,6 +4,15 @@ import math
 from typing import Any
 import numpy as np
 
+from .bag import GRAVITY_M_S2, _robust_polynomial
+
+# Foot points that approximate floor contact, in order of preference. Sports2D
+# (HALPE-26) names are "RHeel"/"LBigToe"; the RTMPose adapter uses snake case.
+FOOT_POINTS = ("RHeel", "LHeel", "RBigToe", "LBigToe", "RSmallToe", "LSmallToe",
+               "right_heel", "left_heel", "right_big_toe", "left_big_toe",
+               "right_small_toe", "left_small_toe")
+ANKLE_POINTS = ("right_ankle", "left_ankle")
+
 
 def flight_summary(points, release_frame, contact_frame, fps, reviewed_through,
                    release_reviewed=False, camera_view='other', fixed_camera=False):
@@ -47,6 +56,91 @@ def flight_summary(points, release_frame, contact_frame, fps, reviewed_through,
         result['horizontal_travel_pixels'] = float(abs(segment[-1,0]-segment[0,0]))
     else:
         result['message'] += ' Apex/range withheld unless coverage is complete and a fixed side camera is confirmed.'
+    return result
+
+
+def gravity_scale_from_flight(points, release_frame, contact_frame, fps, fixed_camera, camera_view,
+                              reference_pixels_per_meter=None, minimum_points=15, minimum_coverage=0.8):
+    """Pixels per meter implied by the reviewed flight's vertical acceleration.
+
+    A free bag accelerates downward at g, so the fitted image-down acceleration
+    a (px/s²) gives s = a / g in the bag's own flight plane. Only frames strictly
+    between release and first contact are used (no hand contact, no impact).
+
+    Assumptions, each stated in the result: fixed camera; flight plane roughly
+    perpendicular to the optical axis (side view); level camera; aerodynamic
+    drag small relative to g (its vertical component opposes gravity on the
+    way down and adds to it on the way up, so it partly cancels over an arc).
+    With an independent scale, `apparent_gravity_m_s2` checks that scale: it
+    should be close to 9.8 m/s².
+    """
+    result: dict[str, Any] = dict(
+        status='needs_reviewed_events', pixels_per_meter=None, pixels_per_meter_se=None,
+        vertical_acceleration_px_s2=None, horizontal_acceleration_px_s2=None, sample_count=0,
+        coverage=0.0, fit_rmse_px=None, apparent_gravity_m_s2=None, scale_ratio_to_reference=None,
+        assumptions='Fixed level side camera; flight plane perpendicular to the optical axis; drag small relative to gravity.')
+    if not (fixed_camera and camera_view == 'side'):
+        result['status'] = 'unsupported_camera'
+        return result
+    if release_frame is None or contact_frame is None or contact_frame - release_frame < 3:
+        return result
+    p = np.asarray(points, float)
+    frames = np.arange(release_frame + 1, min(contact_frame, len(p)))
+    segment = p[frames]
+    valid = np.isfinite(segment).all(axis=1)
+    result.update(sample_count=int(valid.sum()), coverage=float(valid.mean()) if len(valid) else 0.0)
+    if valid.sum() < minimum_points or result['coverage'] < minimum_coverage:
+        result['status'] = 'insufficient_flight_samples'
+        return result
+    t = (frames[valid] - release_frame) / fps
+    coeff_y, res_y, cov_y = _robust_polynomial(t, segment[valid, 1], 2)
+    coeff_x, res_x, _ = _robust_polynomial(t, segment[valid, 0], 2)
+    down = 2.0 * float(coeff_y[2])
+    result.update(vertical_acceleration_px_s2=down, horizontal_acceleration_px_s2=2.0 * float(coeff_x[2]),
+                  fit_rmse_px=float(np.sqrt(np.mean(res_x**2 + res_y**2))))
+    if down <= 0:
+        result['status'] = 'implausible_curvature'
+        return result
+    result['pixels_per_meter'] = down / GRAVITY_M_S2
+    if cov_y is not None:
+        result['pixels_per_meter_se'] = 2.0 * math.sqrt(float(cov_y[2, 2])) / GRAVITY_M_S2
+    if reference_pixels_per_meter:
+        result['apparent_gravity_m_s2'] = down / float(reference_pixels_per_meter)
+        result['scale_ratio_to_reference'] = result['pixels_per_meter'] / float(reference_pixels_per_meter)
+    result['status'] = 'estimated'
+    return result
+
+
+def release_height(bag_points, landmarks, release_frame, arm_length_px, pixels_per_meter, window=3):
+    """Bag height at release above the lowest visible foot point.
+
+    The floor line is the per-frame lowest (largest image-y) heel/toe point,
+    medianed over ±`window` frames around release so one lifted foot or one
+    noisy frame does not move it. Ankles are a labelled fallback that sits
+    roughly 7–9 cm above the floor. Assumes a level camera.
+    """
+    result = dict(height_px=None, height_arm_lengths=None, height_m=None, floor_reference=None)
+    bag = np.asarray(bag_points, float)
+    if release_frame is None or not 0 <= release_frame < len(bag) or not np.isfinite(bag[release_frame]).all():
+        return result
+    for names, label in ((FOOT_POINTS, 'lowest_heel_or_toe'), (ANKLE_POINTS, 'lowest_ankle')):
+        present = [np.asarray(landmarks[n], float) for n in names if n in landmarks]
+        if not present:
+            continue
+        lo, hi = max(0, release_frame - window), min(len(bag), release_frame + window + 1)
+        ys = np.stack([p[lo:hi, 1] for p in present])
+        with np.errstate(all='ignore'):
+            per_frame = np.nanmax(np.where(np.isfinite(ys), ys, -np.inf), axis=0)
+        per_frame = per_frame[np.isfinite(per_frame)]
+        if not per_frame.size:
+            continue
+        height = float(np.median(per_frame) - bag[release_frame, 1])
+        result.update(height_px=height, floor_reference=label)
+        if arm_length_px and arm_length_px > 0:
+            result['height_arm_lengths'] = height / arm_length_px
+        if pixels_per_meter and pixels_per_meter > 0:
+            result['height_m'] = height / pixels_per_meter
+        return result
     return result
 
 

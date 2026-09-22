@@ -25,6 +25,11 @@ from .video import file_sha256, read_video_metadata
 
 BAG_COORDINATE_SYSTEM = "raw_video_pixels_x_right_y_down"
 ANALYSIS_COORDINATE_SYSTEM = "target_forward_x_up_y"
+GRAVITY_M_S2 = 9.80665  # standard gravity; local variation (<0.3 %) is below video precision
+# Planes in which a pixels-per-meter scale may convert bag motion to SI units:
+# a measured object in the athlete's release plane, or the scale implied by the
+# reviewed bag flight's own vertical acceleration (see flight.gravity_scale_from_flight).
+PHYSICAL_SCALE_PLANES = frozenset({"athlete_release_motion_plane", "bag_flight_plane_gravity"})
 
 
 @dataclass(frozen=True)
@@ -243,7 +248,7 @@ class SpatialCalibration:
     def permits_physical_units(self) -> bool:
         return (
             self.valid
-            and self.plane == "athlete_release_motion_plane"
+            and self.plane in PHYSICAL_SCALE_PLANES
             and math.isfinite(self.pixels_per_meter)
             and self.pixels_per_meter > 0
         )
@@ -695,7 +700,15 @@ def detect_bag_wrist_release(
     return empty
 
 
-def _robust_polynomial(time: np.ndarray, values: np.ndarray, degree: int) -> tuple[np.ndarray, np.ndarray]:
+def _robust_polynomial(
+    time: np.ndarray, values: np.ndarray, degree: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Huber-weighted polynomial fit; returns coefficients, residuals, covariance.
+
+    Covariance is the weighted least-squares estimate s² (XᵀWX)⁻¹ with
+    s² = Σ w r² / (n − p). It is None when fewer than two residual degrees of
+    freedom remain, where the variance estimate would be meaningless.
+    """
     design = np.column_stack([time ** power for power in range(degree + 1)])
     weights = np.ones(len(time), dtype=float)
     coefficients = np.zeros(degree + 1)
@@ -714,7 +727,63 @@ def _robust_polynomial(time: np.ndarray, values: np.ndarray, degree: int) -> tup
             weights = updated
             break
         weights = updated
-    return coefficients, values - design @ coefficients
+    residual = values - design @ coefficients
+    dof = len(time) - (degree + 1)
+    covariance = None
+    if dof >= 2:
+        weighted = design * np.sqrt(weights)[:, None]
+        variance = float(np.sum(weights * residual**2) / dof)
+        covariance = variance * np.linalg.pinv(weighted.T @ weighted)
+    return coefficients, residual, covariance
+
+
+def _velocity_uncertainty(vx: float, vy: float, var_x: float | None, var_y: float | None) -> dict[str, float | None]:
+    """First-order (delta-method) standard errors of speed and launch angle.
+
+    Treats horizontal and vertical fits as independent: θ = atan2(vy, vx),
+    σθ² = (vy² σx² + vx² σy²) / v⁴ and σv² = (vx² σx² + vy² σy²) / v².
+    """
+    if var_x is None or var_y is None:
+        return {"forward_px_s": None, "vertical_px_s": None, "speed_px_s": None, "angle_deg": None}
+    speed_sq = vx * vx + vy * vy
+    return {
+        "forward_px_s": math.sqrt(var_x),
+        "vertical_px_s": math.sqrt(var_y),
+        "speed_px_s": math.sqrt((vx * vx * var_x + vy * vy * var_y) / speed_sq),
+        "angle_deg": math.degrees(math.sqrt((vy * vy * var_x + vx * vx * var_y) / speed_sq**2)),
+    }
+
+
+def _gravity_constrained_launch(
+    time: np.ndarray, x: np.ndarray, y: np.ndarray, x_sign: float, pixels_per_meter: float
+) -> dict[str, Any]:
+    """Launch velocity with gravity's known image-plane acceleration removed.
+
+    Image y points down, so a projectile obeys y(t) = y0 − v_up t + ½ g s t²
+    where s is pixels per meter. Subtracting ½ g s t² leaves a straight line,
+    and a linear fit has far lower slope variance than a free quadratic at the
+    window's end point. Horizontal motion is fitted linearly: bag drag changes
+    horizontal velocity by roughly 1 % over the ~0.1 s window.
+    """
+    g_px = GRAVITY_M_S2 * pixels_per_meter
+    coeff_x, res_x, cov_x = _robust_polynomial(time, x, 1)
+    coeff_y, res_y, cov_y = _robust_polynomial(time, y - 0.5 * g_px * time**2, 1)
+    vx, vy = x_sign * float(coeff_x[1]), -float(coeff_y[1])
+    speed = math.hypot(vx, vy)
+    se = _velocity_uncertainty(vx, vy, None if cov_x is None else float(cov_x[1, 1]),
+                               None if cov_y is None else float(cov_y[1, 1]))
+    return {
+        "model": "gravity_constrained_linear",
+        "forward_px_s": vx,
+        "vertical_px_s": vy,
+        "speed_px_s": speed,
+        "angle_deg": math.degrees(math.atan2(vy, vx)),
+        "speed_m_s": speed / pixels_per_meter,
+        "forward_m_s": vx / pixels_per_meter,
+        "vertical_m_s": vy / pixels_per_meter,
+        "standard_error": {**se, "speed_m_s": None if se["speed_px_s"] is None else se["speed_px_s"] / pixels_per_meter},
+        "fit_rmse_px": float(np.sqrt(np.mean(res_x**2 + res_y**2))),
+    }
 
 
 def estimate_projectile_release_kinematics(
@@ -737,6 +806,8 @@ def estimate_projectile_release_kinematics(
         "frame_interval_seconds": None if fps <= 0 else 1.0 / fps,
         "release_frame": release_frame,
         "velocity": None,
+        "velocity_standard_error": None,
+        "gravity_constrained": None,
         "acceleration": {
             "status": "suppressed",
             "reason": "Acceleration requires adequate frame rate, samples, and local-fit quality.",
@@ -773,8 +844,8 @@ def estimate_projectile_release_kinematics(
     # at most one frame rather than mislabeled as velocity at release.
     time = (sample_indices - release_frame) / fps
     degree = 2  # Four or more samples identify curvature; linear fits bias launch velocity toward mid-window.
-    coeff_x, residual_x = _robust_polynomial(time, points[sample_indices, 0], degree)
-    coeff_y, residual_y = _robust_polynomial(time, points[sample_indices, 1], degree)
+    coeff_x, residual_x, cov_x = _robust_polynomial(time, points[sample_indices, 0], degree)
+    coeff_y, residual_y, cov_y = _robust_polynomial(time, points[sample_indices, 1], degree)
     x_sign = 1.0 if target_direction == "left_to_right" else -1.0
     velocity_pixels = np.array([x_sign * coeff_x[1], -coeff_y[1]], dtype=float)
     fit_rmse_pixels = float(np.sqrt(np.mean(residual_x**2 + residual_y**2)))
@@ -819,9 +890,20 @@ def estimate_projectile_release_kinematics(
         "fit_rmse_pixels": fit_rmse_pixels,
         "fit_rmse_arm_lengths": fit_rmse_arm_lengths,
         "velocity": velocity,
-        "uncertainty_note": "Release time and derivative window are frame-limited; fit residual is descriptive, not a calibrated confidence interval.",
+        "velocity_standard_error": _velocity_uncertainty(
+            float(velocity_pixels[0]), float(velocity_pixels[1]),
+            None if cov_x is None else float(cov_x[1, 1]),
+            None if cov_y is None else float(cov_y[1, 1]),
+        ),
+        "uncertainty_note": (
+            "Standard errors come from the fit residuals (tracking noise within this window) and exclude "
+            "release-frame choice, camera motion and scale error; they are a lower bound on total uncertainty."
+        ),
     })
     if calibration is not None and calibration.permits_physical_units:
+        base["gravity_constrained"] = _gravity_constrained_launch(
+            time, points[sample_indices, 0], points[sample_indices, 1], x_sign, calibration.pixels_per_meter
+        )
         base["physical_units"] = {
             "status": "available_from_explicit_athlete_plane_scale",
             "calibration": asdict(calibration),
