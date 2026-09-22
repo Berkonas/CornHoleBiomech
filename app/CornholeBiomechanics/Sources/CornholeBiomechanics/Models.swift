@@ -685,11 +685,14 @@ struct NormalizedDocument: Codable {
     var tau: [Double]
     var values: [String: FlexibleNumericArray]
     var eventTiming: [String: Double?]
+    /// Median projected upper-arm + forearm length; used to scale overlays between clips.
+    var armLengthPixels: Double? = nil
     enum CodingKeys: String, CodingKey {
         case trialID = "trial_id"
         case athleteID = "athlete_id"
         case cameraView = "camera_view"
         case tau, values
+        case armLengthPixels = "arm_length_pixels"
         case eventTiming = "event_timing"
     }
 }

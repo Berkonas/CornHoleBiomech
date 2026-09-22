@@ -211,6 +211,20 @@ final class AnalysisService: ObservableObject {
         progress = 1; stage = "Results ready"
     }
 
+    /// Plain-language difference between two throws of one athlete (Python `compare-throws`).
+    func compareThrows(a: Trial, b: Trial, store: ProjectStore) async throws -> ThrowComparison {
+        guard !isRunning, let root = store.projectURL else {
+            throw AnalysisServiceError.processFailed("Wait for the current worker to finish, then try again.")
+        }
+        isRunning = true; stage = "Comparing throws"; detail = "Summarizing this athlete's comparable throws"; progress = 0.3
+        defer { isRunning = false }
+        // Insights write the comparable-throw table that compare-throws reads.
+        _ = try await run(["insights", "--project", root.path, "--trial-id", b.id.uuidString])
+        let data = try await run(["compare-throws", "--project", root.path, "--a", a.id.uuidString, "--b", b.id.uuidString])
+        progress = 1; stage = "Comparison ready"
+        return try JSONDecoder.projectDecoder.decode(ThrowComparison.self, from: JSONSerialization.data(withJSONObject: data))
+    }
+
     func probe() async throws -> [String: Any] { try await run(["probe"], updateProgress: false) }
 
     func videoInfo(_ url: URL) async throws -> [String: Any] {

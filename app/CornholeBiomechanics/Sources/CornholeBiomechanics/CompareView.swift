@@ -20,6 +20,7 @@ struct CompareView: View {
     @State private var failure: String?
     @State private var comparisonURL: URL?
     @State private var showReferenceVideo = false
+    @State private var throwComparison: ThrowComparison?
 
     var body: some View {
         SectionContainer(title: "Compare Movement", subtitle: "Choose the question, then compare body-normalized movement on the same timeline.") {
@@ -52,6 +53,18 @@ struct CompareView: View {
             if mode == .own { Text("The athlete’s mean excludes this throw. At least four other throws from the same session, camera view and throwing side, with at least 80% usable frames, are required. Processing settings must match.").font(.callout).foregroundStyle(.secondary) }
             if candidates.isEmpty { Label("No compatible comparison throws. Analyze another throw with the same camera view\(mode == .reference || mode == .single ? " and mark it in Reference" : "").", systemImage: "info.circle").foregroundStyle(.secondary) }
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+            if mode == .trial, let comparison = throwComparison, let trial = store.selectedTrial, let other = references.first {
+                ThrowComparisonPanel(
+                    comparison: comparison, nameA: "A · \(trial.displayName)", nameB: "B · \(other.displayName)",
+                    outcomeA: trial.outcome?.scoreCategory?.rawValue, outcomeB: other.outcome?.scoreCategory?.rawValue,
+                    flights: [NormalizedFlight(name: "A · \(trial.displayName)", flight: data.results?.flight,
+                                               armLengthPixels: data.normalized?.armLengthPixels, direction: trial.targetDirection),
+                              NormalizedFlight(name: "B · \(other.displayName)", flight: referenceData.results?.flight,
+                                               armLengthPixels: referenceData.normalized?.armLengthPixels, direction: other.targetDirection)].compactMap { $0 })
+                Divider()
+            } else if mode == .trial, let trial = store.selectedTrial, let other = references.first, other.athleteID != trial.athleteID {
+                Label("The plain-language release comparison is only made within one athlete. Body curves below still compare.", systemImage: "info.circle").foregroundStyle(.secondary)
+            }
             if let comparison = data.comparison, let normalized = data.normalized, let trial = store.selectedTrial {
                 Text("Measured movement differences · \(comparison.referenceTrialIDs.count) comparison throws").font(.title2.weight(.semibold))
                 ForEach(comparison.rawMetrics.keys.filter { $0.contains("mae_deg") || $0 == "wrist_path_rmse_arm_lengths" }.sorted(), id: \.self) { key in
@@ -83,7 +96,7 @@ struct CompareView: View {
         .onChange(of: store.selectedReferenceSetID) { _, _ in
             if mode == .reference { reset() }
         }
-        .onChange(of: referenceID) { _, _ in data.loadComparison(at: nil) }
+        .onChange(of: referenceID) { _, _ in data.loadComparison(at: nil); throwComparison = nil }
     }
     private var candidates: [Trial] {
         guard let test = store.selectedTrial else { return [] }
@@ -106,7 +119,7 @@ struct CompareView: View {
     private var references: [Trial] { (mode == .single || mode == .trial) ? candidates.filter { $0.id == referenceID } : candidates }
     private func reset() {
         data.load(analysisURL: store.selectedTrial.flatMap(store.analysisURL(for:)))
-        data.loadComparison(at: nil); failure = nil
+        data.loadComparison(at: nil); failure = nil; throwComparison = nil
         if !candidates.contains(where: { $0.id == referenceID }) { referenceID = candidates.first?.id }
     }
     private func run() {
@@ -118,6 +131,9 @@ struct CompareView: View {
                 comparisonURL = url; data.loadComparison(at: url)
                 referenceData.load(analysisURL: references.first.flatMap(store.analysisURL(for:)))
                 fraction = (data.normalized?.eventTiming["release"] ?? nil) ?? 0.5
+                if mode == .trial, let other = references.first, other.athleteID == trial.athleteID {
+                    throwComparison = try await analysis.compareThrows(a: trial, b: other, store: store)
+                }
             } catch { failure = error.localizedDescription }
         }
     }
