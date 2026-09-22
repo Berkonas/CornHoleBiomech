@@ -143,7 +143,33 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--second-annotation", help="Second rater's file for inter-rater agreement")
     validate.add_argument("--output")
     validate.set_defaults(handler=handle_validate_tracking)
+
+    pair = commands.add_parser("compare-throws", help="Explain how throw B differs from throw A for one athlete")
+    pair.add_argument("--project", required=True)
+    pair.add_argument("--a", required=True, help="Trial ID of the first throw")
+    pair.add_argument("--b", required=True, help="Trial ID of the second throw")
+    pair.set_defaults(handler=handle_compare_throws)
     return root
+
+
+def handle_compare_throws(args: argparse.Namespace) -> dict[str, Any]:
+    from .performance import compare_throws
+    root = Path(args.project).resolve()
+    project = load_json(str(root / "project.json"))
+    trials = {t["id"]: t for t in project["trials"]}
+    if args.a not in trials or args.b not in trials:
+        raise ValueError("Both throws must belong to this library.")
+    if trials[args.a]["athleteID"] != trials[args.b]["athleteID"]:
+        raise ValueError("Throw comparison is within one athlete. Choose two throws from the same athlete.")
+    relationships = root / (trials[args.b].get("analysisRelativePath") or "") / "relationships.json"
+    if not relationships.exists():
+        raise ValueError("Open Results for the second throw first so its comparable throws are summarized.")
+    rows = load_json(str(relationships))["data_rows"]
+    by_id = {r["trial_id"]: r for r in rows}
+    if args.a not in by_id or args.b not in by_id:
+        raise ValueError("One of these throws is not comparable (different session setup, or tracking below 80 %).")
+    labels = {t["id"]: t.get("name") or t.get("originalFilename") or t["id"] for t in project["trials"]}
+    return compare_throws(by_id[args.a], by_id[args.b], rows, labels)
 
 
 def _automatic_events(analysis: Path) -> dict[str, int | None]:

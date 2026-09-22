@@ -175,6 +175,7 @@ def generate_insights(project_path, trial_id, export_report=True):
     if comparison and not comparison_references_are_current(project, trial, comparison):
         comparison = None
     compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[];feedback_eligible={};feedback_bag_eligible={}
+    trial_labels={t['id']:(t.get('name') or t.get('originalFilename') or t['id']) for t in project['trials']}
     for t in project['trials']:
         if t['athleteID']!=trial['athleteID'] or not t.get('analysisRelativePath'):continue
         d=root/t['analysisRelativePath'];m=read(d/'manifest.json',{});r=read(d/'results.json',{});n=read(d/'normalized.json')
@@ -234,11 +235,17 @@ def generate_insights(project_path, trial_id, export_report=True):
                    "observed_scores": {str(k):sum(o.get('score_category')==k for o in outcomes.values()) for k in (0,1,3)},
                    "unknown_scores":sum(o.get('score_category') is None for o in outcomes.values()),
                    "personal_evidence": personal_evidence(evidence_rows,trial_id)}
+    from .performance import performance_summary
+    rows=(relationships or {}).get('data_rows',[])
+    performance["summary"]=performance_summary(rows,trial_labels)
+    # Level 1-3 coaching feedback leads; review reminders follow it.
+    feedback=performance["summary"]["feedback"]
+    payload_summary=' '.join([feedback['result'],feedback['why'],feedback['next']]+sentences[1:])
     athlete=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
     payload={'schema_version':1,'trial_id':trial_id,'athlete':athlete.get('participantCode','Unknown athlete'),
              'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
              'outcome':outcome,'similarity':comparison.get('similarity') if comparison else None,
-             'differences':diffs,'coach_summary':' '.join(sentences),'consistency':consistency,
+             'differences':diffs,'coach_summary':payload_summary,'consistency':consistency,
              'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,
              'provenance':{'backend':manifest.get('pose_backend','unknown'),'model':manifest.get('pose_model','unknown'),
                            'sports2d_version':manifest.get('pose_backend_metadata',{}).get('sports2d_version'),
