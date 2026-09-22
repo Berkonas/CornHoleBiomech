@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tracking Annotator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f6f6f4; --panel:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#d9d8d3; --accent:#0b6bcb; --warn:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --panel:#20201e; --ink:#ecebe6; --muted:#a3a29c; --line:#3a3936; --accent:#5aa9ff; --warn:#ff8a80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.4 -apple-system, system-ui, sans-serif; background:var(--bg); color:var(--ink); display:grid; grid-template-columns:300px 1fr; height:100vh; }
+  aside { background:var(--panel); border-right:1px solid var(--line); padding:14px; overflow:auto; }
+  h1 { font-size:16px; margin:0 0 10px; }
+  label { display:block; margin:10px 0 4px; color:var(--muted); font-size:12px; }
+  input, select, button { font:inherit; }
+  input[type=text], input[type=number], select { width:100%; padding:5px 7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); }
+  button { padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  ol { padding-left:20px; margin:6px 0; }
+  li.current { font-weight:600; color:var(--accent); }
+  li.done { color:var(--muted); }
+  li.hidden { color:var(--warn); }
+  .row { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .keys { color:var(--muted); font-size:12px; margin-top:12px; }
+  main { position:relative; overflow:hidden; }
+  canvas { display:block; width:100%; height:100%; cursor:crosshair; }
+  #status { position:absolute; left:10px; top:8px; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-variant-numeric:tabular-nums; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Tracking annotator</h1>
+  <label for="files">1. Open the exported folder's PNGs and annotation_manifest.json</label>
+  <input id="files" type="file" multiple accept=".png,.json">
+  <label for="rater">2. Rater initials</label>
+  <input id="rater" type="text" placeholder="e.g. AB">
+  <label for="side">3. Throwing arm</label>
+  <select id="side"><option value="right">Right</option><option value="left">Left</option></select>
+  <label>Points on this frame</label>
+  <ol id="list"></ol>
+  <div class="row"><button id="hide">Not visible (N)</button><button id="undo">Undo (Z)</button></div>
+  <div class="row"><button id="prev">◀ Frame</button><button id="next">Frame ▶</button></div>
+  <label for="release">Release frame (first frame bag clearly out of hand)</label>
+  <input id="release" type="number" min="0">
+  <label for="contact">First-contact frame (bag first touches board/ground)</label>
+  <input id="contact" type="number" min="0">
+  <div class="row"><button class="primary" id="save">Download annotation JSON</button></div>
+  <p class="keys">Click to place the highlighted point. Scroll to zoom, drag with the right mouse button (or hold Space) to pan. Mark the joint centre, not the skin edge. Bag = centre of the bag.</p>
+</aside>
+<main><canvas id="view"></canvas><div id="status">Open frames to begin</div></main>
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $('view'), ctx = canvas.getContext('2d');
+const state = { frames: [], index: 0, manifest: null, marks: {}, view: { scale: 1, x: 0, y: 0 } };
+
+function landmarks() {
+  const s = $('side').value, o = s === 'right' ? 'left' : 'right';
+  return [`${s}_shoulder`, `${s}_elbow`, `${s}_wrist`, `${o}_shoulder`, 'left_hip', 'right_hip', 'bag'];
+}
+function storageKey() { return `annotator:${state.manifest?.video?.sha256 || 'unknown'}:${$('rater').value}`; }
+function persist() {
+  try { localStorage.setItem(storageKey(), JSON.stringify({ marks: state.marks, release: $('release').value, contact: $('contact').value })); } catch (e) {}
+}
+function restore() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null');
+    if (saved) { state.marks = saved.marks || {}; $('release').value = saved.release || ''; $('contact').value = saved.contact || ''; }
+  } catch (e) {}
+}
+function frame() { return state.frames[state.index]; }
+function frameMarks() { const f = frame(); return f ? (state.marks[f.frameIndex] ||= {}) : {}; }
+function nextLandmark() { return landmarks().find(name => !(name in frameMarks())); }
+
+$('files').addEventListener('change', async event => {
+  const files = [...event.target.files];
+  const manifestFile = files.find(f => f.name.endsWith('.json'));
+  state.manifest = manifestFile ? JSON.parse(await manifestFile.text()) : null;
+  const pngs = files.filter(f => f.name.endsWith('.png')).sort((a, b) => a.name.localeCompare(b.name));
+  state.frames = await Promise.all(pngs.map(file => new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => resolve({ image, frameIndex: parseInt(file.name.match(/(\d+)/)[1], 10) });
+    image.src = URL.createObjectURL(file);
+  })));
+  state.index = 0; state.marks = {}; restore(); fit(); render();
+});
+
+function fit() {
+  const f = frame(); if (!f) return;
+  const r = canvas.getBoundingClientRect();
+  canvas.width = r.width * devicePixelRatio; canvas.height = r.height * devicePixelRatio;
+  const scale = Math.min(canvas.width / f.image.width, canvas.height / f.image.height);
+  state.view = { scale, x: (canvas.width - f.image.width * scale) / 2, y: (canvas.height - f.image.height * scale) / 2 };
+}
+function toImage(evt) {
+  const r = canvas.getBoundingClientRect();
+  const cx = (evt.clientX - r.left) * devicePixelRatio, cy = (evt.clientY - r.top) * devicePixelRatio;
+  return { x: (cx - state.view.x) / state.view.scale, y: (cy - state.view.y) / state.view.scale, cx, cy };
+}
+function render() {
+  const f = frame();
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!f) return;
+  const v = state.view;
+  ctx.setTransform(v.scale, 0, 0, v.scale, v.x, v.y);
+  ctx.imageSmoothingEnabled = v.scale < 2;
+  ctx.drawImage(f.image, 0, 0);
+  const marks = frameMarks(), r = 5 / v.scale;
+  for (const [name, p] of Object.entries(marks)) {
+    if (!p) continue;
+    ctx.strokeStyle = name === 'bag' ? '#ffb000' : '#00e5ff'; ctx.lineWidth = 2 / v.scale;
+    ctx.beginPath(); ctx.moveTo(p.x - r * 2, p.y); ctx.lineTo(p.x + r * 2, p.y); ctx.moveTo(p.x, p.y - r * 2); ctx.lineTo(p.x, p.y + r * 2); ctx.stroke();
+  }
+  const current = nextLandmark();
+  $('status').textContent = `Frame ${f.frameIndex} (${state.index + 1}/${state.frames.length}) · ${current ? 'place: ' + current.replace('_', ' ') : 'frame complete'} · zoom ${v.scale.toFixed(2)}×`;
+  $('list').innerHTML = landmarks().map(name => {
+    const cls = name === current ? 'current' : name in marks ? (marks[name] ? 'done' : 'hidden') : '';
+    const text = name in marks && !marks[name] ? `${name} — not visible` : name;
+    return `<li class="${cls}">${text.replace(/_/g, ' ')}</li>`;
+  }).join('');
+}
+
+let panning = null, spaceDown = false;
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 2 || spaceDown) { panning = { x: e.clientX, y: e.clientY, vx: state.view.x, vy: state.view.y }; return; }
+  const name = nextLandmark(); if (!frame() || !name) return;
+  const p = toImage(e);
+  if (p.x < 0 || p.y < 0 || p.x > frame().image.width || p.y > frame().image.height) return;
+  frameMarks()[name] = { x: +p.x.toFixed(2), y: +p.y.toFixed(2) }; persist(); render();
+});
+window.addEventListener('mousemove', e => {
+  if (!panning) return;
+  state.view.x = panning.vx + (e.clientX - panning.x) * devicePixelRatio;
+  state.view.y = panning.vy + (e.clientY - panning.y) * devicePixelRatio; render();
+});
+window.addEventListener('mouseup', () => { panning = null; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault(); if (!frame()) return;
+  const p = toImage(e), factor = Math.exp(-e.deltaY * 0.0015);
+  const scale = Math.min(20, Math.max(0.1, state.view.scale * factor));
+  state.view.x = p.cx - p.x * scale; state.view.y = p.cy - p.y * scale; state.view.scale = scale; render();
+}, { passive: false });
+
+function hide() { const n = nextLandmark(); if (n) { frameMarks()[n] = null; persist(); render(); } }
+function undo() { const m = frameMarks(), done = landmarks().filter(n => n in m); if (done.length) { delete m[done.at(-1)]; persist(); render(); } }
+function go(step) { if (!state.frames.length) return; state.index = Math.max(0, Math.min(state.frames.length - 1, state.index + step)); render(); }
+$('hide').onclick = hide; $('undo').onclick = undo; $('prev').onclick = () => go(-1); $('next').onclick = () => go(1);
+$('side').onchange = render; $('rater').onchange = () => { restore(); render(); };
+$('release').onchange = persist; $('contact').onchange = persist;
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
+  if (e.key === 'n' || e.key === 'N') hide();
+  if (e.key === 'z' || e.key === 'Z') undo();
+  if (e.key === 'ArrowRight') go(1);
+  if (e.key === 'ArrowLeft') go(-1);
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = false; });
+window.addEventListener('resize', () => { fit(); render(); });
+
+$('save').onclick = () => {
+  if (!$('rater').value.trim()) { alert('Enter rater initials first.'); return; }
+  const annotations = [];
+  for (const [frameIndex, marks] of Object.entries(state.marks))
+    for (const [landmark, p] of Object.entries(marks))
+      annotations.push(p ? { frame_index: +frameIndex, landmark, x: p.x, y: p.y, visible: true }
+                         : { frame_index: +frameIndex, landmark, visible: false });
+  const toInt = v => v === '' ? null : parseInt(v, 10);
+  const payload = { schema_version: 1, rater: $('rater').value.trim(), throwing_side: $('side').value,
+    video_sha256: state.manifest?.video?.sha256 ?? null, fps: state.manifest?.video?.fps ?? null,
+    created_at: new Date().toISOString(), coordinate_system: 'raw_video_pixels_x_right_y_down',
+    events: { release: toInt($('release').value), first_contact: toInt($('contact').value) }, annotations };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `annotation_${payload.rater}_${(payload.video_sha256 || 'video').slice(0, 8)}.json`; a.click();
+};
+</script>
+</body>
+</html>

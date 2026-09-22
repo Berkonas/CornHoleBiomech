@@ -127,7 +127,53 @@ def parser() -> argparse.ArgumentParser:
     insights.add_argument("--project", required=True)
     insights.add_argument("--trial-id", required=True)
     insights.set_defaults(handler=handle_insights)
+
+    frames = commands.add_parser("annotation-frames", help="Export blinded frames for manual tracking validation")
+    frames.add_argument("video")
+    frames.add_argument("--output", required=True)
+    frames.add_argument("--analysis", help="Analysis folder; its automatic events seed the frame choice")
+    frames.add_argument("--count", type=int, default=10)
+    frames.add_argument("--seed", type=int, default=20260922)
+    frames.set_defaults(handler=handle_annotation_frames)
+
+    validate = commands.add_parser("validate-tracking", help="Compare automatic tracking with manual annotation")
+    validate.add_argument("--annotation", required=True)
+    validate.add_argument("--analysis", required=True)
+    validate.add_argument("--throwing-side", choices=("left", "right"), required=True)
+    validate.add_argument("--second-annotation", help="Second rater's file for inter-rater agreement")
+    validate.add_argument("--output")
+    validate.set_defaults(handler=handle_validate_tracking)
     return root
+
+
+def _automatic_events(analysis: Path) -> dict[str, int | None]:
+    """Automatic (not manually overridden) event candidates of an analysis folder."""
+    events = load_json(str(analysis / "results.json"), {}).get("events", {})
+    return {name: value.get("automatic_frame") for name, value in events.items()}
+
+
+def handle_annotation_frames(args: argparse.Namespace) -> dict[str, Any]:
+    from .validation import export_annotation_frames, select_validation_frames
+    events = _automatic_events(Path(args.analysis)) if args.analysis else None
+    frame_count = read_video_metadata(args.video).frame_count
+    chosen = select_validation_frames(frame_count, events, args.count, args.seed)
+    return export_annotation_frames(args.video, chosen, args.output)
+
+
+def handle_validate_tracking(args: argparse.Namespace) -> dict[str, Any]:
+    from .serialization import write_json
+    from .validation import inter_rater_report, validation_report
+    analysis = Path(args.analysis)
+    arm_length = load_json(str(analysis / "normalized.json"), {}).get("arm_length_pixels")
+    bag_csv = analysis / "bag_keypoints.csv"
+    result = validation_report(args.annotation, analysis / "keypoints.csv", args.throwing_side, arm_length,
+                               bag_csv if bag_csv.exists() else None, _automatic_events(analysis))
+    if args.second_annotation:
+        result["inter_rater"] = inter_rater_report(args.annotation, args.second_annotation,
+                                                   args.throwing_side, arm_length)
+    if args.output:
+        write_json(args.output, result)
+    return result
 
 
 def handle_insights(args):

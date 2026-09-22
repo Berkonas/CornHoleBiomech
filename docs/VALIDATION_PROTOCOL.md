@@ -27,6 +27,19 @@ Select frames across backswing, forward swing, visible release, and follow-throu
 
 Report image-space landmark error, corrected-frame proportion, missingness, and intra/inter-rater differences. Stratify by landmark and movement phase. Pose confidence should be evaluated as a ranking/gating signal, not assumed to be calibrated distance uncertainty.
 
+### How to run it
+
+1. Analyze the clip in the app or with `cornhole-biomech analyze`.
+2. Export blinded frames. Event frames are chosen first, with release ±2 frames, then evenly spread frames up to the count:
+   `cornhole-biomech annotation-frames VIDEO --analysis ANALYSIS_DIR --output FRAMES_DIR --count 12`
+   The frame choice is deterministic, so a second rater gets the same frames.
+3. Each rater opens `tools/annotator.html` in a browser, loads every PNG plus `annotation_manifest.json`, and marks the throwing shoulder, elbow and wrist, the other shoulder, both hips and the bag, using "not visible" where needed. They then download the JSON.
+   Release and first-contact frames are entered as video frame numbers. Step through the original video to find them before looking at any automatic event.
+4. Compute agreement:
+   `cornhole-biomech validate-tracking --annotation RATER_A.json --second-annotation RATER_B.json --analysis ANALYSIS_DIR --throwing-side right --output report.json`
+
+The report gives, per landmark, mean/median/RMSE/95th-percentile error in pixels and arm lengths, bias, and detection-failure rate. It also gives projected elbow-angle error (raw and filtered points), release-frame error, and rater-versus-rater agreement. Rater disagreement is the floor below which automatic error cannot be demonstrated.
+
 ## 5. Kinematic validity audit
 
 Compare projected angles against a defensible criterion measured in the same image plane (manual digitization or validated motion capture projected into the camera plane). Use paired traces, mean absolute error, RMSE, bias, limits-of-agreement plots, and phase-specific error. Do not compare a 2D projection directly with an unmatched 3D anatomical angle and call the difference model error.
