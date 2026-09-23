@@ -40,8 +40,10 @@
   <ol id="list"></ol>
   <div class="row"><button id="hide">Not visible (N)</button><button id="undo">Undo (Z)</button></div>
   <div class="row"><button id="prev">◀ Frame</button><button id="next">Frame ▶</button></div>
-  <label for="release">Release frame (first frame bag clearly out of hand)</label>
+  <label for="release">Release frame: first frame where the bag has clearly separated from the hand and is in independent flight</label>
   <input id="release" type="number" min="0">
+  <label>If unsure, the earliest and latest frames release could be (optional)</label>
+  <div class="row"><input id="releaseEarly" type="number" min="0" placeholder="earliest" style="width:48%"><input id="releaseLate" type="number" min="0" placeholder="latest" style="width:48%"></div>
   <label for="contact">First-contact frame (bag first touches board/ground)</label>
   <input id="contact" type="number" min="0">
   <div class="row"><button class="primary" id="save">Download annotation JSON</button></div>
@@ -60,12 +62,12 @@ function landmarks() {
 }
 function storageKey() { return `annotator:${state.manifest?.video?.sha256 || 'unknown'}:${$('rater').value}`; }
 function persist() {
-  try { localStorage.setItem(storageKey(), JSON.stringify({ marks: state.marks, release: $('release').value, contact: $('contact').value })); } catch (e) {}
+  try { localStorage.setItem(storageKey(), JSON.stringify({ marks: state.marks, release: $('release').value, contact: $('contact').value, releaseEarly: $('releaseEarly').value, releaseLate: $('releaseLate').value })); } catch (e) {}
 }
 function restore() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null');
-    if (saved) { state.marks = saved.marks || {}; $('release').value = saved.release || ''; $('contact').value = saved.contact || ''; }
+    if (saved) { state.marks = saved.marks || {}; $('release').value = saved.release || ''; $('contact').value = saved.contact || ''; $('releaseEarly').value = saved.releaseEarly || ''; $('releaseLate').value = saved.releaseLate || ''; }
   } catch (e) {}
 }
 function frame() { return state.frames[state.index]; }
@@ -74,7 +76,7 @@ function nextLandmark() { return landmarks().find(name => !(name in frameMarks()
 
 $('files').addEventListener('change', async event => {
   const files = [...event.target.files];
-  const manifestFile = files.find(f => f.name.endsWith('.json'));
+  const manifestFile = files.find(f => f.name === 'annotation_manifest.json') || files.find(f => f.name.endsWith('manifest.json'));
   state.manifest = manifestFile ? JSON.parse(await manifestFile.text()) : null;
   const pngs = files.filter(f => f.name.endsWith('.png')).sort((a, b) => a.name.localeCompare(b.name));
   state.frames = await Promise.all(pngs.map(file => new Promise(resolve => {
@@ -147,7 +149,7 @@ function undo() { const m = frameMarks(), done = landmarks().filter(n => n in m)
 function go(step) { if (!state.frames.length) return; state.index = Math.max(0, Math.min(state.frames.length - 1, state.index + step)); render(); }
 $('hide').onclick = hide; $('undo').onclick = undo; $('prev').onclick = () => go(-1); $('next').onclick = () => go(1);
 $('side').onchange = render; $('rater').onchange = () => { restore(); render(); };
-$('release').onchange = persist; $('contact').onchange = persist;
+$('release').onchange = persist; $('contact').onchange = persist; $('releaseEarly').onchange = persist; $('releaseLate').onchange = persist;
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
@@ -170,7 +172,8 @@ $('save').onclick = () => {
   const payload = { schema_version: 1, rater: $('rater').value.trim(), throwing_side: $('side').value,
     video_sha256: state.manifest?.video?.sha256 ?? null, fps: state.manifest?.video?.fps ?? null,
     created_at: new Date().toISOString(), coordinate_system: 'raw_video_pixels_x_right_y_down',
-    events: { release: toInt($('release').value), first_contact: toInt($('contact').value) }, annotations };
+    events: { release: toInt($('release').value), first_contact: toInt($('contact').value) },
+    release_window: { earliest: toInt($('releaseEarly').value), latest: toInt($('releaseLate').value) }, annotations };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `annotation_${payload.rater}_${(payload.video_sha256 || 'video').slice(0, 8)}.json`; a.click();

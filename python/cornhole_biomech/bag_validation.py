@@ -34,12 +34,17 @@ import numpy as np
 
 from .validation import _stats, annotation_points, event_errors
 
-PHASES = ("in_hand", "release", "early_flight", "apex", "descent", "near_board", "landing")
+PHASES = ("in_hand", "release", "early_flight", "apex", "descent", "near_board", "landing", "final_rest",
+          "weak_detection")
 
 
 def bag_phase_frames(release: int, contact: int | None, last_tracked: int, apex: int | None,
-                     fps: float, frame_count: int) -> dict[str, list[int]]:
-    """Candidate frames per flight phase from an automatic flight (all clipped to the clip)."""
+                     fps: float, frame_count: int, weak_frames: list[int] | None = None) -> dict[str, list[int]]:
+    """Candidate frames per flight phase from an automatic flight (all clipped to the clip).
+
+    `weak_frames` are flight frames where the tracker was least sure (no mask, re-acquired,
+    or rejected by the flight filter); they are sampled on purpose.
+    """
     end = contact if contact is not None else last_tracked
     step = max(1, int(round(0.05 * fps)))
     if apex is None or not release < apex < end:
@@ -52,6 +57,10 @@ def bag_phase_frames(release: int, contact: int | None, last_tracked: int, apex:
         "descent": range(apex + 2 * step, max(apex + 2 * step + 1, end - 3 * step)),
         "near_board": range(end - 3 * step, end - 1),
         "landing": range(end, end + 4) if contact is not None else range(0),
+        # Where the bag ends up: the last quarter-second of the clip, at least 0.5 s after contact.
+        "final_rest": range(max(end + int(0.5 * fps), frame_count - int(0.25 * fps)), frame_count)
+        if contact is not None else range(0),
+        "weak_detection": sorted(set(weak_frames or [])),
     }
     return {name: [f for f in r if 0 <= f < frame_count] for name, r in ranges.items()}
 
@@ -95,7 +104,7 @@ def tracker_report(reference: dict[int, tuple[float, float]], hidden: set[int], 
                    track: dict[int, tuple[float, float] | None], flight_span: tuple[int, int] | None,
                    success_radius_px: float, pixels_per_meter: float | None = None) -> dict[str, Any]:
     """Accuracy of one tracker's per-frame bag centres against one rater's marks."""
-    errors, dx, dy, by_phase = [], [], [], {}
+    errors, dx, dy, by_phase, per_frame = [], [], [], {}, []
     missing = 0
     for f, (rx, ry) in sorted(reference.items()):
         est = track.get(f)
@@ -106,6 +115,7 @@ def tracker_report(reference: dict[int, tuple[float, float]], hidden: set[int], 
         e = float(np.hypot(ex, ey))
         errors.append(e); dx.append(ex); dy.append(ey)
         by_phase.setdefault(phase_of.get(f, "unassigned"), []).append(e)
+        per_frame.append({"frame": f, "phase": phase_of.get(f, "unassigned"), "error_px": e})
     stats = _stats(errors)
     n_ref = len(reference)
     within = sum(1 for e in errors if e <= success_radius_px)
@@ -126,6 +136,7 @@ def tracker_report(reference: dict[int, tuple[float, float]], hidden: set[int], 
                      for name, v in by_phase.items()},
         # Estimates on frames the rater marked "not visible" (e.g. occluded by the hand).
         "estimates_on_not_visible_frames": sum(1 for f in hidden if track.get(f) is not None),
+        "errors": per_frame,
     }
     if flight_span:
         first, last = flight_span
@@ -199,6 +210,13 @@ def bag_benchmark(annotation_path: str | Path, analysis: str | Path, plan_path: 
     if fps and ref_events:
         report["events"] = event_errors(ref_events, {"release": meta.get("release_frame"),
                                                      "first_contact": meta.get("first_contact_frame")}, fps)
+        window = annotation.get("release_window") or {}
+        release_row = report["events"].get("release")
+        if release_row and release_row.get("status") == "compared" and window.get("earliest") is not None \
+                and window.get("latest") is not None:
+            # An ambiguous release: the rater's plausible range, not a single frame, is the criterion.
+            release_row["rater_window"] = [window["earliest"], window["latest"]]
+            release_row["within_rater_window"] = window["earliest"] <= release_row["estimate_frame"] <= window["latest"]
         contact_ref = ref_events.get("first_contact")
         near = [f for f in reference if contact_ref is not None and abs(f - contact_ref) <= 2]
         if near:
@@ -212,28 +230,54 @@ def bag_benchmark(annotation_path: str | Path, analysis: str | Path, plan_path: 
     return report
 
 
-def _weighted(pairs) -> float | None:
-    usable = [(v, r["n_reference_visible"]) for v, r in pairs if v is not None]
-    total = sum(n for _, n in usable)
-    return sum(v * n for v, n in usable) / total if total else None
-
-
-def pooled(reports: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pool several clips' reports: frame-weighted MAE/RMSE and summed counts per tracker."""
+def pooled(reports: list[dict[str, Any]], key: str = "trackers") -> dict[str, Any]:
+    """Pool clips per tracker from every individual frame error (exact median, p95 and worst case)."""
     out: dict[str, Any] = {}
-    for name in sorted({t for r in reports for t in r["trackers"]}):
-        rows = [r["trackers"][name] for r in reports if name in r["trackers"] and r["trackers"][name]["n_compared"]]
-        n = sum(r["n_compared"] for r in rows)
-        if not n:
+    for name in sorted({t for r in reports for t in r.get(key, {})}):
+        rows = [r[key][name] for r in reports if name in r.get(key, {})]
+        errors = [e for row in rows for e in row["errors"]]
+        if not errors:
             continue
+        values = [e["error_px"] for e in errors]
+        stats = _stats(values)
+        visible = sum(r["n_reference_visible"] for r in rows)
+        radius_ok = sum(1 for row in rows for e in row["errors"] if e["error_px"] <= row["success_radius_px"])
+        in_flight = [(row["success_rate_in_flight"], row) for row in rows if row.get("success_rate_in_flight") is not None]
+        phases: dict[str, list[float]] = {}
+        for e in errors:
+            phases.setdefault(e["phase"], []).append(e["error_px"])
         out[name] = {
-            "clips": len(rows), "n_compared": n,
-            "mae_px": sum(r["mae_px"] * r["n_compared"] for r in rows) / n,
-            "rmse_px": float(np.sqrt(sum(r["rmse_px"] ** 2 * r["n_compared"] for r in rows) / n)),
-            "success_rate": sum(r["success_rate"] * r["n_reference_visible"] for r in rows)
-            / max(1, sum(r["n_reference_visible"] for r in rows)),
-            "success_rate_in_flight": _weighted([(r.get("success_rate_in_flight"), r) for r in rows]),
+            "clips": len(rows), "n_compared": len(values), "n_reference_visible": visible,
+            "mean_px": stats["mean"], "median_px": stats["median"], "rmse_px": stats["rmse"],
+            "p95_px": stats["p95"], "worst_px": stats["max"],
+            "success_rate": radius_ok / visible if visible else None,
+            "success_rate_in_flight": (sum(v * r["n_reference_visible"] for v, r in in_flight)
+                                       / sum(r["n_reference_visible"] for _, r in in_flight)) if in_flight else None,
             "lost_track_events": sum(r.get("lost_track_events", 0) for r in rows),
             "longest_missing_frames": max((r.get("longest_missing_frames", 0) for r in rows), default=0),
+            "by_phase": {p: {"n": len(v), **{k: val for k, val in _stats(v).items()}} for p, v in sorted(phases.items())},
         }
     return out
+
+
+def inter_rater(first_path: str | Path, second_path: str | Path, plan_path: str | Path | None = None,
+                success_radius_px: float = 10.0) -> dict[str, Any]:
+    """Rater B's marks scored against rater A's: the human measurement floor for the same frames."""
+    a = json.loads(Path(first_path).read_text())
+    b = json.loads(Path(second_path).read_text())
+    pa, ha = annotation_points(a)
+    pb, _ = annotation_points(b)
+    ref = {f: p for (f, n), p in pa.items() if n == "bag"}
+    other = {f: p for (f, n), p in pb.items() if n == "bag"}
+    plan = json.loads(Path(plan_path).read_text()) if plan_path else {"frames": []}
+    phase_of = {int(r["frame"]): r["phase"] for r in plan.get("frames", [])}
+    shared = {f: p for f, p in ref.items() if f in other}
+    report: dict[str, Any] = {"raters": [a.get("rater"), b.get("rater")],
+                              "raters_block": {"rater_vs_rater": tracker_report(
+                                  shared, set(), phase_of, other, None, success_radius_px)}}
+    ea, eb = a.get("events") or {}, b.get("events") or {}
+    report["event_differences_frames"] = {k: (eb[k] - ea[k]) if ea.get(k) is not None and eb.get(k) is not None else None
+                                          for k in ("release", "first_contact")}
+    # Frames one rater called visible and the other did not: how ambiguous visibility itself is.
+    report["visibility_disagreements"] = len(set(ref) ^ set(other))
+    return report

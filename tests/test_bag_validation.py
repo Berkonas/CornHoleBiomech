@@ -7,6 +7,7 @@ import pytest
 from cornhole_biomech.bag_validation import (
     bag_benchmark,
     bag_phase_frames,
+    inter_rater,
     pooled,
     select_bag_frames,
     tracker_report,
@@ -14,7 +15,10 @@ from cornhole_biomech.bag_validation import (
 
 
 def test_phase_frames_cover_flight_and_selection_is_deterministic():
-    phases = bag_phase_frames(release=100, contact=160, last_tracked=160, apex=128, fps=60, frame_count=400)
+    phases = bag_phase_frames(release=100, contact=160, last_tracked=160, apex=128, fps=60, frame_count=400,
+                              weak_frames=[140, 141])
+    assert phases["weak_detection"] == [140, 141]
+    assert phases["final_rest"] and min(phases["final_rest"]) >= 190 and max(phases["final_rest"]) == 399
     assert phases["release"] == [99, 100, 101]
     assert all(f < 100 for f in phases["in_hand"])
     assert all(f >= 160 for f in phases["landing"])
@@ -22,7 +26,8 @@ def test_phase_frames_cover_flight_and_selection_is_deterministic():
     a, b = select_bag_frames(phases, 2), select_bag_frames(phases, 2)
     forced = select_bag_frames(phases, 1, always={100: "release", 160: "landing"})
     assert {100, 160} <= {r["frame"] for r in forced}
-    assert a == b and {r["phase"] for r in a} == set(phases)
+    assert a == b and {r["phase"] for r in a} <= set(phases)
+    assert {"release", "apex", "landing", "final_rest"} <= {r["phase"] for r in a}
     assert len({r["frame"] for r in a}) == len(a)
 
 
@@ -61,4 +66,26 @@ def test_bag_benchmark_reads_analysis_and_annotation(tmp_path):
     assert report["landing_position_error_px"]["detection"] == pytest.approx(6.0)
     assert report["processing_fps"] == pytest.approx(200.0)
     pool = pooled([report, report])
-    assert pool["detection"]["n_compared"] == 6 and pool["detection"]["mae_px"] == pytest.approx(6.0)
+    assert pool["detection"]["n_compared"] == 6 and pool["detection"]["mean_px"] == pytest.approx(6.0)
+    assert pool["detection"]["worst_px"] == pytest.approx(6.0) and pool["mask"]["p95_px"] == pytest.approx(0.0)
+
+
+def test_release_window_and_inter_rater(tmp_path):
+    analysis = tmp_path / "analysis"; analysis.mkdir()
+    points = [{"frame": f, "x": 10.0 * f, "y": 50.0, "source": "mask", "detection_x": 10.0 * f, "detection_y": 50.0}
+              for f in range(20, 40)]
+    (analysis / "auto_flight.json").write_text(json.dumps({"points": points, "release_frame": 20,
+                                                           "first_contact_frame": 39, "fps": 60.0}))
+    def rater(name, dx, release):
+        path = tmp_path / f"annotation_{name}.json"
+        marks = [{"frame_index": f, "landmark": "bag", "x": 10.0 * f + dx, "y": 50.0, "visible": True} for f in (22, 30)]
+        path.write_text(json.dumps({"rater": name, "annotations": marks, "events": {"release": release},
+                                    "release_window": {"earliest": 19, "latest": 21}}))
+        return path
+    a, b = rater("A", 0.0, 21), rater("B", 3.0, 20)
+    report = bag_benchmark(a, analysis)
+    assert report["events"]["release"]["signed_frames"] == -1
+    assert report["events"]["release"]["within_rater_window"] is True
+    floor = inter_rater(a, b)
+    assert floor["raters_block"]["rater_vs_rater"]["mae_px"] == pytest.approx(3.0)
+    assert floor["event_differences_frames"]["release"] == -1

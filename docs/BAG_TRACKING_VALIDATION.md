@@ -3,13 +3,13 @@
 This turns "the path looks right" into measured error. Code: `python/cornhole_biomech/bag_validation.py`.
 Tests: `tests/test_bag_validation.py`.
 
-## 1. Export frames (≈16 per clip)
+## 1. Export frames (≈19 per clip)
 
 Analyse the clips first, so each has an `auto_flight.json`. Then:
 
 ```
 PYTHONPATH=python .venv/bin/python -m cornhole_biomech bag-annotation-frames \
-    --library "~/Documents/Cornhole Pilot Library" --output ~/Desktop/bag-frames
+    --library "~/Documents/Cornhole Pilot Library" --output ~/Desktop/"Cornhole Bag Validation"
 ```
 
 Frames come from seven phases of each automatic flight, two per phase:
@@ -21,6 +21,13 @@ Frames come from seven phases of each automatic flight, two per phase:
 - **descent**
 - **near_board**
 - **landing:** first contact to +3 frames. The automatic first-contact frame is always included.
+- **final_rest:** last 0.25 s of the clip, at least 0.5 s after contact (where the bag ends up).
+- **weak_detection:** flight frames where the tracker was least sure: no mask found, re-acquired in a gap, or
+  rejected by the flight filter.
+
+The pilot set (26 clips, 505 frames, 1.3 GB) is already exported to `~/Desktop/Cornhole Bag Validation`, with a
+`README.txt` listing each clip's folder and the 5 clips for the second rater (clips 1, 8, 10, 18, 22: all three
+players, easy and hard throws).
 
 The choice is deterministic (fixed seed), so a second rater gets the same frames. PNGs are full resolution with no
 overlays. Each clip folder also has `bag_validation_plan.json` with the phase labels. **Raters should not open it.**
@@ -32,9 +39,12 @@ Full-resolution PNGs take ~40 MB per clip.
 2. Load all PNGs of one clip plus its `annotation_manifest.json`. The manifest puts the tool in bag-only mode.
 3. Click the **centre of the bag's visible outline**, not the brightest spot or the leading edge. If the bag is hidden
    by the hand or out of frame, press **N** (not visible).
-4. Step through the original video to find the **release** frame (first frame the bag is clearly out of the hand) and
-   the **first-contact** frame (bag first touches board or ground). Type both in. Do this before looking at any
-   automatic event.
+4. Step through the original video to find the **release** frame and the **first-contact** frame (bag first touches
+   board or ground), and type both in. Do this before looking at any automatic event.
+
+   **Definition of release:** the first frame where the bag has clearly separated from the hand and is in
+   independent flight. When that is ambiguous (blur, hand overlapping the bag), also enter the earliest and latest
+   plausible frames. The automatic release is then also judged against that window, not only against one frame.
 5. Download the JSON and save it **into that clip's folder** (the file name starts with `annotation_`).
 
 A second rater on at least 5 clips gives the rater-vs-rater floor: automatic error below that floor cannot be
@@ -44,8 +54,25 @@ demonstrated.
 
 ```
 PYTHONPATH=python .venv/bin/python -m cornhole_biomech bag-benchmark \
-    --frames ~/Desktop/bag-frames --output ~/Desktop/bag-benchmark.json [--rater AB]
+    --frames ~/Desktop/"Cornhole Bag Validation" --output ~/Desktop/bag-benchmark.json [--rater AB]
 ```
+
+The alphabetically first rater (or `--rater`) is the reference. Every other rater on the same clip is scored
+against the reference exactly like a tracker: this is the **human floor**. The output puts them side by side:
+
+- `trackers`: pooled over all clips from every individual frame error: mean, median, RMSE, 95th percentile,
+  worst case, success rates, lost-track events, longest gap, and the same statistics per phase.
+- `human_floor`: the same statistics for rater vs rater, plus release/contact frame differences between raters and
+  the number of frames where the raters disagreed on visibility.
+- `release_timing`, `first_contact_timing`: automatic − reference frames: mean signed, median and max absolute,
+  number within ±1 frame, and number inside the rater's plausible window.
+- `landing_position_error_px` per tracker, and `per_clip` detail.
+
+The numbers are never combined into one accuracy score.
+
+**Reading rule.** Tracker error can only be demonstrated down to the human floor. If raters disagree by ~3 px and the
+tracker is 2 px from the reference, the data cannot say the tracker is accurate to 2 px, only that it is within human
+labelling uncertainty. A tracker is worth replacing only in a phase where its error is clearly *above* the floor.
 
 For each tracker output, it reports:
 

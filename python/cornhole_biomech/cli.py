@@ -215,9 +215,13 @@ def handle_bag_annotation_frames(args: argparse.Namespace) -> dict[str, Any]:
             continue
         results = load_json(str(auto_path.parent / "results.json"), {})
         apex = ((results.get("flight") or {}).get("model_check") or {}).get("apex_frame")
+        filtered_path = auto_path.parent / "bag_flight_filtered.json"
+        filtered = load_json(str(filtered_path), {}) if filtered_path.exists() else {}
+        weak = [p["frame"] for p in auto.get("points", []) if p.get("source", "mask") != "mask"]
+        weak += filtered.get("rejected_outlier_frames", [])
         phases = bag_phase_frames(int(auto["release_frame"]), auto.get("first_contact_frame"),
                                   int(auto.get("last_tracked_frame") or auto["release_frame"]), apex,
-                                  float(auto["fps"]), read_video_metadata(video).frame_count)
+                                  float(auto["fps"]), read_video_metadata(video).frame_count, weak)
         always = {int(auto["release_frame"]): "release"}
         if auto.get("first_contact_frame") is not None:
             always[int(auto["first_contact_frame"])] = "landing"
@@ -234,25 +238,58 @@ def handle_bag_annotation_frames(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_bag_benchmark(args: argparse.Namespace) -> dict[str, Any]:
-    from .bag_validation import bag_benchmark, pooled
+    """Tracker error vs the reference rater, next to rater-vs-rater disagreement on the same frames."""
+    import numpy as np
+    from .bag_validation import bag_benchmark, inter_rater, pooled
     from .serialization import write_json
-    reports = []
+    reports, floors = [], []
     for plan_path in sorted(Path(args.frames).expanduser().glob("*/bag_validation_plan.json")):
         plan = load_json(str(plan_path), {})
-        for annotation in sorted(plan_path.parent.glob("annotation_*.json")):
-            data = load_json(str(annotation), {})
-            if args.rater and data.get("rater") != args.rater:
-                continue
-            report = bag_benchmark(annotation, plan["analysis"], plan_path)
-            report["clip"] = plan_path.parent.name
-            reports.append(report)
+        files = {load_json(str(f), {}).get("rater"): f for f in sorted(plan_path.parent.glob("annotation_*.json"))}
+        if not files:
+            continue
+        reference_rater = args.rater if args.rater in files else sorted(files)[0]
+        report = bag_benchmark(files[reference_rater], plan["analysis"], plan_path)
+        report["clip"] = plan_path.parent.name
+        reports.append(report)
+        for rater, path in files.items():
+            if rater != reference_rater:
+                floor = inter_rater(files[reference_rater], path, plan_path, report["success_radius_px"])
+                floor["clip"] = plan_path.parent.name
+                floors.append(floor)
     if not reports:
         raise ValueError("No annotation_*.json files found next to a bag_validation_plan.json. "
                          "Save each rater's download into its clip folder first.")
-    result = {"schema_version": 1, "clips": len(reports), "pooled": pooled(reports), "per_clip": reports}
+    release = [r["events"]["release"] for r in reports if r.get("events", {}).get("release", {}).get("status") == "compared"]
+    contact = [r["events"]["first_contact"] for r in reports
+               if r.get("events", {}).get("first_contact", {}).get("status") == "compared"]
+
+    def timing(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        signed = np.array([r["signed_frames"] for r in rows], float)
+        if not signed.size:
+            return {"n": 0}
+        return {"n": int(signed.size), "mean_signed_frames": float(signed.mean()),
+                "median_abs_frames": float(np.median(np.abs(signed))), "max_abs_frames": float(np.abs(signed).max()),
+                "within_1_frame": int(np.sum(np.abs(signed) <= 1)),
+                "within_rater_window": sum(1 for r in rows if r.get("within_rater_window")),
+                "with_rater_window": sum(1 for r in rows if "within_rater_window" in r)}
+    result = {
+        "schema_version": 1, "clips": len(reports),
+        "trackers": pooled(reports),
+        "human_floor": pooled(floors, key="raters_block") if floors else None,
+        "human_floor_clips": len(floors),
+        "human_event_differences_frames": [f["event_differences_frames"] for f in floors],
+        "release_timing": timing(release), "first_contact_timing": timing(contact),
+        "landing_position_error_px": {name: [r["landing_position_error_px"].get(name) for r in reports
+                                             if r.get("landing_position_error_px")]
+                                      for name in ("detection", "mask", "filtered", "effective")},
+        "reading_note": ("Tracker error is only demonstrable down to the human floor: where tracker error is at or "
+                         "below rater-vs-rater disagreement, the data cannot say which is closer to the true centre."),
+        "per_clip": reports, "inter_rater_per_clip": floors,
+    }
     if args.output:
         write_json(args.output, result)
-    return result
+    return {k: v for k, v in result.items() if k not in ("per_clip", "inter_rater_per_clip")}
 
 
 def handle_validate_tracking(args: argparse.Namespace) -> dict[str, Any]:
