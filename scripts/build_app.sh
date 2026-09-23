@@ -17,6 +17,7 @@ trap 'rm -rf "$STAGING_DIR"' EXIT
 APP_DIR="$STAGING_DIR/Cornhole Biomechanics Lab.app"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$SWIFT_PACKAGE/.build/release/CornholeBiomechanics" "$APP_DIR/Contents/MacOS/CornholeBiomechanics"
+cp "$SWIFT_PACKAGE/.build/release/SceneVision" "$APP_DIR/Contents/MacOS/scene-vision"
 cp "$SWIFT_PACKAGE/AppInfo.plist" "$APP_DIR/Contents/Info.plist"
 cp "$PROJECT_DIR/app/Resources/branding/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 mkdir -p "$APP_DIR/Contents/Resources/python/cornhole_biomech"

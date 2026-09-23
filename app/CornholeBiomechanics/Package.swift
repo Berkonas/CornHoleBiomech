@@ -5,12 +5,17 @@ let package = Package(
     name: "CornholeBiomechanics",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "CornholeBiomechanics", targets: ["CornholeBiomechanics"])
+        .executable(name: "CornholeBiomechanics", targets: ["CornholeBiomechanics"]),
+        .executable(name: "SceneVision", targets: ["SceneVision"]),
     ],
     targets: [
         .executableTarget(
             name: "CornholeBiomechanics",
             path: "Sources/CornholeBiomechanics"
+        ),
+        .executableTarget(
+            name: "SceneVision",
+            path: "Sources/SceneVision"
         ),
         .testTarget(
             name: "CornholeBiomechanicsTests",

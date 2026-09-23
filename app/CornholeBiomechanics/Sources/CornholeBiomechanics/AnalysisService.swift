@@ -291,6 +291,8 @@ final class AnalysisService: ObservableObject {
         environment["PYTHONPATH"] = engine.path
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         if let model = Bundle.main.resourceURL?.appendingPathComponent("models/pose_landmarker_heavy.task"), manager.fileExists(atPath: model.path) { environment["CORNHOLE_MEDIAPIPE_MODEL"] = model.path }
+        if let helper = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("scene-vision"),
+           manager.fileExists(atPath: helper.path) { environment["CORNHOLE_SCENE_VISION"] = helper.path }
         environment["PYTHONUNBUFFERED"] = "1"
         let plottingCache = manager.temporaryDirectory.appendingPathComponent("cornhole-matplotlib", isDirectory: true)
         try manager.createDirectory(at: plottingCache, withIntermediateDirectories: true)

@@ -65,6 +65,7 @@ class Candidate:
     x: float        # full-resolution pixels, x right
     y: float        # full-resolution pixels, y down
     area: float
+    in_person: bool = False   # inside an Apple Vision person mask (athlete or bystander)
 
 
 # ---------------------------------------------------------------- detection
