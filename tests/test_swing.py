@@ -37,8 +37,8 @@ def test_swing_metrics_recover_known_profile():
     assert m["swing_release_arm_angle_deg"] == pytest.approx(40, abs=2.5)
     assert m["swing_peak_angular_velocity_deg_s"] == pytest.approx(np.pi / 2 * 130 / 0.5, rel=0.06)
     assert m["swing_forward_duration_s"] == pytest.approx((release - 20) / FPS)
-    # The arm is still before frame 20 in this profile, so the backswing starts where motion begins.
-    assert m["swing_backswing_start_frame"] <= 20
+    # This profile has no backward swing (the arm is simply held back), so no backswing start exists.
+    assert m.get("swing_backswing_start_frame") is None and m["swing_tempo_ratio"] is None
     # Hand speed = omega * radius, in arm lengths per second.
     omega = m["swing_angular_velocity_at_release_deg_s"]
     assert m["swing_hand_speed_at_release_arm_lengths_s"] == pytest.approx(np.radians(omega), rel=0.05)
@@ -68,3 +68,21 @@ def test_missing_events_leave_metrics_unavailable():
     shoulder, wrist, _ = pendulum_arm()
     m = swing_metrics(shoulder, wrist, FPS, "left_to_right", events={}, arm_length_px=100.0)
     assert m["swing_release_arm_angle_deg"] is None and m["swing_tempo_ratio"] is None
+
+
+def test_backswing_start_is_rest_before_the_backward_swing_not_the_reversal():
+    """Arm at rest (0°) → back to −60° over 0.6 s → forward to +70° over 0.4 s. Tempo = 1.5."""
+    frames = 150
+    phi = np.zeros(frames)
+    back = np.linspace(0, 1, 36)
+    phi[30:66] = -60 * (1 - np.cos(np.pi * back)) / 2
+    fwd = np.linspace(0, 1, 25)
+    phi[65:90] = -60 + 130 * (1 - np.cos(np.pi * fwd)) / 2
+    phi[90:] = 70
+    rad = np.radians(phi)
+    shoulder = np.tile([500.0, 300.0], (frames, 1))
+    wrist = np.column_stack((500 + 100 * np.sin(rad), 300 + 100 * np.cos(rad)))
+    m = swing_metrics(shoulder, wrist, FPS, "left_to_right",
+                      events={"peak_backswing": 65, "release": 89}, arm_length_px=100.0)
+    assert 28 <= m["swing_backswing_start_frame"] <= 38     # before the backward swing, not frame 64
+    assert m["swing_tempo_ratio"] == pytest.approx((65 - 33) / 24, rel=0.2)

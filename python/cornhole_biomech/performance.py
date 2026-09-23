@@ -69,6 +69,10 @@ VARIABLES: tuple[Variable, ...] = (
              "simulated 4 px landmark noise at pilot framing; replace with validation"),
     Variable("trunk_inclination_deg_at_release", "Trunk lean at release", "°", "more upright", "more forward", 0,
              False, 5.0, "simulated landmark noise on the hip–shoulder segment; replace with validation"),
+    Variable("wrist_speed_at_release_arm_lengths_s", "Wrist speed at release", "arm lengths/s", "slower", "faster", 1,
+             True, 0.3, "~4 px wrist noise differentiated at 60 fps after the 6 Hz filter"),
+    Variable("wrist_peak_speed_time_rel_release_ms", "Peak wrist speed timing", "ms", "earlier", "later", 0,
+             False, 35.0, "±1 frame on the peak and ±1 frame on release at 60 fps (≈ 2 × 16.7 ms)"),
 )
 # Same quantity in two unit systems: prefer meters when most throws have them.
 ALTERNATIVES = (("bag_release_speed_m_s", "bag_release_speed_arm_lengths_s"),

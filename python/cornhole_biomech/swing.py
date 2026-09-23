@@ -49,17 +49,22 @@ def arm_angle_deg(shoulder: np.ndarray, wrist: np.ndarray, target_direction: str
 
 
 def _backswing_start(omega: np.ndarray, back: int, fps: float, window_s: float = 2.0) -> int | None:
-    """Last frame before the backswing peak where the arm was nearly at rest.
+    """Last frame before the backswing where the arm was nearly at rest.
 
-    Uses the arm's own angular speed (< 15 % of the backswing's peak), so setup
-    fidgeting or walking earlier in the clip does not inflate the backswing time.
+    The arm also stops momentarily at the TOP of the backswing when it reverses,
+    so the search is for rest before the fastest backward movement: find the
+    frame of peak backward angular speed, then the last frame before it with
+    |ω| < 15 % of that peak. (Searching back from the top itself found the
+    reversal and gave 0.02 s backswings.) Setup fidgeting earlier in the clip
+    does not count as backswing.
     """
     lo = max(0, back - int(window_s * fps))
     segment = np.abs(omega[lo:back])
     if not np.isfinite(segment).any():
         return None
-    peak = np.nanmax(segment)
-    quiet = np.flatnonzero(np.nan_to_num(segment, nan=np.inf) < 0.15 * peak)
+    fastest = int(np.nanargmax(segment))
+    peak = segment[fastest]
+    quiet = np.flatnonzero(np.nan_to_num(segment[:fastest], nan=np.inf) < 0.15 * peak)
     return int(lo + quiet[-1]) if quiet.size else None
 
 

@@ -239,6 +239,22 @@ def generate_insights(project_path, trial_id, export_report=True):
     performance["sports"]=sports_stats([o.get('score_category') for o in outcomes.values()])
     performance["zones"]=zone_report(rows,zone_settings)
     performance["summary"]["feedback"]["physics"]=physics_sentence(performance["zones"],rows)
+    from .coaching import athlete_dashboard
+    grade_rows,coach_rows=[],[]
+    for d in eligible_dirs:
+        r=read(d/'results.json',{})
+        grade_rows.append({k:v.get('grade') for k,v in (r.get('quality',{}).get('grades') or {}).items() if isinstance(v,dict)})
+        coach_rows.append(r.get('coach_metrics') or {})
+    dashboard=athlete_dashboard(rows,performance["summary"],performance["sports"],performance["first_contact"],
+                                performance["zones"],zone_settings,trial_labels,grade_rows,coach_rows)
+    athlete_record=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
+    dashboard.update(athlete_id=trial['athleteID'],athlete=athlete_record.get('participantCode','Unknown athlete'),
+                     trial_labels={t['id']:trial_labels[t['id']] for t in project['trials'] if t['athleteID']==trial['athleteID']},
+                     trial_analysis_paths={t['id']:t.get('analysisRelativePath') for t in project['trials']
+                                           if t['athleteID']==trial['athleteID']})
+    (root/'dashboards').mkdir(exist_ok=True)
+    write_json(root/'dashboards'/f"{trial['athleteID']}.json",dashboard)
+    performance["dashboard_path"]=f"dashboards/{trial['athleteID']}.json"
     # Level 1-3 coaching feedback leads; review reminders follow it.
     feedback=performance["summary"]["feedback"]
     payload_summary=' '.join([feedback['result'],feedback['why'],feedback['next']]+sentences[1:])

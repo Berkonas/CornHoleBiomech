@@ -1109,6 +1109,10 @@ def analyze_relationships(
             outcome = outcome_summary(parsed)
         row = {"trial_id": result["trial_id"], "score_category": outcome.get("score_category")}
         row.update(result.get("summaries", {}))
+        # Coach metrics carry per-throw reliability: an unreliable value is withheld (None)
+        # so it never enters the athlete's comparison.
+        for key, metric in (result.get("coach_metrics") or {}).items():
+            row[key] = metric.get("value")
         comparison = comparison_by_trial.get(result["trial_id"], {})
         row["wrist_reference_deviation_arm_lengths"] = comparison.get("raw_metrics", {}).get(
             "wrist_path_rmse_arm_lengths"

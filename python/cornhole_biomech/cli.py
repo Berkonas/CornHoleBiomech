@@ -127,6 +127,10 @@ def parser() -> argparse.ArgumentParser:
     insights.add_argument("--project", required=True)
     insights.add_argument("--trial-id", required=True)
     insights.set_defaults(handler=handle_insights)
+    dashboard = commands.add_parser("athlete-dashboard", help="Refresh one athlete's coaching dashboard")
+    dashboard.add_argument("--project", required=True)
+    dashboard.add_argument("--athlete-id", required=True)
+    dashboard.set_defaults(handler=handle_athlete_dashboard)
 
     frames = commands.add_parser("annotation-frames", help="Export blinded frames for manual tracking validation")
     frames.add_argument("video")
@@ -312,6 +316,19 @@ def handle_insights(args):
     from .insights import generate_insights
     generate_insights(args.project, args.trial_id)
     return {"trial_id": args.trial_id, "status": "ready"}
+
+
+def handle_athlete_dashboard(args: argparse.Namespace) -> dict[str, Any]:
+    """The dashboard is athlete-level; any analysed throw of the athlete regenerates it."""
+    from .insights import generate_insights
+    root = Path(args.project).expanduser().resolve()
+    project = load_json(str(root / "project.json"), {})
+    trials = [t for t in project.get("trials", []) if t["athleteID"] == args.athlete_id and t.get("analysisRelativePath")]
+    if not trials:
+        raise ValueError("Analyze at least one throw for this athlete first.")
+    latest = max(trials, key=lambda t: t.get("createdAt") or "")
+    generate_insights(root, latest["id"], export_report=False)
+    return {"athlete_id": args.athlete_id, "dashboard": str(root / "dashboards" / f"{args.athlete_id}.json")}
 
 
 def handle_probe(args: argparse.Namespace) -> dict[str, Any]:
