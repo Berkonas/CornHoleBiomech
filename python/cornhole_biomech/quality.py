@@ -79,3 +79,75 @@ def quality_summary(
         "warnings": warnings,
         "confidence_note": "Model confidence is not a calibrated physical position or angle error.",
     }
+
+
+# ---------------------------------------------------------------- per-trial grades
+# Provisional thresholds, stated so they can be defended or changed; replace with
+# values from the annotation study (docs/BAG_TRACKING_VALIDATION.md) when available.
+GRADE_RULES = {
+    "pose": "GOOD: required landmarks usable in ≥90% of frames and ≥90% of frames within ±50 ms of release. "
+            "WARNING: ≥70% and ≥60%. Otherwise POOR.",
+    "bag": "GOOD: bag found in ≥90% of flight frames, no gap longer than 3 frames, ≤10% of samples rejected as "
+           "outliers, measurement noise σ ≤ 2 px. WARNING: ≥70% coverage and no gap longer than 6 frames. "
+           "Otherwise POOR. No tracked flight is POOR.",
+    "calibration": "GOOD: an independent in-plane scale agrees with the flight's gravity scale within 10%. "
+                   "WARNING: a single scale source (gravity-only or measured-only). POOR: no physical scale "
+                   "(results stay in pixels / arm lengths).",
+    "release": "GOOD: release confirmed by a person, or found automatically with the first flight point within "
+               "0.5 arm lengths of the wrist, ≥6 launch-fit samples and launch-angle SE ≤ 3°. WARNING: automatic "
+               "release failing one of those. POOR: no confirmed release.",
+}
+
+
+def _grade(good: bool, warning: bool) -> str:
+    return "GOOD" if good else "WARNING" if warning else "POOR"
+
+
+def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None,
+                   gravity_scale: dict[str, Any] | None, measured_scale: bool,
+                   release_confirmed_by: str | None, release_wrist_distance_arm_lengths: float | None,
+                   launch_sample_count: int | None, launch_angle_se_deg: float | None) -> dict[str, Any]:
+    """GOOD / WARNING / POOR per measurement stage, each with the numbers that decided it."""
+    grades: dict[str, Any] = {"rules": GRADE_RULES}
+
+    usable = quality.get("usable_frame_percentage") or 0.0
+    release_vis = quality.get("release_visibility")
+    rv = 0.0 if release_vis is None else 100.0 * release_vis
+    grades["pose"] = {"grade": _grade(usable >= 90 and rv >= 90, usable >= 70 and rv >= 60),
+                      "usable_frame_percentage": usable, "release_window_visible_percentage": rv if release_vis is not None else None}
+
+    if not flight_filter or flight_filter.get("status") != "filtered":
+        grades["bag"] = {"grade": "POOR", "reason": "No tracked flight: insufficient tracking quality."}
+    else:
+        frames = flight_filter["last_frame"] - flight_filter["first_frame"] + 1
+        measured = len(flight_filter.get("measured_frames") or []) or (
+            flight_filter["measurement_count"] - len(flight_filter["rejected_outlier_frames"]))
+        coverage = measured / frames if frames else 0.0
+        outliers = len(flight_filter["rejected_outlier_frames"]) / max(1, flight_filter["measurement_count"])
+        gap, sigma = flight_filter["longest_gap_frames"], flight_filter["measurement_sigma_px"]
+        grades["bag"] = {"grade": _grade(coverage >= 0.9 and gap <= 3 and outliers <= 0.1 and sigma <= 2.0,
+                                         coverage >= 0.7 and gap <= 6),
+                         "flight_coverage": coverage, "longest_gap_frames": gap,
+                         "outlier_share": outliers, "measurement_sigma_px": sigma}
+
+    gravity_ok = bool(gravity_scale and gravity_scale.get("status") == "estimated")
+    ratio = (gravity_scale or {}).get("scale_ratio_to_reference")
+    grades["calibration"] = {
+        "grade": _grade(measured_scale and gravity_ok and ratio is not None and abs(ratio - 1) <= 0.10,
+                        measured_scale or gravity_ok),
+        "measured_scale": measured_scale, "gravity_scale": gravity_ok, "gravity_to_measured_ratio": ratio,
+        "note": "A gravity scale assumes the flight plane is square to the camera; it is not a 3D calibration."}
+
+    if release_confirmed_by == "manual":
+        release_grade = "GOOD"
+    elif release_confirmed_by == "automatic_physics":
+        checks = [release_wrist_distance_arm_lengths is not None and release_wrist_distance_arm_lengths <= 0.5,
+                  (launch_sample_count or 0) >= 6,
+                  launch_angle_se_deg is not None and launch_angle_se_deg <= 3.0]
+        release_grade = "GOOD" if all(checks) else "WARNING"
+    else:
+        release_grade = "POOR"
+    grades["release"] = {"grade": release_grade, "confirmed_by": release_confirmed_by,
+                         "wrist_distance_arm_lengths": release_wrist_distance_arm_lengths,
+                         "launch_fit_samples": launch_sample_count, "launch_angle_se_deg": launch_angle_se_deg}
+    return grades

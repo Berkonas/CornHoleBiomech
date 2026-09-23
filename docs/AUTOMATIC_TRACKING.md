@@ -29,7 +29,11 @@ Written 22 September 2026. Code: `python/cornhole_biomech/auto_bag.py`. Tests: `
    - At least 4 arm lengths of travel toward the target.
    - The flight starts within 0.8 arm lengths of the wrist.
 7. **Several throws per clip.** The detections of each found flight are removed and the search repeats. The trial uses the flight that starts at the throwing hand.
-8. **Coordinates.** Flight points are expressed in the release frame's pixels with camera motion removed. Launch fits and the gravity scale therefore behave as if the camera were fixed.
+8. **Centroid.** Each detection is refined to the centre of the bag's silhouette (`bag_segment.py`): a local median background from camera-aligned neighbouring frames, a colour-difference mask, and image moments. Short gaps are re-acquired the same way. The detection centroid is kept next to it. The difference blob marks where the bag contrasts most with the background, so on the pilot clips it sat up to ~15 px from the centre.
+9. **Coordinates.** Since revision 9, flight points are raw video pixels, the same system as the video, pose and manual clicks. `stabilized_points` and per-frame `camera_to_release` transforms hold the camera-motion-free version. Launch fits, the gravity scale and the model check use that version, so they behave as if the camera were fixed. Revision 8 stored only the stabilised points, which the overlay then drew on the moving video, 5–49 px off the bag.
+10. **Filtered path.** `bag_filter.py` smooths the stabilised flight with a constant-acceleration Kalman filter and RTS smoother. Noise is estimated per clip, outliers are rejected by leave-one-out, and raw values are kept. The result goes to `bag_flight_filtered.json` and to the overlay's filtered centroid.
+
+See `docs/SECOND_PASS_AUDIT.md` for the pilot evidence and `docs/BAG_TRACKING_VALIDATION.md` for measuring accuracy.
 
 An accepted flight counts as reviewed with `confirmed_by = automatic_physics`. Any manual seed, correction, release or contact always overrides it.
 

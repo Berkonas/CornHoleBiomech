@@ -536,8 +536,15 @@ def analyze_trial(
         for i, provenance in enumerate(bag_derived["provenance"]):
             if "interpolat" in str(provenance):
                 flight_points[i] = np.nan
+    # flight_points stay in raw video pixels (same system as pose and the video on
+    # screen). Fits use fit_points: the same samples in the release frame's pixels
+    # with the hand-held camera's motion removed, when the automatic tracker
+    # measured that motion. Frames without a measured transform become gaps.
+    from .bag_filter import stabilize_points
+    camera_to_release = auto_flight.get("camera_to_release") if auto_accepted and auto_flight else None
+    fit_points = stabilize_points(flight_points, camera_to_release)
     from .flight import flight_summary
-    flight = flight_summary(flight_points, release_frame, contact_frame, video.fps,
+    flight = flight_summary(fit_points, release_frame, contact_frame, video.fps,
         bag_corrections.reviewed_through_frame if bag_corrections else None,
         release_confirmed, context.camera_view,
         bool(flight_review.get("fixed_camera")))
@@ -547,7 +554,7 @@ def analyze_trial(
                        and bag_corrections is not None and bag_corrections.covers(contact_frame))
     measured_scale = calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None
     gravity_scale = gravity_scale_from_flight(
-        flight_points, release_frame if flight_reviewed else None, contact_frame if flight_reviewed else None,
+        fit_points, release_frame if flight_reviewed else None, contact_frame if flight_reviewed else None,
         video.fps, bool(flight_review.get("fixed_camera")), context.camera_view,
         reference_pixels_per_meter=measured_scale)
     flight["gravity_scale"] = gravity_scale
@@ -556,6 +563,27 @@ def analyze_trial(
         # No measured scale: the flight's own gravity sets the bag-plane scale.
         calibration = SpatialCalibration(gravity_scale["pixels_per_meter"], "bag_flight_plane_gravity",
                                          True, "reviewed_flight_gravity_fit")
+
+    from .bag_filter import filtered_to_raw, smooth_flight
+    from .trajectory_model import ballistic_model_check
+    flight_filter: dict[str, Any] | None = None
+    if release_frame is not None and bag_derived is not None:
+        # Raw samples are kept; the filtered path is a separate, labelled product.
+        last = contact_frame if contact_frame is not None else len(fit_points)
+        flight_samples = [{"frame": f, "x": fit_points[f, 0], "y": fit_points[f, 1]}
+                          for f in range(release_frame, min(last, len(fit_points)))
+                          if np.isfinite(fit_points[f]).all()]
+        flight_filter = smooth_flight(flight_samples, video.fps,
+                                      max_gap_frames=int(config["max_interpolation_gap_frames"]))
+        flight_filter["coordinates"] = ("release_frame_pixels_camera_motion_removed" if camera_to_release
+                                        else "raw_video_pixels_fixed_camera_assumed")
+        write_json(output / "bag_flight_filtered.json", flight_filter)
+    flight["model_check"] = ballistic_model_check(
+        fit_points, release_frame if flight_reviewed else None, contact_frame, video.fps,
+        calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None,
+        kinematics.arm_length_pixels)
+    summaries["bag_trajectory_model_rmse_arm_lengths"] = flight["model_check"]["in_sample_rmse_arm_lengths"]
+    summaries["bag_trajectory_apex_rise_m"] = flight["model_check"]["apex_rise_m"]
 
     projectile: dict[str, Any] | None = None
     bag_result: dict[str, Any] | None = None
@@ -572,7 +600,7 @@ def analyze_trial(
         bag_review_covers_fit = bag_corrections.covers(required_review_through)
         if contact_frame is not None and release_frame is not None and contact_frame <= release_frame:
             raise ValueError("First contact must follow release")
-        launch_points = np.array(flight_points, copy=True)
+        launch_points = np.array(fit_points, copy=True)
         if contact_frame is not None:
             launch_points[contact_frame:] = np.nan  # Never fit through impact.
         if bag_review_covers_fit:
@@ -704,7 +732,13 @@ def analyze_trial(
             bag_warnings.append(
                 "Bag/wrist persistent divergence did not produce a release candidate; the wrist-speed candidate remains active until manual review."
             )
+        flight_display = filtered_to_raw(flight_filter, camera_to_release) if flight_filter else {}
         for frame, sample in enumerate(bag_derived["payload"]["samples"]):
+            if frame in flight_display:
+                # Free flight: the physics-informed smoother, drawn in this frame's raw pixels.
+                sample["filtered_centroid"] = {"x": flight_display[frame][0], "y": flight_display[frame][1]}
+                sample["filter"] = "flight_kalman_rts"
+                continue
             sample["filtered_centroid"] = (
                 None if not np.isfinite(bag_filtered[frame]).all()
                 else {"x": bag_filtered[frame, 0], "y": bag_filtered[frame, 1]}
@@ -734,6 +768,9 @@ def analyze_trial(
             "tracker": bag_derived["payload"]["tracker"],
             "release_candidate": candidate_payload,
             "launch": projectile,
+            "flight_filter": None if flight_filter is None else {
+                k: v for k, v in flight_filter.items() if k not in ("frames", "measured_frames")},
+            "camera_motion_removed_for_fits": bool(camera_to_release),
             "quality_note": bag_track.quality_note,
         }
 
@@ -772,6 +809,13 @@ def analyze_trial(
     )
     from .insights import release_window_quality
     quality.update(release_window_quality(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
+    from .quality import quality_grades
+    wrist_gap_px = (auto_flight or {}).get("release_wrist_distance_px") if auto_accepted else None
+    arm_px = kinematics.arm_length_pixels
+    quality["grades"] = quality_grades(
+        quality, flight_filter, gravity_scale, measured_scale is not None, release_confirmed_by,
+        wrist_gap_px / arm_px if wrist_gap_px is not None and arm_px > 0 else None,
+        (projectile or {}).get("sample_count"), summaries.get("bag_release_angle_se_deg"))
     warnings = sorted(set(filter_warnings + kinematics.warnings + bag_warnings))
     results = {
         "schema_version": 1,

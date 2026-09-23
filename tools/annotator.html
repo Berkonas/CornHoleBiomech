@@ -54,6 +54,7 @@ const canvas = $('view'), ctx = canvas.getContext('2d');
 const state = { frames: [], index: 0, manifest: null, marks: {}, view: { scale: 1, x: 0, y: 0 } };
 
 function landmarks() {
+  if (state.manifest && Array.isArray(state.manifest.landmarks)) return state.manifest.landmarks;  // e.g. bag-only benchmark
   const s = $('side').value, o = s === 'right' ? 'left' : 'right';
   return [`${s}_shoulder`, `${s}_elbow`, `${s}_wrist`, `${o}_shoulder`, 'left_hip', 'right_hip', 'bag'];
 }

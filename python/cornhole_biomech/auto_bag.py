@@ -18,6 +18,7 @@ and trajectory-rectification stages, without a trained network):
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -25,8 +26,9 @@ import cv2
 import numpy as np
 
 from .bag import GRAVITY_M_S2, _robust_polynomial
+from .bag_segment import SEGMENT_REVISION, refine_flight
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v8"
+AUTO_BAG_REVISION = "auto_motion_parabola_v9_mask"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -144,14 +146,20 @@ def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
     return frames, fps
 
 
-def to_reference(candidates: list[Candidate], to_prev: list[np.ndarray], reference: int) -> list[Candidate]:
-    """Express every candidate in the pixel frame of `reference` using chained transforms."""
+def reference_chain(to_prev: list[np.ndarray], reference: int) -> dict[int, np.ndarray]:
+    """3×3 transforms mapping each frame's pixels into the pixel frame of `reference`."""
     n = len(to_prev)
     chain: dict[int, np.ndarray] = {reference: np.eye(3)}
     for t in range(reference + 1, n):      # t → t−1 → … → reference
         chain[t] = chain[t - 1] @ np.vstack([to_prev[t], [0, 0, 1]])
     for t in range(reference - 1, -1, -1):  # t → t+1 → … → reference
         chain[t] = chain[t + 1] @ np.linalg.inv(np.vstack([to_prev[t + 1], [0, 0, 1]]))
+    return chain
+
+
+def to_reference(candidates: list[Candidate], to_prev: list[np.ndarray], reference: int) -> list[Candidate]:
+    """Express every candidate in the pixel frame of `reference` using chained transforms."""
+    chain = reference_chain(to_prev, reference)
     out = []
     for c in candidates:
         m = chain[c.frame]
@@ -523,11 +531,15 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
                    target_direction: str, preferred_release: int | None = None) -> dict[str, Any]:
     """Detect every flight in a clip and pick the one for this trial.
 
-    Coordinates of the chosen flight are expressed in the release frame's pixels
-    (camera motion removed), so launch fits and the gravity scale behave as if
-    the camera were fixed; at the release frame they equal raw pixels, keeping
-    release position consistent with the pose landmarks.
+    `points` are raw video pixels, the same system as the pose landmarks, manual
+    bag corrections and the video on screen. `stabilized_points` hold the same
+    detections in the release frame's pixels with camera motion removed, and
+    `camera_to_release` stores the per-frame 2×3 transforms that produce them,
+    so launch fits and the gravity scale can behave as if the camera were fixed.
+    (Revision 8 stored only stabilized points; drawn over a hand-held video they
+    drifted off the bag by the camera motion, up to ~50 px in the pilot clips.)
     """
+    started = time.perf_counter()
     frames, fps = read_frames(video_path)
     if len(frames) < 5:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": ["The clip is too short."], "flights": []}
@@ -557,9 +569,17 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
     at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
     contact_known = descending and not at_edge
-    ids = {p["frame"]: p for p in chosen["points"]}
-    raw = [Candidate(f, ids[f]["x"], ids[f]["y"], ids[f]["area"]) for f in sorted(ids)]
+    chain = reference_chain(to_prev, release)
+    # Detection blobs mark where the bag differs most from the background, not its
+    # centre; a local background mask gives the silhouette centroid (bag_segment.py).
+    refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
+    raw = [Candidate(f, refined[f]["x"], refined[f]["y"], refined[f].get("area_px") or 0.0) for f in sorted(refined)]
     stabilized = to_reference(raw, to_prev, release)
+    # Transforms for every frame the flight spans, plus a margin so a reviewer
+    # can move release or contact a few frames without losing stabilization.
+    margin = int(round(0.25 * fps))
+    transform_frames = range(max(0, release - margin), min(len(frames), contact + margin + 1))
+    camera_to_release = {str(f): np.round(chain[f][:2], 6).tolist() for f in transform_frames}
     motion = camera_motion_px(to_prev, release, contact, (raw[0].x, raw[0].y))
     wrist_gap = None
     if wrist is not None and release < len(wrist) and np.isfinite(wrist[release]).all():
@@ -582,8 +602,19 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         "event_precision_frames": 1,
         "release_wrist_distance_px": wrist_gap,
         "camera_motion_during_flight_px": motion,
-        "coordinates": "release_frame_pixels_camera_motion_removed",
-        "points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
+        "coordinates": "raw_video_pixels",
+        "points": [{"frame": c.frame, "x": c.x, "y": c.y, "source": refined[c.frame]["source"],
+                    "area_px": refined[c.frame].get("area_px"), "orientation_deg": refined[c.frame].get("orientation_deg"),
+                    "detection_x": refined[c.frame]["detection_x"], "detection_y": refined[c.frame]["detection_y"]}
+                   for c in raw],
+        "centroid_method": SEGMENT_REVISION,
+        "centroid_sources": {src: sum(1 for r in refined.values() if r["source"] == src)
+                             for src in ("mask", "detection", "reacquired_mask")},
+        "stabilized_coordinates": "release_frame_pixels_camera_motion_removed",
+        "stabilized_points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
+        "camera_to_release": camera_to_release,
+        "runtime_seconds": time.perf_counter() - started,
+        "frames_processed": len(frames),
         "fit": {k: v for k, v in fit.items() if k != "early_points"},
         "flights": summary,
     }

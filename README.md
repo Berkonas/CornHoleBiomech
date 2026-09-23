@@ -72,7 +72,7 @@ For pros with tight releases, the app correctly says misses likely come from aim
 
 ## Measuring tracking accuracy
 
-`cornhole-biomech annotation-frames` exports blinded frames. Teammates mark them in `tools/annotator.html`. `cornhole-biomech validate-tracking` then reports landmark, elbow-angle, bag and release-frame error, plus agreement between raters. See [VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md).
+`cornhole-biomech annotation-frames` exports blinded frames. Teammates mark them in `tools/annotator.html`. `cornhole-biomech validate-tracking` then reports landmark, elbow-angle, bag and release-frame error, plus agreement between raters. See [VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md). For the bag alone, `cornhole-biomech bag-annotation-frames` and `bag-benchmark` score each tracker stage per flight phase ([BAG_TRACKING_VALIDATION.md](docs/BAG_TRACKING_VALIDATION.md)). The second-pass audit and plan are in [SECOND_PASS_AUDIT.md](docs/SECOND_PASS_AUDIT.md).
 
 ## Where things live
 

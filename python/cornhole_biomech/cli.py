@@ -144,6 +144,21 @@ def parser() -> argparse.ArgumentParser:
     validate.add_argument("--output")
     validate.set_defaults(handler=handle_validate_tracking)
 
+    bag_frames = commands.add_parser("bag-annotation-frames",
+                                     help="Export blinded, phase-stratified frames for bag-tracking validation")
+    bag_frames.add_argument("--library", required=True, help="Athlete library with analysed throws")
+    bag_frames.add_argument("--output", required=True)
+    bag_frames.add_argument("--per-phase", type=int, default=2)
+    bag_frames.add_argument("--seed", type=int, default=20260923)
+    bag_frames.set_defaults(handler=handle_bag_annotation_frames)
+
+    bag_bench = commands.add_parser("bag-benchmark", help="Score every bag tracker output against manual bag marks")
+    bag_bench.add_argument("--frames", required=True, help="Folder written by bag-annotation-frames, with raters' "
+                           "annotation_*.json saved into each clip folder")
+    bag_bench.add_argument("--rater", help="Only use annotation files from this rater")
+    bag_bench.add_argument("--output")
+    bag_bench.set_defaults(handler=handle_bag_benchmark)
+
     pair = commands.add_parser("compare-throws", help="Explain how throw B differs from throw A for one athlete")
     pair.add_argument("--project", required=True)
     pair.add_argument("--a", required=True, help="Trial ID of the first throw")
@@ -184,6 +199,60 @@ def handle_annotation_frames(args: argparse.Namespace) -> dict[str, Any]:
     frame_count = read_video_metadata(args.video).frame_count
     chosen = select_validation_frames(frame_count, events, args.count, args.seed)
     return export_annotation_frames(args.video, chosen, args.output)
+
+
+def handle_bag_annotation_frames(args: argparse.Namespace) -> dict[str, Any]:
+    from .bag_validation import bag_phase_frames, select_bag_frames
+    from .serialization import write_json
+    from .validation import export_annotation_frames
+    output = Path(args.output).expanduser()
+    exported = []
+    for auto_path in sorted(Path(args.library).expanduser().glob("Athletes/*/analyses/*/auto_flight.json")):
+        auto = load_json(str(auto_path), {})
+        manifest = load_json(str(auto_path.parent / "manifest.json"), {})
+        video = manifest.get("trial_context", {}).get("source_video")
+        if auto.get("release_frame") is None or not video:
+            continue
+        results = load_json(str(auto_path.parent / "results.json"), {})
+        apex = ((results.get("flight") or {}).get("model_check") or {}).get("apex_frame")
+        phases = bag_phase_frames(int(auto["release_frame"]), auto.get("first_contact_frame"),
+                                  int(auto.get("last_tracked_frame") or auto["release_frame"]), apex,
+                                  float(auto["fps"]), read_video_metadata(video).frame_count)
+        always = {int(auto["release_frame"]): "release"}
+        if auto.get("first_contact_frame") is not None:
+            always[int(auto["first_contact_frame"])] = "landing"
+        plan = select_bag_frames(phases, args.per_phase, args.seed, always)
+        folder = output / auto_path.parent.name
+        frame_manifest = export_annotation_frames(video, [r["frame"] for r in plan], folder)
+        frame_manifest["landmarks"] = ["bag"]   # annotator bag-only mode
+        write_json(folder / "annotation_manifest.json", frame_manifest)
+        # Kept apart from the annotation manifest so raters are not shown the automatic phases.
+        write_json(folder / "bag_validation_plan.json", {"schema_version": 1, "analysis": str(auto_path.parent),
+                                                         "frames": plan, "seed": args.seed})
+        exported.append({"clip": auto_path.parent.name, "frames": len(plan)})
+    return {"output": str(output), "clips": exported, "total_frames": sum(c["frames"] for c in exported)}
+
+
+def handle_bag_benchmark(args: argparse.Namespace) -> dict[str, Any]:
+    from .bag_validation import bag_benchmark, pooled
+    from .serialization import write_json
+    reports = []
+    for plan_path in sorted(Path(args.frames).expanduser().glob("*/bag_validation_plan.json")):
+        plan = load_json(str(plan_path), {})
+        for annotation in sorted(plan_path.parent.glob("annotation_*.json")):
+            data = load_json(str(annotation), {})
+            if args.rater and data.get("rater") != args.rater:
+                continue
+            report = bag_benchmark(annotation, plan["analysis"], plan_path)
+            report["clip"] = plan_path.parent.name
+            reports.append(report)
+    if not reports:
+        raise ValueError("No annotation_*.json files found next to a bag_validation_plan.json. "
+                         "Save each rater's download into its clip folder first.")
+    result = {"schema_version": 1, "clips": len(reports), "pooled": pooled(reports), "per_clip": reports}
+    if args.output:
+        write_json(args.output, result)
+    return result
 
 
 def handle_validate_tracking(args: argparse.Namespace) -> dict[str, Any]:
