@@ -73,7 +73,7 @@ struct ResultsView: View {
     }
     @ViewBuilder private var reviewReadiness: some View {
         let bag = data.results?.bag
-        let releaseReviewed = data.results?.events["release"]?.manualFrame != nil
+        let releaseReviewed = data.results?.events["release"]?.isConfirmed == true
         if bag == nil || !releaseReviewed || bag?.review?.coversLaunchFit != true {
             ResearchCard(title: "Complete the throw review", symbol: "checklist") {
                 Text("Body processing has finished. The remaining steps unlock bag and release measurements.").font(.callout)
@@ -127,7 +127,7 @@ struct ResultsView: View {
     }
     private var trialViewLabel: String { store.selectedTrial?.cameraView == .side ? "side view" : "non-side view: treat as exploratory" }
     private func measurement(_ title: String, key: String, unit: String, digits: Int, note: String) -> some View {
-        let releaseConfirmed = data.results?.events["release"]?.manualFrame != nil
+        let releaseConfirmed = data.results?.events["release"]?.isConfirmed == true
         let value: Double? = releaseConfirmed ? (data.results?.summaries[key] ?? nil) : nil
         return VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.callout.weight(.medium))

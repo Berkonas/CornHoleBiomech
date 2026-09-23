@@ -93,7 +93,7 @@ struct CycleVideo: View {
         }
         .onAppear {
             seek()
-            observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / 30.0, preferredTimescale: 600), queue: .main) { t in
+            observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { t in
                 guard player.timeControlStatus == .playing, t.seconds.isFinite else { return }
                 let next = min(1, max(0, (t.seconds - start) / max(1 / fps, end - start)))
                 if abs(fraction - next) > 0.000001 {

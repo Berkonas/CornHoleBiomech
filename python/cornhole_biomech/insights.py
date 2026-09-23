@@ -194,7 +194,7 @@ def generate_insights(project_path, trial_id, export_report=True):
         points=outcome['score_category'];sentences.append('Outcome is unobserved.' if points is None else f"Observed bag value: {points} {'point' if points==1 else 'points'} (not round cancellation score).")
     else:sentences.append('Task outcome has not been recorded.')
     release=results.get('events',{}).get('release',{})
-    if release.get('manual_frame') is None:
+    if release.get('manual_frame') is None and not release.get('confirmed_by'):
         sentences.append('Confirm the release candidate in the video before interpreting release mechanics.')
     flight=results.get('flight',{})
     if flight.get('time_of_flight_seconds') is not None:

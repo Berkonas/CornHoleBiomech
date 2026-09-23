@@ -208,9 +208,11 @@ struct VideoPoseEditor: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(data.bagTrack == nil ? "Next: track the bag" : "Review the bag through flight").font(.headline)
+                    Text(data.bagTrack == nil ? "Next: track the bag" : data.bagTrack?.isAutomaticallyVerified == true ? "Bag flight found automatically" : "Review the bag through flight").font(.headline)
                     Text(data.bagTrack == nil
-                         ? "Body analysis is ready. Pause near release, select the bag, then track it through the throw."
+                         ? "The bag's flight could not be found automatically. Pause near release, select the bag, then track it through the throw."
+                         : data.bagTrack?.isAutomaticallyVerified == true
+                         ? "Release and first contact were found from the bag's flight and checked against projectile physics. Play the video; correct only if the cyan path leaves the bag."
                          : "Cyan is automatic tracking. Inspect every frame, confirm the path, and mark release/contact before interpreting metrics.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -227,17 +229,24 @@ struct VideoPoseEditor: View {
                 ZStack {
                     Color.black
                     NativeVideoPlayer(player: player, showsControls: false)
-                    if data.pose != nil {
-                        PoseOverlay(
-                            data: data, frame: currentFrame, selectedLandmark: $selectedLandmark,
-                            confidenceThreshold: confidenceThreshold, availableSize: geometry.size
-                        ) { landmark, x, y in
-                            player.pause()
-                            data.setCorrection(frame: currentFrame, landmark: landmark, x: x, y: y, undoManager: undoManager)
+                    // Redraw overlays on every display refresh from the player's actual
+                    // time while playing, so the skeleton never trails the picture.
+                    TimelineView(.animation(minimumInterval: nil, paused: player.timeControlStatus != .playing)) { _ in
+                        let frame = displayedFrame
+                        ZStack {
+                            if data.pose != nil {
+                                PoseOverlay(
+                                    data: data, frame: frame, selectedLandmark: $selectedLandmark,
+                                    confidenceThreshold: confidenceThreshold, availableSize: geometry.size
+                                ) { landmark, x, y in
+                                    player.pause()
+                                    data.setCorrection(frame: currentFrame, landmark: landmark, x: x, y: y, undoManager: undoManager)
+                                }
+                            }
+                            if data.bagTrack != nil {
+                                BagOverlay(data: data, frame: frame, availableSize: geometry.size)
+                            }
                         }
-                    }
-                    if data.bagTrack != nil {
-                        BagOverlay(data: data, frame: currentFrame, availableSize: geometry.size)
                     }
                     VStack {
                         HStack {
@@ -368,12 +377,17 @@ struct VideoPoseEditor: View {
         return Text(value.map { "\(label): \($0.formatted(.number.precision(.fractionLength(1))))°" } ?? "\(label): unavailable")
             .font(.caption.monospacedDigit()).padding(7).background(.black.opacity(0.65), in: Capsule()).foregroundStyle(.white)
     }
+    /// The frame actually on screen: read from the player while playing, else the inspected frame.
+    private var displayedFrame: Int {
+        guard player.timeControlStatus == .playing, let pose = data.pose else { return currentFrame }
+        return min(max(0, Int((player.currentTime().seconds * pose.fps).rounded())), max(0, pose.frameCount - 1))
+    }
     private func step(_ amount: Int) { frameBinding.wrappedValue = Double(min(max(0, currentFrame + amount), max(0, (data.pose?.frameCount ?? 1) - 1))) }
     private func installTimeObserver() {
         guard timeObserver == nil else { return }
         let fps = data.pose?.fps ?? 30
         let maximumFrame = max(0, (data.pose?.frameCount ?? 1) - 1)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { time in
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
             currentFrame = min(max(0, Int((time.seconds * fps).rounded())), maximumFrame)
         }
     }
@@ -683,6 +697,7 @@ struct QualityEventsView: View {
                             }
                             Spacer()
                             if event.manualFrame != nil { StatusPill(text: "Manual", color: .blue) }
+                            else if event.confirmedBy == "automatic_physics" { StatusPill(text: "Automatic ✓", color: .green) }
                             Button("Set to \(currentEventFrame)") { data.setManualEvent(name: name, frame: currentEventFrame) }
                             Button("Use Automatic") { data.setManualEvent(name: name, frame: nil) }.disabled(event.manualFrame == nil)
                         }.padding(12).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9))

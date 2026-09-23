@@ -466,6 +466,8 @@ struct BagTrackDocument: Codable {
     var coordinateSystem: String
     var units: String
     var tracker: Tracker
+    /// True when the flight was found automatically and passed the projectile-physics checks.
+    var isAutomaticallyVerified: Bool { tracker.status == "automatic_physics_verified" }
     var seed: BagSeedDocument
     var corrections: BagCorrectionDocument
     var samples: [Sample]
@@ -519,6 +521,9 @@ struct AnalysisResults: Codable {
         var automaticMethod: String?
         var manualFrame: Int?
         var effectiveFrame: Int?
+        /// "manual" or "automatic_physics" when the frame may be used for release measurements.
+        var confirmedBy: String? = nil
+        var isConfirmed: Bool { manualFrame != nil || confirmedBy != nil }
         enum CodingKeys: String, CodingKey {
             case name
             case automaticFrame = "automatic_frame"
@@ -526,6 +531,7 @@ struct AnalysisResults: Codable {
             case automaticMethod = "automatic_method"
             case manualFrame = "manual_frame"
             case effectiveFrame = "effective_frame"
+            case confirmedBy = "confirmed_by"
         }
     }
 
@@ -645,6 +651,8 @@ struct EventDocument: Codable {
         var manualFrame: Int?
         var effectiveFrame: Int?
         var suppressedReason: String? = nil
+        var confirmedBy: String? = nil
+        var isConfirmed: Bool { manualFrame != nil || confirmedBy != nil }
 
         enum CodingKeys: String, CodingKey {
             case name
@@ -654,6 +662,7 @@ struct EventDocument: Codable {
             case manualFrame = "manual_frame"
             case effectiveFrame = "effective_frame"
             case suppressedReason = "suppressed_reason"
+            case confirmedBy = "confirmed_by"
         }
     }
 

@@ -1,0 +1,112 @@
+"""Automatic bag flight: physics-constrained trajectory selection and events."""
+import numpy as np
+import pytest
+
+from cornhole_biomech.auto_bag import (
+    Candidate,
+    detect_moving_blobs_in_frames,
+    find_flight,
+    release_from_wrist,
+)
+
+FPS = 60.0
+PPM = 180.0
+G = 9.80665
+
+
+def true_flight(t0=40, n=45, x0=500.0, y0=500.0, vx=5.5, vy=3.5, sign=1):
+    pts = {}
+    for k in range(n):
+        t = k / FPS
+        pts[t0 + k] = (x0 + sign * PPM * vx * t, y0 - PPM * (vy * t - 0.5 * G * t * t))
+    return pts
+
+
+def candidates_with_clutter(flight, seed=0, clutter_per_frame=4, drop=0.15, noise=1.5):
+    rng = np.random.default_rng(seed)
+    out = []
+    for f in range(0, 120):
+        for _ in range(clutter_per_frame):
+            out.append(Candidate(f, float(rng.uniform(0, 1900)), float(rng.uniform(0, 1000)), 20))
+        if f in flight and rng.random() > drop:
+            x, y = flight[f]
+            out.append(Candidate(f, x + rng.normal(0, noise), y + rng.normal(0, noise), 25))
+    return out
+
+
+def test_finds_projectile_among_clutter_and_rejects_clutter():
+    flight = true_flight()
+    result = find_flight(candidates_with_clutter(flight), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] == "accepted"
+    frames = {p["frame"] for p in result["points"]}
+    assert len(frames) >= 30
+    assert all(40 <= f < 85 for f in frames)
+    fit = result["fit"]
+    assert fit["vertical_acceleration_px_s2"] == pytest.approx(G * PPM, rel=0.1)
+
+
+def test_wrong_direction_or_upward_curvature_is_not_a_flight():
+    flight = true_flight(sign=-1)                 # moves away from the target
+    result = find_flight(candidates_with_clutter(flight), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] != "accepted"
+
+
+def test_implausible_gravity_for_body_scale_is_rejected():
+    flight = true_flight()
+    # Arm length implies ~5x smaller scale: the arc would need 5x gravity to be real.
+    result = find_flight(candidates_with_clutter(flight), FPS, "left_to_right", arm_length_px=PPM * 0.62 / 5)
+    assert result["status"] != "accepted"
+
+
+def test_too_few_detections_is_never_accepted():
+    flight = true_flight(n=6)
+    result = find_flight(candidates_with_clutter(flight, drop=0), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] in ("needs_review", "not_found")
+
+
+def test_release_is_where_backward_parabola_meets_the_wrist():
+    flight = true_flight(t0=40)
+    result = find_flight(candidates_with_clutter(flight, drop=0), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    # Wrist carries the bag along the same path until frame 40, then falls away.
+    wrist = np.full((120, 2), np.nan)
+    for f in range(20, 60):
+        t = (f - 40) / FPS
+        on_path = (500 + PPM * 5.5 * t, 500 - PPM * (3.5 * t - 0.5 * G * t * t))
+        wrist[f] = on_path if f <= 40 else (on_path[0] - 25 * (f - 40), on_path[1] + 20 * (f - 40))
+    frame, distance = release_from_wrist(result["fit"], wrist, FPS, search_seconds=0.35)
+    assert abs(frame - 40) <= 1
+    assert distance < 5
+
+
+def test_moving_blob_detector_finds_small_mover_on_static_background():
+    rng = np.random.default_rng(1)
+    background = (rng.uniform(80, 160, (240, 320))).astype(np.uint8)
+    frames = []
+    for f in range(12):
+        img = background.copy()
+        cx, cy = 40 + 20 * f, 60 + 5 * f
+        img[cy - 3:cy + 3, cx - 3:cx + 3] = 250
+        frames.append(np.dstack([img] * 3))
+    blobs, _ = detect_moving_blobs_in_frames(frames, scale=1.0)
+    hits = [b for b in blobs if b.frame == 6]
+    assert any(abs(b.x - 160) < 4 and abs(b.y - 90) < 4 for b in hits)
+
+
+def test_two_throws_in_one_clip_are_both_found_in_order():
+    from cornhole_biomech.auto_bag import find_flights
+    first, second = true_flight(t0=10, n=40), true_flight(t0=70, n=40, x0=450, y0=520, vx=6.0, vy=3.0)
+    cands = candidates_with_clutter({**first, **second}, drop=0.1, clutter_per_frame=3)
+    flights = [f for f in find_flights(cands, FPS, "left_to_right", PPM * 0.62) if f["status"] == "accepted"]
+    assert len(flights) == 2
+    assert flights[0]["fit"]["first_frame"] < 20 and 65 <= flights[1]["fit"]["first_frame"] < 80
+
+
+def test_reference_transform_removes_camera_translation():
+    from cornhole_biomech.auto_bag import camera_motion_px, to_reference
+    # Camera pans 3 px right per frame: scene content moves 3 px left per frame,
+    # so frame t -> t-1 maps x to x + 3.
+    to_prev = [np.float32([[1, 0, 0], [0, 1, 0]])] + [np.float32([[1, 0, 3], [0, 1, 0]]) for _ in range(9)]
+    static_world_point = [Candidate(f, 100.0 - 3 * f, 50.0, 1) for f in range(10)]
+    mapped = to_reference(static_world_point, to_prev, reference=4)
+    assert all(abs(c.x - (100 - 12)) < 1e-6 for c in mapped)
+    assert camera_motion_px(to_prev, 0, 9, (100.0, 50.0)) == pytest.approx(27.0)

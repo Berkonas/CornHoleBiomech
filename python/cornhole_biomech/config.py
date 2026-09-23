@@ -22,6 +22,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "minimum_relationship_trials": 8,
     "bag_tracking": {
         "method": "auto",
+        "automatic": True,   # find the flight without a seed; manual seed/review overrides
         "confidence_threshold": 0.20,
         "template_quality_threshold": 0.25,
         "template_search_scale": 2.5,

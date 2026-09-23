@@ -43,13 +43,19 @@ struct FlightReviewEditor: View {
             Double(knownLength).map { $0.isFinite && $0 > 0 } == true && Double(pixelLength).map { $0.isFinite && $0 > 1 } == true)
         return eventOK && scaleOK
     }
+    private var releaseStatus: String {
+        guard let release = data.events?.events["release"] else { return "Release: needs confirmation" }
+        if let manual = release.manualFrame { return "Release: frame \(manual) (manual)" }
+        if release.confirmedBy == "automatic_physics", let frame = release.effectiveFrame { return "Release: frame \(frame) (automatic, physics-checked)" }
+        return "Release: needs confirmation"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Release → flight → first contact").font(.title2.bold())
             Text("Review one throw from visible hand separation to the first board or ground contact. A bag disappearing is not evidence of landing.").foregroundStyle(.secondary)
             HStack {
                 Button("Confirm release at frame \(frame)") { data.setManualEvent(name: "release", frame: frame) }
-                Text("Release: \(data.events?.events["release"]?.manualFrame.map(String.init) ?? "needs confirmation")").font(.caption)
+                Text(releaseStatus).font(.caption)
             }
             HStack {
                 TextField("First-contact frame (blank if unseen)", text: $contact)

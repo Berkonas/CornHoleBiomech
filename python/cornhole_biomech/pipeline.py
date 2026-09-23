@@ -11,8 +11,10 @@ import math
 import numpy as np
 
 from . import METHOD_VERSION, REQUIRED_LANDMARKS, __version__
+from .auto_bag import AUTO_BAG_REVISION
 from .bag import (
     ANALYSIS_COORDINATE_SYSTEM,
+    BagAutomaticPoint,
     BAG_COORDINATE_SYSTEM,
     BagCorrectionSet,
     BagSeed,
@@ -46,7 +48,7 @@ from .export import (
 from .filtering import lowpass_zero_phase
 from .kinematics import calculate_kinematics, movement_phase_summaries
 from .arm_motion import analyze_arm_motion, ARM_METRICS
-from .models import BoardPoint, CorrectionSet, PoseSequence, TrialContext, TrialOutcome, utc_now
+from .models import BoardPoint, CorrectionSet, EventValue, PoseSequence, TrialContext, TrialOutcome, utc_now
 from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
 from .pose import analyze_pose, _version
@@ -57,6 +59,36 @@ from .statistics import grouped_summary, relationship
 from .video import file_sha256, read_video_metadata
 
 Progress = Callable[[str, float, str], None]
+
+
+def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
+                      output: Path) -> dict[str, Any]:
+    """Run automatic flight detection with the body scale and wrist from this clip's pose."""
+    from .auto_bag import auto_track_bag
+    from .geometry import robust_segment_length
+    cached = _load_json(output / "auto_flight.json", None)
+    if cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256:
+        return cached
+    lookup = {name: index for index, name in enumerate(landmarks)}
+    side = context.throwing_side
+    shoulder, elbow, wrist = (filtered[:, lookup[f"{side}_{j}"], :] for j in ("shoulder", "elbow", "wrist"))
+    arm = robust_segment_length(shoulder, elbow) + robust_segment_length(elbow, wrist)
+    result = auto_track_bag(video.path, wrist, arm if np.isfinite(arm) else None, context.target_direction)
+    result["video_sha256"] = video.sha256
+    write_json(output / "auto_flight.json", result)
+    return result
+
+
+def _bag_track_from_auto_flight(auto_flight: dict[str, Any], video) -> BagTrack:
+    """Wrap an accepted automatic flight as a canonical bag track (camera motion removed)."""
+    by_frame = {p["frame"]: p for p in auto_flight["points"]}
+    points = [BagAutomaticPoint(f, by_frame[f]["x"], by_frame[f]["y"], 0.95, None, "automatic_flight")
+              if f in by_frame else BagAutomaticPoint(f, None, None, 0.0, None, "not_in_flight")
+              for f in range(video.frame_count)]
+    first = auto_flight["points"][0]
+    return BagTrack(1, video.frame_count, video.width, video.height, video.sha256,
+                    BagSeed(int(first["frame"]), (first["x"] - 8, first["y"] - 8, 16.0, 16.0), "automatic_flight_detection"),
+                    "automatic", AUTO_BAG_REVISION, points, "automatic_physics_verified")
 
 
 def method_signature(manifest: dict[str, Any]) -> str | None:
@@ -292,6 +324,31 @@ def analyze_trial(
         validate_bag_track_for_video(bag_track, video.path)
         bag_key = _load_json(bag_cache_path, {}).get("bag_key")
 
+    auto_flight: dict[str, Any] | None = None
+    if bag_track is None and bool(config["bag_tracking"].get("automatic", True)):
+        progress("tracking_bag", 0.50, "Finding the bag's flight automatically")
+        auto_flight = _automatic_flight(video, filtered, landmarks, context, output)
+        if auto_flight.get("status") == "accepted":
+            bag_track = _bag_track_from_auto_flight(auto_flight, video)
+            bag_track.save(bag_raw_path)
+            bag_key = canonical_hash({"method": AUTO_BAG_REVISION, "video": video.sha256,
+                                      "release": auto_flight["release_frame"]})
+            write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
+            review_file = Path(bag_corrections_path or (output / "bag_corrections.json"))
+            if not review_file.exists():
+                BagCorrectionSet(
+                    reviewed_through_frame=int(auto_flight["first_contact_frame"]), reviewed_at=utc_now(),
+                    review_note=f"Automatic physics verification ({AUTO_BAG_REVISION}): "
+                                f"{auto_flight['fit']['inliers']} detections on one projectile path, "
+                                f"{auto_flight['fit']['rms_residual_px']:.1f} px RMS.").save(review_file)
+        else:
+            reasons = " ".join(auto_flight.get("reasons") or [])
+            bag_warnings.append(f"Automatic bag tracking needs help: {reasons} Select the bag near release to track it manually.")
+    elif bag_track is not None and bag_track.effective_method == AUTO_BAG_REVISION:
+        auto_flight = _load_json(output / "auto_flight.json", None)
+    auto_accepted = bool(auto_flight and auto_flight.get("status") == "accepted"
+                         and bag_track is not None and bag_track.effective_method == AUTO_BAG_REVISION)
+
     if bag_track is None:
         bag_warnings.append("Body analysis completed; bag tracking has not started. Select the bag near release in the video, track it, and review its path to obtain release and flight measurements.")
 
@@ -360,6 +417,10 @@ def analyze_trial(
             float(release_config["minimum_divergence_arm_lengths"]),
             float(release_config["persistence_seconds"]),
         )
+    if auto_accepted:
+        # The accepted automatic flight defines release: first frame of free flight.
+        bag_release_candidate = EventValue(name="release", automatic_frame=int(auto_flight["release_frame"]),
+                                           automatic_confidence=1.0, automatic_method=AUTO_BAG_REVISION)
     event_file = Path(events_path) if events_path else output / "events.json"
     progress("detecting_events", 0.68, "Detecting frame-limited movement event candidates")
     events = detect_events(
@@ -376,6 +437,12 @@ def analyze_trial(
     if start is None or end is None or end <= start:
         start, end = 0, sequence.frame_count - 1
         filter_warnings.append("Motion bounds could not be detected; full-video bounds were used.")
+    # Release counts as confirmed when a person marked it, or when the accepted
+    # automatic flight supplied it and nobody overrode it.
+    release_confirmed_by = ("manual" if events["release"].manual_frame is not None
+                            else "automatic_physics" if auto_accepted
+                            and events["release"].automatic_method == AUTO_BAG_REVISION else None)
+    release_confirmed = release_confirmed_by is not None
     ordered = [events[n].effective_frame for n in ("motion_start", "peak_backswing", "forward_swing", "release", "peak_follow_through", "motion_end")]
     present = [f for f in ordered if f is not None]
     if any(a > b for a, b in zip(present, present[1:])):
@@ -384,7 +451,10 @@ def analyze_trial(
         "schema_version": 1,
         "frame_interval_seconds": 1.0 / video.fps,
         "release_precision_note": "Visible release is frame-limited; neither bag/wrist divergence nor manual review establishes sub-frame timing.",
-        "events": {name: {**asdict(value), "effective_frame": value.effective_frame} for name, value in events.items()},
+        "events": {name: {**asdict(value), "effective_frame": value.effective_frame,
+                          "confirmed_by": release_confirmed_by if name == "release" else
+                          ("manual" if value.manual_frame is not None else None)}
+                   for name, value in events.items()},
         "manual_overrides": {name: value.manual_frame for name, value in events.items() if value.manual_frame is not None},
     }
     write_json(output / "events.json", event_payload)
@@ -429,6 +499,10 @@ def analyze_trial(
 
     calibration = SpatialCalibration.load(calibration_path)
     flight_review = _load_json(output / "flight_review.json", {})
+    if auto_accepted:
+        # Manual flight review wins; automatic values fill only what is missing.
+        flight_review = {"first_contact_frame": int(auto_flight["first_contact_frame"]),
+                         "fixed_camera": True, "source": "automatic_physics_camera_motion_removed", **flight_review}
     contact_frame = flight_review.get("first_contact_frame")
     if contact_frame is not None and (not isinstance(contact_frame, int) or isinstance(contact_frame, bool)
                                       or not 0 <= contact_frame < sequence.frame_count):
@@ -449,11 +523,11 @@ def analyze_trial(
     from .flight import flight_summary
     flight = flight_summary(flight_points, release_frame, contact_frame, video.fps,
         bag_corrections.reviewed_through_frame if bag_corrections else None,
-        events["release"].manual_frame is not None, context.camera_view,
+        release_confirmed, context.camera_view,
         bool(flight_review.get("fixed_camera")))
     summaries["bag_time_of_flight_seconds"] = flight["time_of_flight_seconds"]
     from .flight import gravity_scale_from_flight, release_height
-    flight_reviewed = (events["release"].manual_frame is not None and contact_frame is not None
+    flight_reviewed = (release_confirmed and contact_frame is not None
                        and bag_corrections is not None and bag_corrections.covers(contact_frame))
     measured_scale = calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None
     gravity_scale = gravity_scale_from_flight(
@@ -530,6 +604,7 @@ def analyze_trial(
             )
         projectile["release_event_method"] = events["release"].automatic_method
         projectile["release_event_was_manually_reviewed"] = events["release"].manual_frame is not None
+        projectile["release_confirmed_by"] = release_confirmed_by
         velocity = projectile.get("velocity") or {}
         velocity_names = {
             "forward_px_s": "bag_release_forward_velocity_px_s",
@@ -646,7 +721,7 @@ def analyze_trial(
             "quality_note": bag_track.quality_note,
         }
 
-    if events["release"].manual_frame is None:
+    if not release_confirmed:
         bag_warnings.append("Release is an automatic candidate. Confirm visible separation before interpreting release measurements.")
         for key in summaries:
             if key.startswith("bag_release_") or key.endswith("_at_release"):
