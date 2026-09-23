@@ -21,6 +21,8 @@ struct PerformanceSummary: Decodable {
     var first_contact: Dispersion; var final_rest: Dispersion
     var observed_scores: [String: Int]; var unknown_scores: Int
     var summary: AthletePerformance?
+    var sports: SportsStats?
+    var zones: ZoneReport?
 }
 
 /// One explicit review document accompanies the existing immutable tracks/events.

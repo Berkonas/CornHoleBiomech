@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Within-athlete scored-versus-miss summary written by `performance.py`.
 struct AthletePerformance: Decodable {
-    struct Feedback: Decodable { var result: String; var why: String; var next: String; var caveat: String }
+    struct Feedback: Decodable { var result: String; var why: String; var next: String; var caveat: String; var physics: String? }
     struct Group: Decodable { var n: Int; var median: Double?; var sd: Double?; var cv_percent: Double?; var q25: Double?; var q75: Double? }
     struct Point: Decodable, Identifiable {
         var trial_id: String; var label: String; var value: Double; var group: String?
@@ -43,6 +43,7 @@ struct AthleteSummaryCard: View {
             row("Result", summary.feedback.result, symbol: "target")
             row("What differed", summary.feedback.why, symbol: "arrow.left.arrow.right")
             row("Next practice", summary.feedback.next, symbol: "figure.run")
+            if let physics = summary.feedback.physics { row("Physics check", physics, symbol: "function") }
             Text(summary.feedback.caveat).font(.caption).foregroundStyle(.secondary)
         }
     }

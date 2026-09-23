@@ -27,7 +27,9 @@ struct ResultsView: View {
                 if !insight.needs_reanalysis {
                 reviewReadiness
                 if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
+                if let sports = insight.performance?.sports { SportsStatsStrip(stats: sports) }
                 measurementStrip(insight)
+                if let zones = insight.performance?.zones { ZonesPanel(report: zones, currentTrialID: trial.id.uuidString) }
                 if let summary = insight.performance?.summary { ScoredVersusMissedPanel(summary: summary, currentTrialID: trial.id.uuidString) }
                 FlightPathPanel(flight: data.results?.flight)
                 board(insight, trial: trial)

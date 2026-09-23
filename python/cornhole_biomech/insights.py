@@ -16,6 +16,23 @@ LABELS = {"elbow_angle_deg": "Elbow angle", "arm_to_trunk_deg": "Arm relative to
           "forearm_orientation_deg": "Forearm orientation", "wrist_path_arm_lengths": "Wrist path"}
 
 
+def physics_sentence(zones, rows, minimum=5):
+    """Model-based priority: which release variable's spread or aim most exceeds its green window."""
+    if zones.get("status")!="available" or len([r for r in rows if r.get('bag_release_speed_m_s') is not None])<minimum:
+        return None
+    fmt=lambda v,u: f"{v:.1f}°" if u=="°" else f"{v:.2f} {u}"
+    parts=[]
+    for v in sorted((x for x in zones["variables"] if x.get("green_half_width")), key=lambda x:-(x.get("demand_ratio") or 0)):
+        half,sd,bias,u=v["green_half_width"],v["athlete_sd"],v["aim_bias"],v["unit"]
+        if sd is not None and sd>half:
+            parts.append(f"{v['label'].lower()} varies by {fmt(sd,u)} (SD) but the hole window is only ±{fmt(half,u)} wide")
+        if bias is not None and abs(bias)>half:
+            parts.append(f"median {v['label'].lower()} is {fmt(abs(bias),u)} {'above' if bias>0 else 'below'} the centre of the hole window")
+    if not parts:
+        return "Physics check: this athlete's release spread fits inside the model's hole window; misses likely come from aim or bag behaviour after landing."
+    return "Physics check (drag-free model): "+"; ".join(parts[:2])+"."
+
+
 def read(path, default=None):
     p = Path(path)
     return json.loads(p.read_text()) if p.exists() else default
@@ -216,6 +233,12 @@ def generate_insights(project_path, trial_id, export_report=True):
     from .performance import performance_summary
     rows=(relationships or {}).get('data_rows',[])
     performance["summary"]=performance_summary(rows,trial_labels)
+    from .zones import ZoneSettings, sports_stats, zone_report
+    settings=project.get('analysisSettings',{})
+    zone_settings=ZoneSettings(release_to_board_m=float(settings.get('releaseToBoardMeters') or 7.7))
+    performance["sports"]=sports_stats([o.get('score_category') for o in outcomes.values()])
+    performance["zones"]=zone_report(rows,zone_settings)
+    performance["summary"]["feedback"]["physics"]=physics_sentence(performance["zones"],rows)
     # Level 1-3 coaching feedback leads; review reminders follow it.
     feedback=performance["summary"]["feedback"]
     payload_summary=' '.join([feedback['result'],feedback['why'],feedback['next']]+sentences[1:])
