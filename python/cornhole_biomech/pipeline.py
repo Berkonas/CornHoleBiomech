@@ -779,12 +779,34 @@ def analyze_trial(
                           {name: events[name].effective_frame for name in events}, kinematics.arm_length_pixels,
                           calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None)
     summaries.update({k: swing[k] for k in SWING_METRICS})
+    from .timing import release_timing_metrics
+    event_frames = {name: events[name].effective_frame for name in events}
+    timing = release_timing_metrics(
+        throwing_wrist, kinematics.values["elbow_angle_deg"], video.fps, event_frames, kinematics.arm_length_pixels,
+        context.target_direction, camera_to_release,
+        calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None,
+        summaries.get("bag_release_speed_arm_lengths_s"), summaries.get("bag_release_angle_deg"))
+    wrist_speed_series = timing.pop("wrist_speed_series_arm_lengths_s")
+    event_frames["peak_wrist_speed"] = timing.pop("peak_wrist_speed_frame")
+    event_frames["peak_elbow_extension"] = timing.pop("peak_elbow_extension_frame")
+    summaries.update(timing)
+    # Release window: the first free-flight detection and the backward-flight/wrist
+    # cue bracket the true release (the second is early by construction). A person's
+    # release label collapses the window to one frame.
+    release_window = None
+    if release_frame is not None:
+        release_window = (release_frame, release_frame)
+        check = (auto_flight or {}).get("release_check") if auto_accepted else None
+        if check and events["release"].manual_frame is None and check.get("frame") is not None:
+            release_window = (min(int(check["frame"]), release_frame), release_frame)
     if not release_confirmed:
         bag_warnings.append("Release is an automatic candidate. Confirm visible separation before interpreting release measurements.")
         for key in summaries:
             if key.startswith("bag_release_") or key.endswith("_at_release") or "_at_release_" in key \
                     or key in ("swing_release_arm_angle_deg", "swing_forward_duration_s", "swing_tempo_ratio",
-                               "swing_peak_angular_velocity_deg_s", "swing_pendulum_drive_ratio"):
+                               "swing_peak_angular_velocity_deg_s", "swing_pendulum_drive_ratio",
+                               "wrist_peak_speed_time_rel_release_ms", "elbow_peak_extension_time_rel_release_ms",
+                               "hand_to_bag_speed_ratio", "launch_direction_difference_deg"):
                 summaries[key] = None
         if bag_result is not None:
             if bag_result["launch"]["status"] == "estimated":
@@ -810,12 +832,29 @@ def analyze_trial(
     from .insights import release_window_quality
     quality.update(release_window_quality(quality, raw, confidence, landmarks, release_frame, context.throwing_side, config))
     from .quality import quality_grades
-    wrist_gap_px = (auto_flight or {}).get("release_wrist_distance_px") if auto_accepted else None
-    arm_px = kinematics.arm_length_pixels
     quality["grades"] = quality_grades(
         quality, flight_filter, gravity_scale, measured_scale is not None, release_confirmed_by,
-        wrist_gap_px / arm_px if wrist_gap_px is not None and arm_px > 0 else None,
+        None if release_window is None else release_window[1] - release_window[0],
         (projectile or {}).get("sample_count"), summaries.get("bag_release_angle_se_deg"))
+    from .reliability import assess_metrics
+    at_other_release: dict[str, float | None] = {}
+    if release_window and release_window[0] != release_window[1]:
+        other = release_window[0]
+        def _at(series, frame):
+            value = None if series is None or not 0 <= frame < len(series) else series[frame]
+            return None if value is None or not np.isfinite(value) else float(value)
+        at_other_release = {
+            "elbow_angle_deg_at_release": _at(kinematics.values["elbow_angle_deg"], other),
+            "trunk_inclination_deg_at_release": _at(kinematics.values["trunk_inclination_deg"], other),
+            "swing_release_arm_angle_deg": _at(kinematics.values["arm_swing_angle_deg"], other),
+            "wrist_speed_at_release_arm_lengths_s": _at(
+                np.array([np.nan if v is None else v for v in wrist_speed_series], float) if wrist_speed_series else None, other),
+        }
+    grades = quality["grades"]
+    coach_metrics = assess_metrics(
+        summaries, raw, confidence, filtered, landmarks, context.throwing_side, event_frames,
+        float(config["confidence_threshold"]), kinematics.arm_length_pixels, release_window, at_other_release,
+        grades["bag"]["grade"], grades["release"]["grade"], grades["calibration"]["grade"])
     warnings = sorted(set(filter_warnings + kinematics.warnings + bag_warnings))
     results = {
         "schema_version": 1,
@@ -838,7 +877,21 @@ def analyze_trial(
             "body_normalization": "throwing-shoulder-relative, divided by median projected upper-arm plus forearm length",
         },
         "claim_scope": "projected_2d_kinematics_not_true_3d_joint_orientation",
+        "coach_metrics": coach_metrics,
+        "release_window": list(release_window) if release_window else None,
+        "event_frames": event_frames,
+        "wrist_speed_arm_lengths_s": wrist_speed_series,
     }
+    after_contact = (auto_flight or {}).get("after_contact") if auto_accepted else None
+    flight["after_contact"] = None if after_contact is None else {
+        k: v for k, v in after_contact.items() if k not in ("path", "background_frames")}
+    from .replay import build_replay
+    replay_events = dict(event_frames, first_contact=contact_frame)
+    replay = build_replay(
+        fps=video.fps, frame_count=sequence.frame_count, width=video.width, height=video.height,
+        camera_to_release=camera_to_release, measured=fit_points, filtered=flight_filter,
+        model_check=flight.get("model_check"), after_contact=after_contact, events=replay_events,
+        summaries=summaries, coach_metrics=coach_metrics, grades=quality["grades"], release_window=release_window)
     normalized_payload = {
         "schema_version": 1,
         "trial_id": context.trial_id,
@@ -863,6 +916,7 @@ def analyze_trial(
     export_kinematics_csv(output / "kinematics.csv", times, kinematics.values)
     write_json(output / "normalized.json", normalized_payload)
     write_json(output / "results.json", results)
+    write_json(output / "replay.json", replay)
     if bag_derived is not None:
         write_json(output / "bag_track.json", bag_derived["payload"])
         write_bag_csv(output / "bag_keypoints.csv", bag_derived, video.fps)

@@ -26,9 +26,9 @@ import cv2
 import numpy as np
 
 from .bag import GRAVITY_M_S2, _robust_polynomial
-from .bag_segment import SEGMENT_REVISION, refine_flight
+from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v9_mask"
+AUTO_BAG_REVISION = "auto_motion_parabola_v10_rest"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -575,11 +575,29 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
     raw = [Candidate(f, refined[f]["x"], refined[f]["y"], refined[f].get("area_px") or 0.0) for f in sorted(refined)]
     stabilized = to_reference(raw, to_prev, release)
-    # Transforms for every frame the flight spans, plus a margin so a reviewer
-    # can move release or contact a few frames without losing stabilization.
-    margin = int(round(0.25 * fps))
-    transform_frames = range(max(0, release - margin), min(len(frames), contact + margin + 1))
-    camera_to_release = {str(f): np.round(chain[f][:2], 6).tolist() for f in transform_frames}
+    # Transforms for every frame of the clip: fits use the flight frames; the replay
+    # uses the rest to draw the whole throw on a moving (hand-held) picture.
+    camera_to_release = {str(f): np.round(chain[f][:2], 6).tolist() for f in range(len(frames))}
+    areas = [r["area_px"] for r in refined.values() if r.get("area_px")]
+    typical_area = float(np.median(areas)) if areas else None
+    after_contact = None
+    if contact_known and contact in refined:
+        before = [f for f in sorted(refined) if f < contact][-3:]
+        v0 = ((refined[contact]["x"] - refined[before[0]]["x"]) / (contact - before[0]),
+              (refined[contact]["y"] - refined[before[0]]["y"]) / (contact - before[0])) if before else (0.0, 0.0)
+        after_contact = track_after_contact(frames, chain, contact, (refined[contact]["x"], refined[contact]["y"]),
+                                            release, fps, typical_area, v0,
+                                            flight={f: (r["x"], r["y"]) for f, r in refined.items()})
+    # Second, independent release cue: where the flight traced backwards meets the
+    # wrist (geometry of bag path vs hand), versus the first free-flight detection.
+    release_check = None
+    if wrist is not None:
+        early = [{"frame": c.frame, "x": c.x, "y": c.y} for c in raw[:8]]
+        cue_frame, cue_distance = release_from_wrist({**fit, "first_frame": release, "early_points": early}, wrist, fps)
+        if cue_frame is not None:
+            release_check = {"method": "backward_flight_meets_wrist", "frame": int(cue_frame),
+                             "wrist_distance_px": cue_distance, "difference_frames": int(release - cue_frame),
+                             "agrees_within_2_frames": abs(release - cue_frame) <= 2}
     motion = camera_motion_px(to_prev, release, contact, (raw[0].x, raw[0].y))
     wrist_gap = None
     if wrist is not None and release < len(wrist) and np.isfinite(wrist[release]).all():
@@ -613,6 +631,9 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         "stabilized_coordinates": "release_frame_pixels_camera_motion_removed",
         "stabilized_points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
         "camera_to_release": camera_to_release,
+        "after_contact": after_contact,
+        "release_check": release_check,
+        "typical_bag_area_px": typical_area,
         "runtime_seconds": time.perf_counter() - started,
         "frames_processed": len(frames),
         "fit": {k: v for k, v in fit.items() if k != "early_points"},

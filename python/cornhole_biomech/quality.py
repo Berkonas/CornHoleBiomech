@@ -93,9 +93,10 @@ GRADE_RULES = {
     "calibration": "GOOD: an independent in-plane scale agrees with the flight's gravity scale within 10%. "
                    "WARNING: a single scale source (gravity-only or measured-only). POOR: no physical scale "
                    "(results stay in pixels / arm lengths).",
-    "release": "GOOD: release confirmed by a person, or found automatically with the first flight point within "
-               "0.5 arm lengths of the wrist, ≥6 launch-fit samples and launch-angle SE ≤ 3°. WARNING: automatic "
-               "release failing one of those. POOR: no confirmed release.",
+    "release": "GOOD: release confirmed by a person, or found automatically with the two release cues (first "
+               "free-flight frame; backward flight meets the wrist) within 3 frames (50 ms at 60 fps), ≥6 launch-fit "
+               "samples and launch-angle SE ≤ 3°. WARNING: automatic release with a window of 4–6 frames or failing "
+               "a fit check. POOR: no confirmed release, or cues more than 6 frames apart.",
 }
 
 
@@ -105,7 +106,7 @@ def _grade(good: bool, warning: bool) -> str:
 
 def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None,
                    gravity_scale: dict[str, Any] | None, measured_scale: bool,
-                   release_confirmed_by: str | None, release_wrist_distance_arm_lengths: float | None,
+                   release_confirmed_by: str | None, release_window_frames: int | None,
                    launch_sample_count: int | None, launch_angle_se_deg: float | None) -> dict[str, Any]:
     """GOOD / WARNING / POOR per measurement stage, each with the numbers that decided it."""
     grades: dict[str, Any] = {"rules": GRADE_RULES}
@@ -141,13 +142,14 @@ def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None
     if release_confirmed_by == "manual":
         release_grade = "GOOD"
     elif release_confirmed_by == "automatic_physics":
-        checks = [release_wrist_distance_arm_lengths is not None and release_wrist_distance_arm_lengths <= 0.5,
+        checks = [release_window_frames is not None and release_window_frames <= 3,
                   (launch_sample_count or 0) >= 6,
                   launch_angle_se_deg is not None and launch_angle_se_deg <= 3.0]
-        release_grade = "GOOD" if all(checks) else "WARNING"
+        release_grade = ("POOR" if release_window_frames is not None and release_window_frames > 6
+                         else "GOOD" if all(checks) else "WARNING")
     else:
         release_grade = "POOR"
     grades["release"] = {"grade": release_grade, "confirmed_by": release_confirmed_by,
-                         "wrist_distance_arm_lengths": release_wrist_distance_arm_lengths,
+                         "release_window_frames": release_window_frames,
                          "launch_fit_samples": launch_sample_count, "launch_angle_se_deg": launch_angle_se_deg}
     return grades

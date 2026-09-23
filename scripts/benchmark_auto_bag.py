@@ -42,7 +42,10 @@ def run(analysis: Path) -> dict:
                             context["target_direction"])
     row = {"clip": Path(context["source_video"]).name, "status": result["status"],
            "release_frame": result.get("release_frame"), "first_contact_frame": result.get("first_contact_frame"),
-           "runtime_seconds": result.get("runtime_seconds"), "reasons": result.get("reasons")}
+           "runtime_seconds": result.get("runtime_seconds"), "reasons": result.get("reasons"),
+           "release_check": result.get("release_check"),
+           "after_contact": {k: v for k, v in (result.get("after_contact") or {}).items() if k != "path"}
+           | {"path_frames": len((result.get("after_contact") or {}).get("path") or [])}}
     points = result.get("points") or []
     if points:
         f = np.array([p["frame"] for p in points])
