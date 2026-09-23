@@ -30,7 +30,7 @@ import numpy as np
 from .bag import GRAVITY_M_S2, _robust_polynomial
 from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v10b_registration"
+AUTO_BAG_REVISION = "auto_motion_parabola_v10c_stabilized_rms"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -401,8 +401,13 @@ def build_tracklets(candidates: list[Candidate], gate_px: float, first_step_px: 
 
 def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
                 arm_length_px: float | None = None, iterations: int = 1500, seed: int = 7,
-                wrist: np.ndarray | None = None) -> dict[str, Any]:
-    """Choose the candidate subset that behaves like a thrown bag (see module docstring)."""
+                wrist: np.ndarray | None = None, to_prev: list[np.ndarray] | None = None) -> dict[str, Any]:
+    """Choose the candidate subset that behaves like a thrown bag (see module docstring).
+
+    With `to_prev` (per-frame camera transforms), the whole-flight residual used for
+    acceptance is measured on the detections expressed in the first flight frame's pixels,
+    so hand-held camera motion during the flight does not count as deviation from one arc.
+    """
     sign = 1.0 if target_direction == "left_to_right" else -1.0
     g_range = _gravity_range(arm_length_px)
     tol = max(6.0, 0.05 * arm_length_px) if arm_length_px else 8.0
@@ -508,6 +513,8 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
     if arm_length_px and travel < MIN_TRAVEL_ARM_LENGTHS * arm_length_px:
         reasons.append(f"The path moves only {travel / arm_length_px:.1f} arm lengths toward the target; "
                        f"a throw needs at least {MIN_TRAVEL_ARM_LENGTHS:.0f}.")
+    if to_prev is not None:
+        residual = _stabilized_residual([chosen[f][0] for f in run], to_prev, fps)
     rms = float(np.sqrt(np.mean(residual**2)))
     rms_limit = MAX_RMS_ARM_LENGTHS * arm_length_px if arm_length_px else 8.0
     if rms > rms_limit:
@@ -518,11 +525,32 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
         points=[{"frame": f, "x": chosen[f][0].x, "y": chosen[f][0].y, "area": chosen[f][0].area} for f in run],
         fit={"reference_frame": f_ref, "coef_x": list(map(float, coef_x)), "coef_y": list(map(float, coef_y)),
              "vertical_acceleration_px_s2": float(2 * coef_y[2]), "horizontal_acceleration_px_s2": float(2 * coef_x[2]),
-             "rms_residual_px": float(np.sqrt(np.mean(residual**2))), "first_frame": run[0], "last_frame": run[-1],
+             "rms_residual_px": rms, "rms_coordinates": "first_flight_frame_pixels_camera_motion_removed"
+             if to_prev is not None else "raw_video_pixels", "first_frame": run[0], "last_frame": run[-1],
              "span_seconds": span, "coverage": coverage, "inliers": len(run),
              "early_points": [{"frame": f, "x": chosen[f][0].x, "y": chosen[f][0].y} for f in run[:8]]},
     )
     return result
+
+
+def _stabilized_residual(points: list[Candidate], to_prev: list[np.ndarray], fps: float) -> np.ndarray:
+    """Distances from one parabola of detections expressed in the first detection's frame pixels."""
+    first = points[0].frame
+    m, at = np.eye(3), first
+    xs, ys = [], []
+    for c in points:                       # compose frame c.frame → first (frames increase)
+        while at < c.frame:
+            at += 1
+            m = m @ np.vstack([to_prev[at], [0, 0, 1]])
+        x, y, _ = m @ np.array([c.x, c.y, 1.0])
+        xs.append(x)
+        ys.append(y)
+    t = np.array([(c.frame - first) / fps for c in points])
+    xs, ys = np.array(xs), np.array(ys)
+    coef_x, _, _ = _robust_polynomial(t, xs, 2)
+    coef_y, _, _ = _robust_polynomial(t, ys, 2)
+    px, py = _predict(coef_x, coef_y, t)
+    return np.hypot(xs - px, ys - py)
 
 
 def release_from_wrist(fit: dict[str, Any], wrist: np.ndarray, fps: float,
@@ -561,12 +589,14 @@ def release_from_wrist(fit: dict[str, Any], wrist: np.ndarray, fps: float,
 
 # ---------------------------------------------------------------- orchestration
 def find_flights(candidates: list[Candidate], fps: float, target_direction: str,
-                 arm_length_px: float | None, wrist: np.ndarray | None = None, max_flights: int = 8) -> list[dict[str, Any]]:
+                 arm_length_px: float | None, wrist: np.ndarray | None = None, max_flights: int = 8,
+                 to_prev: list[np.ndarray] | None = None) -> list[dict[str, Any]]:
     """All projectile flights in a clip (a clip may contain several throws), in time order."""
     remaining = list(candidates)
     flights: list[dict[str, Any]] = []
     for _ in range(max_flights):
-        found = find_flight(remaining, fps, target_direction, arm_length_px=arm_length_px, wrist=wrist)
+        found = find_flight(remaining, fps, target_direction, arm_length_px=arm_length_px, wrist=wrist,
+                            to_prev=to_prev)
         if found["fit"] is None or found["fit"]["inliers"] < 6:
             break
         flights.append(found)
@@ -615,7 +645,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     if len(frames) < 5:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": ["The clip is too short."], "flights": []}
     candidates, to_prev = detect_moving_blobs_in_frames(frames)
-    flights = find_flights(candidates, fps, target_direction, arm_length_px, wrist)
+    flights = find_flights(candidates, fps, target_direction, arm_length_px, wrist, to_prev=to_prev)
     summary = [{"status": f["status"], "first_frame": f["fit"]["first_frame"], "last_frame": f["fit"]["last_frame"],
                 "inliers": f["fit"]["inliers"], "reasons": f["reasons"]} for f in flights]
     accepted = [f for f in flights if f["status"] == "accepted"]

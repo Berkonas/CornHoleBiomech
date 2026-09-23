@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 import pytest
 
-from cornhole_biomech.board import (MAX_PHI_DEG, NOMINAL_HFOV_DEG, camera_matrix, detect_board,
-                                    order_corners, solve_board)
+from cornhole_biomech.board import (HIDDEN_FRONT_CORNER_REASON, HOLE_TOLERANCE_IN, MAX_PHI_DEG, NOMINAL_HFOV_DEG,
+                                    camera_matrix, detect_board, order_corners, solve_board)
 from cornhole_biomech.regulation import INCH_M, Board
 
 W, H = 1920, 1080
@@ -107,11 +107,15 @@ def render_apron_board(corners, apron_px=24, stripe=True, hole=True):
     return img
 
 
-def test_detect_board_on_apron_render_with_stripe():
+def test_hidden_front_corner_is_not_found_but_prefills_corners():
+    # No end face visible and a stripe covering the front-far corner: that corner can only be
+    # inferred (PnP scan at the nominal FOV), so the detector must not claim "found".
     rvec, tvec = side_pose()
     corners = project_board(rvec, tvec)
     out = detect_board(render_apron_board(corners), "left_to_right", B)
-    assert out["status"] == "found"
+    assert out["status"] == "not_found"
+    assert out["reasons"] == [HIDDEN_FRONT_CORNER_REASON]
+    assert out["hole_offset_in"] is not None and out["hole_offset_in"] <= HOLE_TOLERANCE_IN
     assert np.abs(np.array(out["corners_px"]) - order_corners(corners, "left_to_right")).max() < 12
 
 
@@ -134,11 +138,11 @@ def test_quad_that_is_not_a_regulation_deck_is_rejected():
 
 
 def test_detect_board_mirrored_for_right_to_left_throws():
-    rvec, tvec = side_pose()
-    corners = project_board(rvec, tvec)
+    corners = pilot_like_corners()
     mirrored = corners.copy()
     mirrored[:, 0] = W - 1 - mirrored[:, 0]
-    out = detect_board(render_apron_board(corners)[:, ::-1].copy(), "right_to_left", B)
+    out = detect_board(render_pilot_board(order_corners(corners, "left_to_right"))[:, ::-1].copy(),
+                       "right_to_left", B)
     assert out["status"] == "found"
     assert np.abs(np.array(out["corners_px"]) - order_corners(mirrored, "right_to_left")).max() < 12
 
@@ -196,7 +200,7 @@ def test_deck_graphic_without_a_hole_is_not_found():
 
 
 def test_hole_check_rejects_corners_shifted_along_the_deck():
-    from cornhole_biomech.board import HOLE_TOLERANCE_IN, _hole_offset_in
+    from cornhole_biomech.board import _hole_offset_in
     corners = order_corners(pilot_like_corners(), "left_to_right")
     img = render_pilot_board(corners)
     to_px = _deck_to_px(corners)

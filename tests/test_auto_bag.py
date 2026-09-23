@@ -135,3 +135,27 @@ def test_blur_fragments_of_one_bag_are_merged_into_one_candidate():
     merged = _merge_fragments([(100.0, 100.0, 10), (108.0, 104.0, 10), (300.0, 300.0, 5)], merge_px=16)
     assert len(merged) == 2
     assert any(abs(x - 104) < 1e-9 and abs(y - 102) < 1e-9 and a == 20 for x, y, a in merged)
+
+
+def test_acceptance_rms_is_measured_with_camera_motion_removed():
+    # Hand-held sway (camera offset c(f)) moves every raw detection by −c(f). Raw pixels then
+    # deviate from one parabola by more than the RMS limit although the bag flies a clean arc.
+    flight = true_flight()
+    sway = {f: np.array([16 * np.sin(2 * np.pi * f / 30), 9.6 * np.cos(2 * np.pi * f / 30)]) for f in range(121)}
+    raw = [Candidate(c.frame, c.x - sway[c.frame][0], c.y - sway[c.frame][1], c.area)
+           for c in candidates_with_clutter(flight)]
+    # to_prev[f] maps frame-f pixels to frame f−1: raw_{f−1} = raw_f + c(f) − c(f−1).
+    to_prev = [np.float32([[1, 0, 0], [0, 1, 0]])] + [
+        np.float32([[1, 0, sway[f][0] - sway[f - 1][0]], [0, 1, sway[f][1] - sway[f - 1][1]]]) for f in range(1, 121)]
+    arm = PPM * 0.62
+    old = find_flight(raw, FPS, "left_to_right", arm_length_px=arm)
+    assert old["status"] == "needs_review"
+    assert any("px RMS" in r for r in old["reasons"])
+    new = find_flight(raw, FPS, "left_to_right", arm_length_px=arm, to_prev=to_prev)
+    assert new["status"] == "accepted", new["reasons"]
+    assert new["fit"]["rms_residual_px"] < 0.08 * arm
+    # points stay in raw video pixels
+    by_frame = {c.frame: c for c in raw if np.hypot(c.x + sway[c.frame][0] - flight.get(c.frame, (1e9, 0))[0],
+                                                     c.y + sway[c.frame][1] - flight.get(c.frame, (0, 1e9))[1]) < 6}
+    p = new["points"][len(new["points"]) // 2]
+    assert (p["x"], p["y"]) == pytest.approx((by_frame[p["frame"]].x, by_frame[p["frame"]].y))

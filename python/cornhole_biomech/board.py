@@ -38,6 +38,7 @@ HOLE_KERNEL_IN = 8                  # black-hat kernel diameter, larger than the
 HOLE_TOLERANCE_IN = 4.0             # hole centroid within this of (12, 39) in; pilot plates measured 0.9–1.5 in
 HOLE_MIN_AREA_FRACTION = 0.1        # of the 3 in radius hole's area in the rectified deck
 EDGE_TOL_PX = 2.0                   # edge-line inlier tolerance (blurred plate edges scatter ~1 px)
+HIDDEN_FRONT_CORNER_REASON = "The board's front corner is hidden; click the four deck corners."
 END_FACE_MIN_PX = 3                 # band end this far beyond the near edge's end = a visible end face
 
 
@@ -155,25 +156,31 @@ def detect_board(plate: np.ndarray, target_direction: str, board: Board = Board(
     # deck (synthetic pilot-look boards: such rim quads were 25–37 px off yet passed the hole
     # check). Conservative: an apron quad later rejected by PnP still suppresses the rim quad.
     aprons = _apron_candidates(red, dark, target_direction, board)
-    rims = [(q, s) for q, s in _rim_candidates(red, dark, target_direction)
-            if not any(_quads_overlap(q, a) for a, _ in aprons)]
+    rims = [(q, s, True) for q, s in _rim_candidates(red, dark, target_direction)
+            if not any(_quads_overlap(q, a) for a, _, _ in aprons)]
     candidates = aprons + rims
     height, width = plate.shape[:2]
     best = None
-    for quad, shape_score in candidates:
+    for quad, shape_score, corners_observed in candidates:
         if _pnp_residual_px(quad, (width, height), board) > MAX_PNP_RESIDUAL_FRACTION * np.ptp(quad[:, 0]):
             continue      # not a projected regulation deck
         hole_offset = _hole_offset_in(plate, quad)
         confidence = 0.5 * shape_score + (0.5 if hole_offset is not None and hole_offset <= HOLE_TOLERANCE_IN else 0.0)
         if best is None or confidence > best["confidence"]:
-            best = {"corners_px": quad.tolist(), "confidence": confidence, "hole_offset_in": hole_offset}
+            best = {"corners_px": quad.tolist(), "confidence": confidence, "hole_offset_in": hole_offset,
+                    "corners_observed": corners_observed}
     if best is None:
         return {"status": "not_found", "corners_px": None, "confidence": 0.0, "hole_offset_in": None,
                 "reasons": ["No red deck with a dark rim or apron large enough to be a regulation board was found."]}
+    observed = best.pop("corners_observed")
     if best["confidence"] < MIN_CONFIDENCE:
         return {**best, "status": "not_found",
                 "reasons": [f"Best board candidate has confidence {best['confidence']:.2f} (< {MIN_CONFIDENCE}); "
                             "click the four deck corners instead."]}
+    if not observed:
+        # The front-far corner came from the PnP scan at the nominal FOV, not from the image:
+        # synthetic boards showed it 15–21 px (3–4 in) off while the hole still agreed.
+        return {**best, "status": "not_found", "reasons": [HIDDEN_FRONT_CORNER_REASON]}
     return {**best, "status": "found", "reasons": []}
 
 
@@ -212,14 +219,16 @@ def _rim_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str) ->
 
 
 def _apron_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str,
-                      board: Board = Board()) -> list[tuple[np.ndarray, float]]:
+                      board: Board = Board()) -> list[tuple[np.ndarray, float, bool]]:
     """Dark band much longer (in x) than thick — the near-side apron — with red deck along its top edge.
 
     Near edge = top of the band; far edge = top of the red directly above it. Near corners
-    end where the band ends, back-far where the red along the far edge ends. A stripe of
-    another colour often reaches the far edge near the front (pilot boards), so front-far is
-    searched along the far edge from a little ahead of the band's front end to the first red,
-    keeping the position whose regulation-deck PnP fit has the smallest residual.
+    end where the band's top leaves the near-edge line, back-far where the red along the far
+    edge ends. If the band continues past the front-near corner (a visible front face), its
+    front column is the observed front-far corner. Otherwise front-far is inferred: searched
+    along the far edge from a little ahead of the band's front end to the first red, keeping
+    the position whose regulation-deck PnP fit has the smallest residual. Each candidate is
+    (quad, shape score, front-far corner observed).
     """
     height, width = dark.shape
     band = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
@@ -271,7 +280,8 @@ def _apron_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str,
         size = (red.shape[1], red.shape[0])
         best_quad, best_residual = None, math.inf
         step = 1 if target_direction == "left_to_right" else -1
-        if abs(front_x - band_front) >= END_FACE_MIN_PX:
+        observed_front_far = abs(front_x - band_front) >= END_FACE_MIN_PX
+        if observed_front_far:
             # A visible front face ends at the front-far corner: the band's front column.
             front_far_candidates = [band_front]
         else:
@@ -288,8 +298,7 @@ def _apron_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str,
                 best_quad, best_residual = quad, residual
         if best_quad is None:
             continue
-        quad = best_quad
-        out.append((quad, red_fraction))
+        out.append((best_quad, red_fraction, observed_front_far))
     return out
 
 
