@@ -21,6 +21,25 @@ def test_plate_removes_moving_object_and_undoes_camera_shift():
     assert plate[10:20, 20:140].max() < 60        # moving object gone
 
 
+def test_half_scale_plate_undoes_camera_shift():
+    h, w = 160, 200
+    scene = np.zeros((h, w, 3), np.uint8)
+    scene[60:110, 70:130] = (0, 200, 0)          # static green "board", 50x60 px
+    frames, chain = [], {}
+    for f in range(30):
+        dx = 2 * (f % 5)                             # hand-held drift, multiple of 2 px
+        img = np.roll(scene, dx, axis=1).copy()
+        img[10:20, 5 * f % w:5 * f % w + 6] = 255    # moving white "bag"
+        frames.append(img)
+        chain[f] = np.array([[1, 0, -dx], [0, 1, 0], [0, 0, 1]], float)   # frame → reference
+    out = build_plate(frames, chain, scale=0.5)
+    plate, coverage = out["plate"], out["coverage"]
+    assert plate.shape == scene.shape
+    assert coverage.shape == scene.shape[:2]
+    assert np.abs(plate[64:106, 74:126].astype(int) - scene[64:106, 74:126]).max() <= 6
+    assert plate[10:20, 20:140].max() < 60        # moving object gone
+
+
 def test_person_mask_pixels_are_excluded():
     h, w = 60, 80
     frames = [np.full((h, w, 3), 100, np.uint8) for _ in range(10)]
