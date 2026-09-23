@@ -128,3 +128,10 @@ def test_slide_after_landing_is_trimmed_so_contact_is_the_last_flight_frame():
     result = find_flight(candidates_with_clutter(flight, drop=0.05), FPS, "left_to_right", arm_length_px=PPM * 0.62)
     assert result["status"] == "accepted"
     assert 77 <= result["fit"]["last_frame"] <= 81
+
+
+def test_blur_fragments_of_one_bag_are_merged_into_one_candidate():
+    from cornhole_biomech.auto_bag import _merge_fragments
+    merged = _merge_fragments([(100.0, 100.0, 10), (108.0, 104.0, 10), (300.0, 300.0, 5)], merge_px=16)
+    assert len(merged) == 2
+    assert any(abs(x - 104) < 1e-9 and abs(y - 102) < 1e-9 and a == 20 for x, y, a in merged)

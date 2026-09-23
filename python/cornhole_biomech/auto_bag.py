@@ -26,13 +26,15 @@ import numpy as np
 
 from .bag import GRAVITY_M_S2, _robust_polynomial
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v4"
+AUTO_BAG_REVISION = "auto_motion_parabola_v8"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
 MIN_COVERAGE = 0.6
 MIN_TRAVEL_ARM_LENGTHS = 4.0   # a throw carries the bag metres toward the board; hand/catch motion does not
-IN_HAND_ARM_LENGTHS = 0.3   # bag within this distance of the wrist is treated as held
+# A held bag sits at the fingertips, about one hand length (~0.34 arm lengths) beyond the
+# wrist landmark, so anything within 0.45 arm lengths of the wrist is still treated as held.
+IN_HAND_ARM_LENGTHS = 0.45
 MAX_RMS_ARM_LENGTHS = 0.08  # whole-flight parabola residual limit (drag/perspective allowance)
 RELEASE_AT_HAND_ARM_LENGTHS = 0.8  # the first free-flight point must be this close to the wrist
 
@@ -65,7 +67,7 @@ def _similarity(orb, matcher, a, b) -> np.ndarray:
 
 
 def detect_moving_blobs_in_frames(frames: Sequence[np.ndarray], scale: float = 0.5,
-                                  min_area: int = 3, max_area: int = 400
+                                  min_area: int = 3, max_area: int = 400, merge_px: float = 16.0
                                   ) -> tuple[list[Candidate], list[np.ndarray]]:
     """Small moving blobs per frame and per-frame transforms (frame t → t−1, full-res).
 
@@ -95,16 +97,38 @@ def detect_moving_blobs_in_frames(frames: Sequence[np.ndarray], scale: float = 0
         mask = (diff > max(18.0, med + 6 * 1.4826 * mad)).astype(np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
-        for i in range(1, count):
-            area = int(stats[i, cv2.CC_STAT_AREA])
-            if min_area <= area <= max_area:
-                candidates.append(Candidate(t, float(centroids[i][0] / scale), float(centroids[i][1] / scale), area / scale**2))
+        blobs = [(float(centroids[i][0] / scale), float(centroids[i][1] / scale), int(stats[i, cv2.CC_STAT_AREA]))
+                 for i in range(1, count) if int(stats[i, cv2.CC_STAT_AREA]) >= min_area]
+        for x, y, area in _merge_fragments(blobs, merge_px):
+            if area <= max_area:
+                candidates.append(Candidate(t, x, y, area / scale**2))
     full = []
     for M in to_prev:   # rescale translation to full resolution
         F = M.copy()
         F[:, 2] /= scale
         full.append(F)
     return candidates, full
+
+
+def _merge_fragments(blobs: list[tuple[float, float, int]], merge_px: float) -> list[tuple[float, float, int]]:
+    """Join fragments of one object split by motion blur (area-weighted centroid).
+
+    Greedy single-linkage within `merge_px` full-resolution pixels. Small enough that
+    the bag is not merged with the hand or a second bag in normal framing.
+    """
+    groups: list[list[tuple[float, float, int]]] = []
+    for blob in sorted(blobs, key=lambda b: -b[2]):
+        for group in groups:
+            if any(np.hypot(blob[0] - g[0], blob[1] - g[1]) <= merge_px for g in group):
+                group.append(blob)
+                break
+        else:
+            groups.append([blob])
+    merged = []
+    for group in groups:
+        area = sum(b[2] for b in group)
+        merged.append((sum(b[0] * b[2] for b in group) / area, sum(b[1] * b[2] for b in group) / area, area))
+    return merged
 
 
 def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
@@ -220,13 +244,27 @@ def _trim_to_projectile(chosen, f_ref, fps, limit, min_points=6):
         px, py = _predict(coef_x, coef_y, t)
         residual = np.hypot(np.array([chosen[f][0].x for f in run]) - px, np.array([chosen[f][0].y for f in run]) - py)
         # The start was already stopped at the hand by the backward extension, so only a
-        # grossly deviating start is removed; the end (slide/bounce) is trimmed normally.
-        if residual[-1] > limit:
+        # grossly deviating start is removed. The end is judged against a LOCAL parabola of
+        # the preceding frames: late free flight drifts from one whole-flight parabola
+        # (perspective, drag) but a slide or bounce breaks sharply from the local one.
+        if _end_breaks_locally(chosen, run, fps, limit):
             run = run[:-1]
         elif residual[0] > 2 * limit:
             run = run[1:]
         else:
             return run, coef_x, coef_y
+
+
+def _end_breaks_locally(chosen, run, fps, limit, window=15) -> bool:
+    if len(run) < 8:
+        return False
+    before = run[-1 - min(window, len(run) - 1):-1]
+    t = np.array([(f - run[-1]) / fps for f in before])
+    degree = 2 if len(before) >= 5 else 1
+    px = np.polyval(np.polyfit(t, [chosen[f][0].x for f in before], degree), 0.0)
+    py = np.polyval(np.polyfit(t, [chosen[f][0].y for f in before], degree), 0.0)
+    end = chosen[run[-1]][0]
+    return float(np.hypot(end.x - px, end.y - py)) > limit
 
 
 def _plausible(coef_x, coef_y, sign, g_range) -> bool:

@@ -69,8 +69,6 @@ VARIABLES: tuple[Variable, ...] = (
              "simulated 4 px landmark noise at pilot framing; replace with validation"),
     Variable("trunk_inclination_deg_at_release", "Trunk lean at release", "°", "more upright", "more forward", 0,
              False, 5.0, "simulated landmark noise on the hip–shoulder segment; replace with validation"),
-    Variable("movement_duration_seconds", "Throw duration", "s", "quicker", "slower", 2, True, 0.1,
-             "±2 frames at 60 fps plus heuristic motion onset"),
 )
 # Same quantity in two unit systems: prefer meters when most throws have them.
 ALTERNATIVES = (("bag_release_speed_m_s", "bag_release_speed_arm_lengths_s"),

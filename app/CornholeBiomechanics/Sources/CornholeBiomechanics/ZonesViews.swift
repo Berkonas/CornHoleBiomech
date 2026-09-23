@@ -89,7 +89,7 @@ struct ZonesPanel: View {
                           systemImage: "checkmark.seal").font(.callout)
                 }
                 DisclosureGroup("How zones are defined") {
-                    Text(report.meaning + " Green = first contact from 45 cm short of the hole centre to its far edge (bags landing short usually slide in); yellow = elsewhere on the board or up to 30 cm short of it; red = otherwise. Drag-free point mass; release-to-board distance from settings.")
+                    Text(report.meaning + " Green = first contact from 45 cm short of the hole centre to its far edge (bags landing short usually slide in); yellow = elsewhere on the board or up to 30 cm short of it; red = otherwise, including a thin band where the bag would strike the front face of the board. Drag-free point mass; release-to-board distance from settings.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }

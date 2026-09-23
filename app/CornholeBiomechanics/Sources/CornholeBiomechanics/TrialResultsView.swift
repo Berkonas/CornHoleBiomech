@@ -26,6 +26,7 @@ struct ResultsView: View {
                 if insight.needs_reanalysis { Label("Corrections changed. Reanalyze before interpreting these measurements.", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange) }
                 if !insight.needs_reanalysis {
                 reviewReadiness
+                QuickOutcomeBar(trial: trial) { Task { await refresh() } }
                 if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
                 if let sports = insight.performance?.sports { SportsStatsStrip(stats: sports) }
                 measurementStrip(insight)
@@ -119,6 +120,14 @@ struct ResultsView: View {
                 measurement("Release height", key: hasHeightMeters ? "bag_release_height_m" : "bag_release_height_arm_lengths",
                             unit: hasHeightMeters ? "m" : "arm lengths", digits: 2, note: "Bag above the lowest foot point")
                 measurement("Elbow at release", key: "elbow_angle_deg_at_release", unit: "°", digits: 0, note: "180° = straight (as seen by the camera)")
+            }
+            Text("Swing").font(.headline).padding(.top, 4)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], spacing: 16) {
+                measurement("Arm angle at release", key: "swing_release_arm_angle_deg", unit: "°", digits: 0, note: "0° = straight down, 90° = pointing at the board")
+                measurement("Peak arm swing speed", key: "swing_peak_angular_velocity_deg_s", unit: "°/s", digits: 0, note: "Fastest arm rotation in the forward swing")
+                measurement("Backswing", key: "swing_backswing_angle_deg", unit: "°", digits: 0, note: "Arm angle at the top of the backswing")
+                measurement("Tempo", key: "swing_tempo_ratio", unit: "back ÷ forward", digits: 2, note: "Backswing time ÷ forward-swing time")
+                measurement("Pendulum drive", key: "swing_pendulum_drive_ratio", unit: "× passive", digits: 2, note: "1 = gravity only; above 1 = arm actively driven")
             }
             Text("Release values need a confirmed release frame. — means not measured, never zero. Recorded at \(number(value.quality.frameRateFPS, digits: 0)) fps · \(trialViewLabel)")
                 .font(.caption).foregroundStyle(.secondary)
@@ -333,5 +342,37 @@ struct BoardMap: View {
                 }
             }.frame(maxWidth:.infinity,maxHeight:.infinity)
         }.accessibilityLabel("Regulation cornhole board with \(trials.count) trial outcomes. Plus is target, circle is first contact, square is final rest.")
+    }
+}
+
+/// One click records the observed bag value; the summary refreshes immediately.
+struct QuickOutcomeBar: View {
+    @EnvironmentObject private var store: ProjectStore
+    let trial: Trial
+    var saved: () -> Void
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Result of this throw:").font(.headline)
+            button("Hole · 3", .throughHole, "checkmark.circle.fill", .green)
+            button("Board · 1", .onBoard, "minus.circle.fill", .orange)
+            button("Miss · 0", .offBoard, "xmark.circle.fill", .red)
+            if trial.outcome?.scoreCategory != nil {
+                Button("Clear") { set(nil) }.buttonStyle(.borderless)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    }
+    private func button(_ title: String, _ score: ScoreCategory, _ symbol: String, _ color: Color) -> some View {
+        let selected = trial.outcome?.scoreCategory == score
+        return Button { set(score) } label: {
+            Label(title, systemImage: symbol).foregroundStyle(selected ? Color.white : color)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(selected ? color : color.opacity(0.12), in: Capsule())
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private func set(_ score: ScoreCategory?) {
+        do { try store.setScore(score, for: trial); saved() } catch { store.errorMessage = error.localizedDescription }
     }
 }

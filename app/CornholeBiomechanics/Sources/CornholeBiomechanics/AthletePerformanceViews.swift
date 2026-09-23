@@ -14,7 +14,7 @@ struct AthletePerformance: Decodable {
         var all: Group; var scored: Group; var miss: Group
         var n_scored: Int; var n_miss: Int
         var cliffs_delta: Double?; var noise_floor: Double?
-        var below_noise_floor: Bool; var distinguishes: Bool
+        var below_noise_floor: Bool; var distinguishes: Bool; var spread_distinguishes: Bool? = nil
         var points: [Point]?
     }
     var success_definition: String
@@ -29,7 +29,7 @@ let performanceVariableOrder = [
     "bag_release_angle_deg", "bag_release_speed_m_s", "bag_release_speed_arm_lengths_s",
     "bag_release_height_m", "bag_release_height_arm_lengths", "bag_release_position_forward_arm_lengths",
     "swing_release_arm_angle_deg", "swing_peak_angular_velocity_deg_s", "swing_backswing_angle_deg", "swing_tempo_ratio",
-    "elbow_angle_deg_at_release", "trunk_inclination_deg_at_release", "movement_duration_seconds",
+    "elbow_angle_deg_at_release", "trunk_inclination_deg_at_release",
 ]
 // Validated categorical slots 1–2 (dataviz reference palette); rows also carry the group name.
 let scoredInk = Color(red: 0.165, green: 0.471, blue: 0.839)
@@ -64,13 +64,34 @@ struct ScoredVersusMissedPanel: View {
             Text("Scored vs missed throws").font(.title2.weight(.semibold))
             Text("Each dot is one throw by this athlete. The vertical tick is each group's median; the ringed dot is this throw. Success = \(summary.success_definition).")
                 .font(.callout).foregroundStyle(.secondary)
-            ForEach(performanceVariableOrder.filter { summary.variables[$0] != nil }, id: \.self) { key in
-                if let variable = summary.variables[key] { strip(variable) }
+            if summary.variables.values.allSatisfy({ $0.n_scored + $0.n_miss == 0 }) {
+                Label("Record Hole, Board or Miss for this athlete's throws (buttons at the top) to compare scored throws with misses.",
+                      systemImage: "hand.tap").foregroundStyle(.secondary)
+            } else {
+                ForEach(featured, id: \.self) { key in
+                    if let variable = summary.variables[key] { strip(variable) }
+                }
+                let others = keys.filter { !featured.contains($0) }
+                if !others.isEmpty {
+                    DisclosureGroup("All measured variables (\(others.count) more)") {
+                        ForEach(others, id: \.self) { key in
+                            if let variable = summary.variables[key] { strip(variable) }
+                        }
+                    }
+                }
             }
             DisclosureGroup("How “differed” is decided") {
                 Text(summary.method).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private var keys: [String] { performanceVariableOrder.filter { summary.variables[$0] != nil } }
+    /// Variables that differed between scored and missed throws; otherwise the three largest effects.
+    private var featured: [String] {
+        let differed = keys.filter { summary.variables[$0]?.distinguishes == true || summary.variables[$0]?.spread_distinguishes == true }
+        if !differed.isEmpty { return differed }
+        return Array(keys.sorted { abs(summary.variables[$0]?.cliffs_delta ?? 0) > abs(summary.variables[$1]?.cliffs_delta ?? 0) }.prefix(3))
     }
 
     private func strip(_ v: AthletePerformance.Variable) -> some View {

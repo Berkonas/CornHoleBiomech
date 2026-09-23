@@ -560,6 +560,21 @@ final class ProjectStore: ObservableObject {
         do { try save() } catch { project = previous; throw error }
     }
 
+    /// Automatic bag-flight result for a throw: "accepted", "needs_review", "not_found", or nil if not run.
+    func flightStatus(for trial: Trial) -> String? {
+        guard let url = analysisURL(for: trial)?.appendingPathComponent("auto_flight.json"),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object["status"] as? String
+    }
+
+    /// Record only the observed bag value, keeping any other outcome details.
+    func setScore(_ score: ScoreCategory?, for trial: Trial) throws {
+        var outcome = trial.outcome ?? TrialOutcome(intendedPoint: BoardPoint(xInches: 12, yInches: 39))
+        outcome.scoreCategory = score
+        try saveOutcome(outcome, for: trial)
+    }
+
     func saveOutcome(_ outcome: TrialOutcome, for trial: Trial) throws {
         var changed = trial
         changed.outcome = outcome

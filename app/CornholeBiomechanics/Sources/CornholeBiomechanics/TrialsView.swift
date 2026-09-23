@@ -24,10 +24,23 @@ struct TrialsView: View {
                             Spacer()
                             if trial.isReference { Image(systemName: "bookmark.fill").foregroundStyle(.tint) }
                         }.font(.caption).foregroundStyle(.secondary)
-                        if case .missing = store.videoState(for: trial) {
-                            StatusPill(text: "Missing video", color: .orange)
-                        } else {
-                            StatusPill(text: trial.analysisStatus, color: trial.analysisRelativePath == nil ? .secondary : .green)
+                        HStack(spacing: 4) {
+                            if case .missing = store.videoState(for: trial) {
+                                StatusPill(text: "Missing video", color: .orange)
+                            } else if trial.analysisRelativePath == nil {
+                                StatusPill(text: trial.analysisStatus, color: .secondary)
+                            } else {
+                                switch store.flightStatus(for: trial) {
+                                case "accepted": StatusPill(text: "Bag ✓ auto", color: .green)
+                                case "needs_review": StatusPill(text: "Bag: review", color: .orange)
+                                case "not_found": StatusPill(text: "No flight found", color: .secondary)
+                                default: StatusPill(text: trial.analysisStatus, color: .green)
+                                }
+                            }
+                            if let score = trial.outcome?.scoreCategory {
+                                StatusPill(text: score == .throughHole ? "Hole" : score == .onBoard ? "Board" : "Miss",
+                                           color: score == .throughHole ? .green : score == .onBoard ? .orange : .red)
+                            }
                         }
                     }.padding(.vertical, 3).tag(trial.id)
                 }
