@@ -113,3 +113,28 @@ Sports2D 0.8.34's pixel TRC header is corrected from its upstream hardcoded `m` 
 ## Arm-motion descriptors
 
 The `arm_motion_*` fields describe the inclusive forward-swing-to-release interval in native-rate filtered side-view data. They include mean flexion (180° minus included elbow angle), flexion excursion, sample SD and shoulder–wrist radius CV. The UI shows CV × 100 as percent; saved values are ratios. They require ≥5 usable samples and ≥80% coverage, with a separate radius gate. Null values mean unavailable. These gates do not establish anatomical accuracy. Earlier passive-pendulum notes are archived in `archive/PENDULUM_MODELS.md`.
+
+## Swing (pendulum) metrics
+
+These come from `swing.py`. The arm angle φ is the shoulder→wrist line measured from straight down: +90° points at the board and negative values are behind the body. It is projected 2D.
+
+| Metric | Definition |
+|---|---|
+| Backswing | Lowest φ between the start of the backswing and release |
+| Arm angle at release | φ at the confirmed release frame |
+| Peak arm swing speed | Largest dφ/dt (6 Hz-filtered) from the top of the backswing to release, °/s |
+| Hand speed at release | Shoulder-relative wrist speed (arm lengths/s, or m/s with a scale); "incl. body movement" also counts trunk/step translation |
+| Tempo | Backswing time ÷ forward-swing time. The backswing starts at the last near-still arm frame (< 15 % of peak angular speed) |
+| Pendulum drive ratio | Measured ω at the bottom of the swing ÷ ω of a passive uniform rod of the same length released from the same backswing: √(3g(1 − cos A)/L). About 1 is pendulum-like; above 1 is actively driven. Needs a scale |
+
+## Release zones and sports statistics
+
+`zones.py` defines both.
+- **Zones.** First contact of a drag-free throw is classified as:
+  - **green:** hole window, from 45 cm short of the hole centre to its far edge;
+  - **yellow:** elsewhere on the board, or up to 30 cm short of it;
+  - **red:** anything else.
+
+  For each release variable, the others are held at the athlete's median and the variable is scanned to give its bands.
+- **Priority.** The priority variable is the one with the largest ratio of athlete SD to the green window's half-width. Aim bias is the median's distance from the window centre. Model-vs-outcome agreement is reported for every scaled throw.
+- **Sports statistics.** PPR = 4 × mean points per bag (gross); In / On / Off % are the shares of known outcomes.
