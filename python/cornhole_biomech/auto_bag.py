@@ -4,8 +4,10 @@ Method (classical sports-ball tracking, cf. TrackNetV3's background-subtraction
 and trajectory-rectification stages, without a trained network):
 
 1. Candidates: camera-compensated three-frame differencing. Each frame is
-   compared with its neighbours after aligning them with a feature-based
-   similarity transform (ORB + RANSAC), so hand-held drift is not "motion".
+   compared with its neighbours after aligning them, so hand-held drift is not
+   "motion". Alignment: an ORB + RANSAC similarity per step initialises an
+   intensity-based (ECC) affine registration of every frame against a keyframe,
+   so composed transforms stay sub-pixel instead of accumulating drift.
 2. Selection: RANSAC over candidates from different frames for a free-flight
    path x(t) ≈ linear, y(t) = quadratic with downward (image +y) curvature,
    moving toward the target. The fitted image gravity must be plausible for the
@@ -28,7 +30,7 @@ import numpy as np
 from .bag import GRAVITY_M_S2, _robust_polynomial
 from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v10_rest"
+AUTO_BAG_REVISION = "auto_motion_parabola_v10b_registration"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -39,6 +41,22 @@ MIN_TRAVEL_ARM_LENGTHS = 4.0   # a throw carries the bag metres toward the board
 IN_HAND_ARM_LENGTHS = 0.45
 MAX_RMS_ARM_LENGTHS = 0.08  # whole-flight parabola residual limit (drag/perspective allowance)
 RELEASE_AT_HAND_ARM_LENGTHS = 0.8  # the first free-flight point must be this close to the wrist
+
+
+# Registration (hand-held camera). ORB keypoint steps alone captured only ~66 % of the
+# sub-pixel inter-frame motion on the pilot clips, so their composition drifted 15–40 px
+# over 200–350 frames. Each frame is instead registered directly to a keyframe with ECC
+# (enhanced correlation coefficient), initialised from the previous frame's registration
+# composed with the ORB step; per-step transforms are derived from those, so the chain
+# telescopes and error does not accumulate. Measured on P1/P2/P3 (task-4b report):
+# residual vs frame 0 fell from up to 51 px to ≤ 4.6 px (44 of 52 patch checks ≤ 3 px).
+# Affine rather than Euclidean: with hand-held translation the floor/board and the far
+# walls move differently (parallax); an affine fit of the whole frame kept the board
+# within ~3.5 px where a Euclidean fit left 9 px on P1.
+REGISTRATION_SCALE = 0.25          # ECC image scale vs full resolution (half-scale gave no gain at 3× the time)
+REGISTRATION_CRITERIA = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 1e-5)
+KEYFRAME_MIN_CC = 0.8              # below this correlation a new keyframe starts (pilot clips: min 0.93)
+MAX_ECC_CORRECTION_PX = 3.0        # at REGISTRATION_SCALE; a larger jump from the ORB prediction is distrusted
 
 
 @dataclass(frozen=True)
@@ -84,9 +102,10 @@ def detect_moving_blobs_in_frames(frames: Sequence[np.ndarray], scale: float = 0
     matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     features = [orb.detectAndCompute(g, None) for g in gray]
     h, w = gray[0].shape
-    to_prev = [np.float32([[1, 0, 0], [0, 1, 0]])]
+    orb_steps = [np.float32([[1, 0, 0], [0, 1, 0]])]
     for t in range(1, len(gray)):
-        to_prev.append(_similarity(orb, matcher, features[t], features[t - 1]))
+        orb_steps.append(_similarity(orb, matcher, features[t], features[t - 1]))
+    to_prev = _register_to_keyframes(gray, orb_steps, min(1.0, REGISTRATION_SCALE / scale))
     candidates: list[Candidate] = []
     for t in range(1, len(gray) - 1):
         prev_to_t = cv2.invertAffineTransform(to_prev[t])
@@ -110,6 +129,58 @@ def detect_moving_blobs_in_frames(frames: Sequence[np.ndarray], scale: float = 0
         F[:, 2] /= scale
         full.append(F)
     return candidates, full
+
+
+def _ecc(template: np.ndarray, image: np.ndarray, init: np.ndarray) -> tuple[float, np.ndarray] | None:
+    """Affine warp W with image(W·x) ≈ template(x), refined from `init`; None if unreliable."""
+    try:
+        cc, warp = cv2.findTransformECC(template, image, init.astype(np.float32), cv2.MOTION_AFFINE,
+                                        REGISTRATION_CRITERIA, None, 5)
+    except cv2.error:    # raised when the iteration diverges or the images are degenerate
+        return None
+    if not np.isfinite(warp).all() or not np.isfinite(cc):
+        return None
+    h, w = template.shape
+    corners = np.array([[0, 0, 1], [w, 0, 1], [0, h, 1], [w, h, 1]], dtype=np.float64).T
+    if np.abs((warp.astype(np.float64) - init) @ corners).max() > MAX_ECC_CORRECTION_PX:
+        return None
+    return float(cc), warp.astype(np.float64)
+
+
+def _register_to_keyframes(gray: list[np.ndarray], orb_steps: list[np.ndarray], factor: float) -> list[np.ndarray]:
+    """Per-step transforms (frame t → t−1, in `gray` pixels) from keyframe registration.
+
+    Frame t is registered to the current keyframe k with ECC, giving A_t (t → k); then
+    to_prev[t] = A_{t−1}⁻¹ · A_t, so composing steps back to k reproduces A_t exactly and
+    errors do not accumulate. If ECC fails or correlates below KEYFRAME_MIN_CC, the step is
+    registered pairwise (ECC t → t−1, else the ORB step) and t becomes the new keyframe.
+    ECC runs on images resized by `factor`; translations are rescaled back.
+    """
+    def lift(m):
+        return np.vstack([m, [0, 0, 1]]).astype(np.float64)
+
+    def rescale(m, k):
+        m = m.astype(np.float64).copy()
+        m[:2, 2] *= k
+        return m
+
+    small = [cv2.resize(g, None, fx=factor, fy=factor, interpolation=cv2.INTER_AREA) if factor != 1 else g
+             for g in gray]
+    key, a_prev = 0, np.eye(3)
+    steps = [np.float32([[1, 0, 0], [0, 1, 0]])]
+    for t in range(1, len(small)):
+        orb_step = lift(rescale(orb_steps[t], factor))
+        fit = _ecc(small[t], small[key], (a_prev @ orb_step)[:2])
+        if fit is not None and fit[0] >= KEYFRAME_MIN_CC:
+            a_t = lift(fit[1])
+            step = np.linalg.inv(a_prev) @ a_t
+        else:
+            pair = _ecc(small[t], small[t - 1], orb_step[:2])
+            step = lift(pair[1]) if pair is not None else orb_step
+            key, a_t = t, np.eye(3)
+        steps.append(rescale(step[:2], 1 / factor).astype(np.float32))
+        a_prev = a_t
+    return steps
 
 
 def _merge_fragments(blobs: list[tuple[float, float, int]], merge_px: float) -> list[tuple[float, float, int]]:
