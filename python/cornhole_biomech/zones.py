@@ -28,23 +28,7 @@ from typing import Any
 import numpy as np
 
 from .bag import GRAVITY_M_S2
-
-
-@dataclass(frozen=True)
-class Board:
-    length_m: float = 1.2192          # 48 in deck
-    front_height_m: float = 0.0762    # 3 in (regulation boards vary 2.5–4 in)
-    back_height_m: float = 0.3048     # 12 in
-    hole_from_back_m: float = 0.2286  # hole centre 9 in from the back
-    hole_radius_m: float = 0.0762     # 6 in hole
-
-    @property
-    def angle(self) -> float:
-        return float(np.arcsin((self.back_height_m - self.front_height_m) / self.length_m))
-
-    @property
-    def hole_along(self) -> float:
-        return self.length_m - self.hole_from_back_m
+from .regulation import Board  # noqa: F401  (re-exported; regulation.py is the single source)
 
 
 @dataclass(frozen=True)
