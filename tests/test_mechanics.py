@@ -46,6 +46,39 @@ def test_deck_plane_landing_hits_hole_for_required_speed():
     assert m.minimum_speed(0.9, 7.7, B) <= v + 1e-9
 
 
+def test_required_speed_hits_hole_by_independent_time_stepping():
+    # required_speed and along_error_m share the same quadratic/_first_root algebra, so a shared
+    # sign or algebra error would cancel in the round-trip test above. Check independently by
+    # explicitly time-stepping the drag-free trajectory (x = vx t, y = h + vy t − ½ g t²) and
+    # finding where it crosses the deck plane line, without using _first_root or any mechanics.py
+    # helper for the simulation or landing detection.
+    height_m, to_front_m, angle_deg = 0.9, 7.7, 35.0
+    v = m.required_speed(angle_deg, height_m, to_front_m, B)
+    th = math.radians(angle_deg)
+    vx, vy = v * math.cos(th), v * math.sin(th)
+
+    hole_x = to_front_m + B.hole_along * math.cos(B.angle)
+    hole_y = B.front_height_m + B.hole_along * math.sin(B.angle)
+
+    dt = 1e-5
+    t = np.arange(dt, 3.0, dt)
+    x = vx * t
+    y = height_m + vy * t - 0.5 * G * t**2
+    deck_y = B.front_height_m + (x - to_front_m) * math.tan(B.angle)
+    crossed = np.nonzero(y <= deck_y)[0]
+    assert crossed.size > 0
+    landing_x, landing_y = x[crossed[0]], y[crossed[0]]
+    assert math.hypot(landing_x - hole_x, landing_y - hole_y) < 0.01
+
+
+def test_minimum_speed_matches_brute_force_angle_scan():
+    height_m, to_front_m = 0.9, 7.7
+    angles = np.arange(5.0, 80.0 + 1e-9, 0.01)
+    speeds = [m.required_speed(a, height_m, to_front_m, B) for a in angles]
+    scanned_min = min(s for s in speeds if s is not None)
+    assert m.minimum_speed(height_m, to_front_m, B) == pytest.approx(scanned_min, rel=1e-4)
+
+
 def test_jacobian_matches_finite_difference_and_budget_sums():
     jac = m.landing_jacobian(9.0, 30.0, 0.9, 7.7, B)
     assert jac["d_speed"] > 0

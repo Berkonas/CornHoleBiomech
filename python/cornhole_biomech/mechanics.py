@@ -34,7 +34,8 @@ def release_state(vx: float, vy: float, height_m: float, mass_kg: float = BAG_MA
 
 
 def net_force_on_bag(acceleration_m_s2: np.ndarray, mass_kg: float) -> np.ndarray:
-    """F = m (a − g⃗), g⃗ = (0, −g): the force the hand must apply for the bag to accelerate by a."""
+    """Net non-gravitational external force on the bag that produces acceleration a: F = m (a − g⃗),
+    g⃗ = (0, −g). Bag-only; not a muscle, joint or hand-contact force."""
     return mass_kg * (np.asarray(acceleration_m_s2, float) - G_VECTOR)
 
 
