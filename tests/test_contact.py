@@ -43,6 +43,15 @@ def test_surfaces():
     assert surface_at(px(0.0, 0.03), M) == "front"
 
 
+def test_deck_check_is_two_sided():
+    b = M.board
+    # Within the board's x-footprint but far below the deck surface: not an observed
+    # deck contact (the bag can't be under the deck) — falls through to floor.
+    assert surface_at(px(1.0, 0.0), M) == "floor"
+    # Same x, well below the deck but above floor height: air, not deck.
+    assert surface_at(px(1.0, b.deck_height_at(1.0) - 0.15), M) == "air"
+
+
 def test_mid_air_end_is_lost_in_flight():
     assert classify_flight_end(px(0.2, 0.9), M)["kind"] == "lost_in_flight"
     assert classify_flight_end(px(0.6, M.board.deck_height_at(0.6) + 0.02), M)["kind"] == "deck"

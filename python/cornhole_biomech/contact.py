@@ -38,7 +38,7 @@ def surface_at(point_px, model) -> str:
         if x < half and 0 <= y <= b.front_height_m + DECK_TOLERANCE_M:
             return "front"
         deck_x = min(max(x, 0.0), b.horizontal_length_m)
-        if y - b.deck_height_at(deck_x) <= DECK_TOLERANCE_M:
+        if abs(y - b.deck_height_at(deck_x)) <= DECK_TOLERANCE_M:
             return "deck"
     if y <= FLOOR_TOLERANCE_M:
         return "floor"
