@@ -6,22 +6,24 @@ let currentProjectSchemaVersion = 4
 
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case dashboard = "Coach Dashboard"
     case athletes = "Athletes"
     case reference = "References"
     case trials = "Throws"
     case compare = "Compare"
-    case results = "Results"
+    case results = "Throw Replay"
     case physics = "Launch Explorer"
 
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .overview: "square.grid.2x2"
+        case .dashboard: "rectangle.3.group"
         case .athletes: "person.2"
         case .reference: "scope"
         case .trials: "video"
         case .compare: "rectangle.split.2x1"
-        case .results: "chart.xyaxis.line"
+        case .results: "play.rectangle"
         case .physics: "point.topleft.down.to.point.bottomright.curvepath"
         }
     }

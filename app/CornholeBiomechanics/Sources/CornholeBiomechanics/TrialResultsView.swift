@@ -13,9 +13,13 @@ struct ResultsView: View {
     @State private var feature = "bag_release_angle_deg"
     @State private var allThrows = false
     @State private var showOutcome = false
+    @State private var replay: ReplayDocument?
+    @State private var coach: CoachMetricsDocument?
+    @State private var replayFrame = 0
+    @State private var seekRequest: Int?
 
     var body: some View {
-        SectionContainer(title: "Throw Results", subtitle: "What happened, how the athlete moved, and how much to trust the measurement.") {
+        SectionContainer(title: "Throw", subtitle: "Watch the measured throw, then read the release, the flight and the movement behind it.") {
             ViewThatFits(in: .horizontal) {
                 HStack { trialPicker; actions }
                 VStack(alignment: .leading, spacing: 10) { trialPicker; actions }
@@ -25,55 +29,170 @@ struct ResultsView: View {
             if let trial = store.selectedTrial, let insight, insight.trial_id == trial.id.uuidString {
                 if insight.needs_reanalysis { Label("Corrections changed. Reanalyze before interpreting these measurements.", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange) }
                 if !insight.needs_reanalysis {
-                reviewReadiness
                 QuickOutcomeBar(trial: trial) { Task { await refresh() } }
-                if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
-                if let sports = insight.performance?.sports { SportsStatsStrip(stats: sports) }
-                measurementStrip(insight)
-                if let zones = insight.performance?.zones { ZonesPanel(report: zones, currentTrialID: trial.id.uuidString) }
-                if let summary = insight.performance?.summary { ScoredVersusMissedPanel(summary: summary, currentTrialID: trial.id.uuidString) }
-                FlightPathPanel(flight: data.results?.flight)
-                board(insight, trial: trial)
-                if let performance = insight.performance { landingGrouping(performance) }
+                if let replay { TrustStrip(grades: replay.grades) }
+                reviewReadiness
+                replaySection(trial)
+                if let coach {
+                    section("Release", "What the bag and hand were doing when the bag left the hand.") {
+                        CoachMetricsPanel(document: coach, groups: ["Release"]) { seekRequest = $0 }
+                    }
+                }
+                section("Flight & landing", "Measured from release to first contact, then the slide to rest.") { flightSection(insight, trial: trial) }
+                if let coach {
+                    section("Athlete mechanics", "Hand, arm and trunk around release. Values that failed a reliability check are withheld, not guessed.") {
+                        CoachMetricsPanel(document: coach, groups: ["Hand & wrist", "Arm", "Trunk", "Timing"]) { seekRequest = $0 }
+                        if let speed = coach.wrist_speed_arm_lengths_s, let events = coach.event_frames {
+                            WristSpeedChart(speed: speed, fps: replay?.fps ?? insight.quality.frameRateFPS, events: events,
+                                            currentFrame: replayFrame) { seekRequest = $0 }
+                                .padding(.top, 6)
+                        }
+                    }
+                }
+                section("Compared with this athlete", "How this throw fits the athlete's own pattern.") {
+                    if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
+                    Button("Open coach dashboard for this athlete") { store.selectedSection = .dashboard }
+                }
                 if !insight.warnings.isEmpty {
-                    DisclosureGroup("\(insight.warnings.count) measurement warning\(insight.warnings.count == 1 ? "" : "s") — review before interpreting") {
+                    DisclosureGroup("\(insight.warnings.count) measurement note\(insight.warnings.count == 1 ? "" : "s")") {
                         ForEach(Array(insight.warnings.enumerated()), id: \.offset) { _, warning in Text(warning).font(.callout).frame(maxWidth: .infinity, alignment: .leading) }
-                    }.foregroundStyle(.orange)
+                    }.foregroundStyle(.secondary)
                 }
-                DisclosureGroup("Advanced · release components, body mechanics & research") {
-                if let bag = data.results?.bag {
-                    Divider()
-                    bagLaunchPanel(bag, summaries: data.results?.summaries ?? [:])
-                }
-                Divider()
-                if let normalized = data.normalized {
-                    MovementWorkspace(normalized: normalized, comparison: insight.comparison_available == true ? data.comparison : nil,
-                                      videoURL: store.videoURL(for: trial), events: data.events, fps: insight.quality.frameRateFPS, fraction: $fraction)
-                }
-                ArmMotionPanel(result: data.results?.armMotion, normalized: data.normalized, stale: insight.needs_reanalysis, fraction: $fraction)
-                if !insight.differences.isEmpty { differences(insight) }
-                }
-                DisclosureGroup("Within-athlete movement repeatability") { consistency(insight.consistency) }
-                Divider()
-                if let relationships = insight.relationships {
-                    DisclosureGroup("Explore movement and task performance") { relationshipPanel(relationships) }
-                }
-                qualityPanel(insight)
-                HStack {
-                    Button("Open local report") { openReport(trial) }
-                    Button("Export research package…") { store.exportAnalysis(for: trial) }
-                    Spacer()
-                    Text("Projected 2D · pilot metrics").font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup("Scientific details · all measurements, models, repeatability and provenance") {
+                    VStack(alignment: .leading, spacing: 18) {
+                        measurementStrip(insight)
+                        if let zones = insight.performance?.zones { ZonesPanel(report: zones, currentTrialID: trial.id.uuidString) }
+                        if let summary = insight.performance?.summary { ScoredVersusMissedPanel(summary: summary, currentTrialID: trial.id.uuidString) }
+                        FlightPathPanel(flight: data.results?.flight)
+                        if let performance = insight.performance { landingGrouping(performance) }
+                        if let bag = data.results?.bag { Divider(); bagLaunchPanel(bag, summaries: data.results?.summaries ?? [:]) }
+                        Divider()
+                        if let normalized = data.normalized {
+                            MovementWorkspace(normalized: normalized, comparison: insight.comparison_available == true ? data.comparison : nil,
+                                              videoURL: store.videoURL(for: trial), events: data.events, fps: insight.quality.frameRateFPS, fraction: $fraction)
+                        }
+                        ArmMotionPanel(result: data.results?.armMotion, normalized: data.normalized, stale: insight.needs_reanalysis, fraction: $fraction)
+                        if !insight.differences.isEmpty { differences(insight) }
+                        consistency(insight.consistency)
+                        if let relationships = insight.relationships { relationshipPanel(relationships) }
+                        qualityPanel(insight)
+                        HStack {
+                            Button("Open local report") { openReport(trial) }
+                            Button("Export research package…") { store.exportAnalysis(for: trial) }
+                            Spacer()
+                            Text("Projected 2D · pilot metrics").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.top, 8)
                 }
                 } else { Button("Review and reanalyze this throw") { store.selectedSection = .trials } }
             } else if !refreshing {
-                ContentUnavailableView("Choose an analyzed throw", systemImage: "figure.disc.sports", description: Text("Import and analyze a video, review its tracking, then return here to see the movement and outcome together."))
+                ContentUnavailableView("Choose an analyzed throw", systemImage: "figure.disc.sports", description: Text("Import and analyze a video, then return here to replay the measured throw."))
                 Button("Open Throws") { store.selectedSection = .trials }
             }
         }
         .task(id: store.selectedTrialID) { await refresh() }
         .sheet(isPresented: $showOutcome, onDismiss: { Task { await refresh() } }) { if let trial = store.selectedTrial { OutcomeEditor(trial: trial) } }
     }
+
+    private func section<Content: View>(_ title: String, _ subtitle: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.title2.weight(.semibold))
+                Text(subtitle).font(.callout).foregroundStyle(.secondary)
+            }
+            content()
+        }.padding(.top, 6)
+    }
+
+    @ViewBuilder private func replaySection(_ trial: Trial) -> some View {
+        if let replay, let url = store.videoURL(for: trial) {
+            ThrowReplayView(videoURL: url, replay: replay, pose: data.pose, throwingSide: trial.throwingSide,
+                            currentFrame: $replayFrame, seekRequest: $seekRequest)
+                .id(trial.id)
+            eventValues(replay)
+            if let note = replay.model_note {
+                Text("Dashed line: drag-free model fitted to the measured flight, shown as a reference only. \(note)")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Label("The measured replay appears after this throw is reanalyzed with the current engine.", systemImage: "play.slash")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Values belonging to the event nearest the current replay frame.
+    @ViewBuilder private func eventValues(_ replay: ReplayDocument) -> some View {
+        let nearest = replay.orderedEvents.min { abs($0.event.frame - replayFrame) < abs($1.event.frame - replayFrame) }
+        if let nearest, abs(nearest.event.frame - replayFrame) <= 3 {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Circle().fill(eventColor(nearest.key)).frame(width: 9, height: 9)
+                    Text(nearest.event.label).font(.headline)
+                    if let window = nearest.event.window, window.count == 2, window[0] != window[1] {
+                        Text("release window frames \(window[0])–\(window[1])").font(.caption).foregroundStyle(.secondary)
+                            .help("The two automatic release cues bracket release; the later one (first free-flight frame) is used.")
+                    }
+                    Spacer()
+                }
+                if let note = nearest.event.note, nearest.key == "final_rest" {
+                    Text("Automatic estimate: confirm the resting position in the video. \(note)").font(.caption).foregroundStyle(.secondary)
+                }
+                let values = (nearest.event.values ?? []).filter { $0.value != nil || $0.status == "unreliable" }
+                if !values.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], spacing: 10) {
+                        ForEach(values, id: \.key) { value in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(value.label).font(.caption).foregroundStyle(.secondary)
+                                Text(value.status == "unreliable" ? "Insufficient quality" : formatValue(value.value, unit: value.unit))
+                                    .font(.title3.weight(.semibold)).monospacedDigit()
+                                    .foregroundStyle(value.status == "unreliable" ? .secondary : .primary)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .background(eventColor(nearest.key).opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        } else {
+            Text("Pick an event above, or scrub the video, to see the values measured at that moment.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private func flightSection(_ insight: TrialInsights, trial: Trial) -> some View {
+        let s = data.results?.summaries ?? [:]
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), alignment: .leading)], spacing: 14) {
+            flightNumber("Flight time", s["bag_time_of_flight_seconds"] ?? nil, "s", event: "first_contact", note: "Release to first contact")
+            flightNumber("Apex", s["bag_trajectory_apex_rise_m"] ?? nil, "m", event: "apex", note: "Highest point above release (fall-based scale)")
+            flightNumber("Model fit", s["bag_trajectory_model_rmse_arm_lengths"] ?? nil, "arm lengths", event: nil,
+                         note: "How far the measured path is from a drag-free arc (RMS)")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Final rest").font(.callout.weight(.medium))
+                if let rest = replay?.events["final_rest"] {
+                    Button { seekRequest = rest.frame } label: { Label("Found automatically", systemImage: "play.rectangle") }.buttonStyle(.borderless)
+                    Text("Confirm in the video; nearby bags can mislead it.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Not found").font(.title3.weight(.semibold))
+                    Text("Lost after contact (hole, off the board or out of view). Enter it on the board map.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        board(insight, trial: trial)
+    }
+    private func flightNumber(_ title: String, _ value: Double?, _ unit: String, event: String?, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.callout.weight(.medium))
+                if let event, let frame = replay?.events[event]?.frame {
+                    Button { seekRequest = frame } label: { Image(systemName: "play.rectangle") }.buttonStyle(.borderless)
+                        .help("Show in the replay")
+                }
+            }
+            Text(formatValue(value, unit: unit)).font(.title2.weight(.semibold)).monospacedDigit()
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     @ViewBuilder private var reviewReadiness: some View {
         let bag = data.results?.bag
         let releaseReviewed = data.results?.events["release"]?.isConfirmed == true
@@ -306,6 +425,9 @@ struct ResultsView: View {
             guard store.selectedTrialID == trial.id, let url = store.analysisURL(for: trial) else { return }
             insight = try JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: url.appendingPathComponent("insights.json")))
             data.load(analysisURL: url)
+            replay = ReplayDocument.load(url.appendingPathComponent("replay.json"))
+            coach = CoachMetricsDocument.load(url.appendingPathComponent("results.json"))
+            replayFrame = replay?.events["release"]?.frame ?? 0
             data.loadComparison(at: store.projectURL?.appendingPathComponent("comparisons/\(trial.id.uuidString)"))
             fraction = (data.normalized?.eventTiming["release"] ?? nil) ?? 0.5
         } catch { failure = error.localizedDescription; insight = nil }

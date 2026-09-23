@@ -57,6 +57,8 @@ In **Compare → Trial vs trial**, choose two throws from the same athlete. You 
 
 **Body swing** mode animates a stick figure. Change the arm angle at release, backswing, swing speed, step, knee bend or body height, and watch the pendulum swing, release and flight update. The panel shows how far each change moves the landing. **Release values** mode is the direct angle/speed/height model.
 
+**Coach Dashboard** summarizes one athlete: points, release profile and consistency, what differed on better throws (coaching priorities pass a five-part evidence gate; other differences are shown as observations, not advice), the body → release → flight → outcome evidence chain, and data trust. **Throw Replay** plays the measured throw over the video (measured path solid, drag-free model dashed, release / apex / first contact / rest pins) with every metric linked to its frame. See [COACHING_SYSTEM.md](docs/COACHING_SYSTEM.md) and, for what has been checked, [LIGHT_VALIDATION.md](docs/LIGHT_VALIDATION.md).
+
 **Launch Explorer** is a drag-free 2D model of release angle, speed and height and where the bag first lands on a regulation board. It can start from the selected athlete's median measured release. It shows how far the landing moves per degree of angle or per 0.1 m/s of speed, and how much landing spread the athlete's own measured variability implies. It is a model, not measured data. The earlier 3D physics, pendulum and swing labs were removed; their notes are in `docs/archive`.
 
 The **Cornhole Biomechanics Lab.app** shortcut on the Desktop opens the same installed build as `dist`; rebuilding updates both launchers.

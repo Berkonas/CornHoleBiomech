@@ -15,7 +15,7 @@ struct ContentView: View {
         NavigationSplitView {
             List(selection: $store.selectedSection) {
                 Section("Workspace") {
-                    ForEach([AppSection.athletes, .trials, .results, .physics]) { section in
+                    ForEach([AppSection.dashboard, .results, .trials, .athletes, .physics]) { section in
                         Label(section.rawValue, systemImage: section.symbol).tag(section)
                     }
                 }
@@ -82,6 +82,7 @@ struct ContentView: View {
         case .trials: TrialsView(beginImport: beginImport)
         case .compare: CompareView()
         case .results: ResultsView()
+        case .dashboard: AthleteDashboardView()
         case .physics: LaunchExplorerView()
         }
     }

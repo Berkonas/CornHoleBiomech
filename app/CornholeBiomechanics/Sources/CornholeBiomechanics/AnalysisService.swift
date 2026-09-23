@@ -211,6 +211,15 @@ final class AnalysisService: ObservableObject {
         progress = 1; stage = "Results ready"
     }
 
+    /// Recompute one athlete's coaching dashboard (Python `athlete-dashboard`).
+    func refreshDashboard(athleteID: UUID, store: ProjectStore) async throws {
+        guard !isRunning, let root = store.projectURL else { return }
+        isRunning = true; stage = "Preparing dashboard"; detail = "Summarizing this athlete's throws"; progress = 0.3
+        defer { isRunning = false }
+        _ = try await run(["athlete-dashboard", "--project", root.path, "--athlete-id", athleteID.uuidString])
+        progress = 1; stage = "Dashboard ready"
+    }
+
     /// Plain-language difference between two throws of one athlete (Python `compare-throws`).
     func compareThrows(a: Trial, b: Trial, store: ProjectStore) async throws -> ThrowComparison {
         guard !isRunning, let root = store.projectURL else {
