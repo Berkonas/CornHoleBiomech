@@ -6,11 +6,25 @@ struct LaunchExplorerView: View {
     @EnvironmentObject private var store: ProjectStore
     @State private var params = LaunchParameters(speed: 6.0, angleDegrees: 35, releaseHeight: 0.8, distanceToBoard: 7.7)
     @State private var athlete: AthleteRelease?
+    @State private var mode = "Body swing"
 
     private var model: LaunchModel { LaunchModel(params) }
 
     var body: some View {
-        SectionContainer(title: "Launch Explorer", subtitle: "A physics model of how release angle, speed and height move the landing point. Model output, not measured athlete data.") {
+        SectionContainer(title: "Launch Explorer", subtitle: "A physics model of how the body's swing and the release move the landing point. Model output, not measured athlete data.") {
+            Picker("Model", selection: $mode) { Text("Body swing").tag("Body swing"); Text("Release values").tag("Release values") }
+                .pickerStyle(.segmented).frame(width: 320)
+            if mode == "Body swing" { SwingExplorerPanel() } else { releaseValues }
+        }
+        .onAppear {
+            // Open on a throw that reaches the hole so the sensitivity table is populated.
+            if let v = model.speedToHitHole() { params.speed = v }
+            loadAthlete()
+        }
+        .onChange(of: store.selectedTrialID) { _, _ in loadAthlete() }
+    }
+
+    @ViewBuilder private var releaseValues: some View {
             HStack(alignment: .top, spacing: 28) {
                 controls.frame(width: 320)
                 VStack(alignment: .leading, spacing: 14) {
@@ -28,13 +42,6 @@ struct LaunchExplorerView: View {
                 first-contact position and are shown only while both perturbed throws still land on the board.
                 """).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        .onAppear {
-            // Open on a throw that reaches the hole so the sensitivity table is populated.
-            if let v = model.speedToHitHole() { params.speed = v }
-            loadAthlete()
-        }
-        .onChange(of: store.selectedTrialID) { _, _ in loadAthlete() }
     }
 
     private var controls: some View {
