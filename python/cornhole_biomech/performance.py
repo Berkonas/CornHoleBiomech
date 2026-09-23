@@ -56,6 +56,14 @@ VARIABLES: tuple[Variable, ...] = (
              "bag centroid and foot-landmark noise"),
     Variable("bag_release_position_forward_arm_lengths", "Release point (forward of shoulder)", "arm lengths",
              "further back", "further forward", 2, False, 0.05, "bag centroid and shoulder landmark noise"),
+    Variable("swing_release_arm_angle_deg", "Arm angle at release", "°", "lower (earlier) arm", "higher (later) arm", 0,
+             False, 5.0, "~4 px landmark noise over a ~100 px shoulder–wrist line (≈3°), rounded up"),
+    Variable("swing_peak_angular_velocity_deg_s", "Peak arm swing speed", "°/s", "slower", "faster", 0, True, 40.0,
+             "arm-angle noise differentiated at 60 fps after the 6 Hz filter"),
+    Variable("swing_backswing_angle_deg", "Backswing height", "°", "bigger (further back)", "smaller", 0, False, 5.0,
+             "same arm-angle noise as release arm angle"),
+    Variable("swing_tempo_ratio", "Tempo (backswing ÷ forward swing)", "", "quicker backswing", "slower backswing", 2,
+             True, 0.15, "±2 frames on each phase boundary at 60 fps"),
     Variable("elbow_angle_deg_at_release", "Elbow angle at release", "°", "more bent", "straighter", 0, False, 10.0,
              "simulated 4 px landmark noise at pilot framing; replace with validation"),
     Variable("trunk_inclination_deg_at_release", "Trunk lean at release", "°", "more upright", "more forward", 0,
@@ -138,8 +146,8 @@ def _fmt(value: float | None, variable: Variable) -> str:
 
 
 def _unit(unit: str) -> str:
-    """Degrees attach to the number (35°); other units take a space (6.4 m/s)."""
-    return unit if unit == "°" else f" {unit}"
+    """Degrees attach to the number (35°); other units take a space (6.4 m/s); ratios have none."""
+    return unit if unit in ("°", "") else f" {unit}"
 
 
 def _analyze_variable(variable: Variable, rows: list[dict[str, Any]]) -> dict[str, Any]:

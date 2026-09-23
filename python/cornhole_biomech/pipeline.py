@@ -459,6 +459,12 @@ def analyze_trial(
     }
     write_json(output / "events.json", event_payload)
 
+    from .swing import SWING_METRICS, arm_angle_deg
+    lookup = {name: index for index, name in enumerate(landmarks)}
+    throwing_shoulder = filtered[:, lookup[f"{context.throwing_side}_shoulder"], :]
+    throwing_wrist = filtered[:, lookup[f"{context.throwing_side}_wrist"], :]
+    # Whole-arm swing angle from straight down (see swing.py); exported and normalized like other curves.
+    kinematics.values["arm_swing_angle_deg"] = arm_angle_deg(throwing_shoulder, throwing_wrist, context.target_direction)
     progress("normalizing", 0.74, "Normalizing body scale and movement time")
     normalized_values: dict[str, np.ndarray] = {}
     tau: np.ndarray | None = None
@@ -721,10 +727,17 @@ def analyze_trial(
             "quality_note": bag_track.quality_note,
         }
 
+    from .swing import swing_metrics
+    swing = swing_metrics(throwing_shoulder, throwing_wrist, video.fps, context.target_direction,
+                          {name: events[name].effective_frame for name in events}, kinematics.arm_length_pixels,
+                          calibration.pixels_per_meter if calibration and calibration.permits_physical_units else None)
+    summaries.update({k: swing[k] for k in SWING_METRICS})
     if not release_confirmed:
         bag_warnings.append("Release is an automatic candidate. Confirm visible separation before interpreting release measurements.")
         for key in summaries:
-            if key.startswith("bag_release_") or key.endswith("_at_release"):
+            if key.startswith("bag_release_") or key.endswith("_at_release") or "_at_release_" in key \
+                    or key in ("swing_release_arm_angle_deg", "swing_forward_duration_s", "swing_tempo_ratio",
+                               "swing_peak_angular_velocity_deg_s", "swing_pendulum_drive_ratio"):
                 summaries[key] = None
         if bag_result is not None:
             if bag_result["launch"]["status"] == "estimated":

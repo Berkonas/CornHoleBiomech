@@ -28,6 +28,7 @@ struct AthletePerformance: Decodable {
 let performanceVariableOrder = [
     "bag_release_angle_deg", "bag_release_speed_m_s", "bag_release_speed_arm_lengths_s",
     "bag_release_height_m", "bag_release_height_arm_lengths", "bag_release_position_forward_arm_lengths",
+    "swing_release_arm_angle_deg", "swing_peak_angular_velocity_deg_s", "swing_backswing_angle_deg", "swing_tempo_ratio",
     "elbow_angle_deg_at_release", "trunk_inclination_deg_at_release", "movement_duration_seconds",
 ]
 // Validated categorical slots 1–2 (dataviz reference palette); rows also carry the group name.
@@ -75,7 +76,7 @@ struct ScoredVersusMissedPanel: View {
         let points = (v.points ?? []).filter { $0.group != nil }
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text("\(v.label) (\(v.unit))").font(.headline)
+                Text(v.unit.isEmpty ? v.label : "\(v.label) (\(v.unit))").font(.headline)
                 if v.distinguishes {
                     Label("Differed between groups", systemImage: "checkmark.seal").font(.caption.weight(.semibold)).foregroundStyle(.primary)
                 } else if v.below_noise_floor {
