@@ -2,13 +2,16 @@
 """Person masks from the `scene-vision` helper (Apple Vision), cached per trial.
 
 Masks only ever REMOVE evidence (people cannot seed a bag flight, and are left out
-of the background plate). If the helper is missing or its output does not match
-the video, tracking runs exactly as before and the reason is recorded.
+of the background plate). If the helper is missing, times out, its output does not
+match the video, or the cache belongs to a different video, tracking runs exactly
+as before and the reason is recorded -- this module never raises out of
+`person_masks`.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -18,10 +21,19 @@ import cv2
 import numpy as np
 
 from .auto_bag import Candidate
+from .video import file_sha256
 
 SCENE_REVISION = "scene_vision_v1"
 _REPO = Path(__file__).resolve().parents[2]
 _DEFAULT = object()
+
+DEFAULT_HELPER_TIMEOUT_SECONDS = 900.0
+# A mask with fewer person pixels than this fraction of the frame is treated as a
+# missed detection rather than "no one is here": VNGeneratePersonSegmentationRequest
+# occasionally returns a near-empty, low-confidence mask instead of no result at all
+# (observed on ~40% of frames of the P1 pilot clip), and letting that win the
+# nearest-mask lookup in tag_people would wrongly clear a real in-person candidate.
+MIN_PERSON_PIXEL_FRACTION = 0.0005
 
 
 def find_binary() -> Path | None:
@@ -32,31 +44,126 @@ def find_binary() -> Path | None:
     return next((p for p in candidates if p.is_file() and os.access(p, os.X_OK)), None)
 
 
-def person_masks(video_path: str, cache_dir: Path, frame_size: tuple[int, int], binary: Any = _DEFAULT) -> dict[str, Any]:
+def _video_identity(video_path: str) -> str | None:
+    """The source video's content hash, or None if it cannot be read (never raises)."""
+    try:
+        return file_sha256(video_path)
+    except OSError:
+        return None
+
+
+def _stamp_identity(index_path: Path, identity: str) -> bool:
+    """Record the source video's identity in an on-disk index.json. Returns False
+    (never raises) if the file cannot be read back or rewritten."""
+    try:
+        index = json.loads(index_path.read_text())
+        index["video_sha256"] = identity
+        index_path.write_text(json.dumps(index))
+        return True
+    except (json.JSONDecodeError, OSError, KeyError):
+        return False
+
+
+def _regenerate(video_path: str, cache: Path, timeout: float, binary: Any) -> dict[str, Any] | None:
+    """(Re)build `cache` from scratch by running the helper. Returns an 'unavailable'
+    result dict on any failure (missing binary, non-zero exit, timeout, OS error, or
+    an unwritable/corrupt result), always leaving `cache` removed rather than
+    partially written; returns None on success, with `cache` populated and stamped
+    with the source video's identity."""
+    shutil.rmtree(cache, ignore_errors=True)
+    exe = find_binary() if binary is _DEFAULT else binary
+    if exe is None:
+        return {"status": "unavailable", "reason": "scene-vision helper not found; person masks skipped.",
+                "masks": {}, "step": None}
+    try:
+        done = subprocess.run([str(exe), "--input", str(video_path), "--output", str(cache)],
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable",
+                "reason": f"scene-vision timed out after {timeout:.0f}s; person masks skipped.",
+                "masks": {}, "step": None}
+    except OSError as exc:
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable", "reason": f"scene-vision could not be run ({exc}); person masks skipped.",
+                "masks": {}, "step": None}
+    index_path = cache / "index.json"
+    if done.returncode != 0 or not index_path.exists():
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable", "reason": f"scene-vision failed: {done.stderr.strip()[:300]}",
+                "masks": {}, "step": None}
+    identity = _video_identity(video_path)
+    if identity is not None and not _stamp_identity(index_path, identity):
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable",
+                "reason": "scene-vision wrote an unreadable index.json; person masks skipped.",
+                "masks": {}, "step": None}
+    return None
+
+
+def person_masks(video_path: str, cache_dir: Path, frame_size: tuple[int, int], binary: Any = _DEFAULT,
+                  timeout: float = DEFAULT_HELPER_TIMEOUT_SECONDS) -> dict[str, Any]:
     cache = Path(cache_dir) / "scene_vision"
     index_path = cache / "index.json"
-    if not index_path.exists():
-        exe = find_binary() if binary is _DEFAULT else binary
-        if exe is None:
-            return {"status": "unavailable", "reason": "scene-vision helper not found; person masks skipped.",
+
+    index: dict[str, Any] | None = None
+    if index_path.exists():
+        try:
+            index = json.loads(index_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            index = None
+        else:
+            recorded = index.get("video_sha256")
+            if recorded is not None:
+                identity = _video_identity(video_path)
+                if identity is not None and identity != recorded:
+                    index = None   # a different video is reusing this cache directory
+
+    if index is None:
+        failure = _regenerate(video_path, cache, timeout, binary)
+        if failure is not None:
+            return failure
+        try:
+            index = json.loads(index_path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            shutil.rmtree(cache, ignore_errors=True)
+            return {"status": "unavailable",
+                    "reason": f"scene-vision cache is corrupt ({exc}); person masks skipped.",
                     "masks": {}, "step": None}
-        done = subprocess.run([str(exe), "--input", str(video_path), "--output", str(cache)],
-                              capture_output=True, text=True, timeout=900)
-        if done.returncode != 0 or not index_path.exists():
-            return {"status": "unavailable", "reason": f"scene-vision failed: {done.stderr.strip()[:300]}",
-                    "masks": {}, "step": None}
-    index = json.loads(index_path.read_text())
+
+    try:
+        mask_width, mask_height, step, frames = (index["mask_width"], index["mask_height"],
+                                                  index["step"], index["frames"])
+    except KeyError as exc:
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable",
+                "reason": f"scene-vision cache is missing {exc}; person masks skipped.",
+                "masks": {}, "step": None}
+
     width, height = frame_size
-    if abs(index["mask_width"] / index["mask_height"] - width / height) > 0.01:
-        return {"status": "unavailable", "masks": {}, "step": index.get("step"),
-                "reason": f"Mask size {index['mask_width']}×{index['mask_height']} does not match the video "
+    if abs(mask_width / mask_height - width / height) > 0.01:
+        return {"status": "unavailable", "masks": {}, "step": step,
+                "reason": f"Mask size {mask_width}×{mask_height} does not match the video "
                           f"{width}×{height} (orientation?); person masks skipped."}
-    masks = {}
-    for f in index["frames"]:
+
+    masks: dict[int, np.ndarray] = {}
+    empty_frames = 0
+    min_pixels = MIN_PERSON_PIXEL_FRACTION * width * height
+    for f in frames:
         m = cv2.imread(str(cache / f"mask_{f:06d}.png"), cv2.IMREAD_GRAYSCALE)
-        if m is not None:
-            masks[int(f)] = (cv2.resize(m, (width, height), interpolation=cv2.INTER_NEAREST) >= 128).astype(np.uint8) * 255
-    return {"status": "measured", "reason": None, "masks": masks, "step": index["step"], "revision": SCENE_REVISION}
+        if m is None:
+            continue
+        resized = (cv2.resize(m, (width, height), interpolation=cv2.INTER_NEAREST) >= 128).astype(np.uint8) * 255
+        if int(np.count_nonzero(resized)) < min_pixels:
+            empty_frames += 1
+            continue
+        masks[int(f)] = resized
+    return {"status": "measured", "reason": None, "masks": masks, "step": step, "revision": SCENE_REVISION,
+            "empty_frames": empty_frames}
+
+
+def _mask_is_empty(mask: np.ndarray) -> bool:
+    return not np.any(mask)
 
 
 def tag_people(candidates: list[Candidate], masks: dict[int, np.ndarray]) -> list[Candidate]:
@@ -65,7 +172,10 @@ def tag_people(candidates: list[Candidate], masks: dict[int, np.ndarray]) -> lis
     keys = sorted(masks)
     out = []
     for c in candidates:
-        nearest = min(keys, key=lambda k: abs(k - c.frame))
+        # Break nearest-frame ties toward a non-empty mask: an empty mask at an
+        # equal distance is a dropout, not a "no person here" reading, and should
+        # not out-vote a real detection the same number of frames away.
+        nearest = min(keys, key=lambda k: (abs(k - c.frame), _mask_is_empty(masks[k])))
         m = masks[nearest]
         x, y = int(round(c.x)), int(round(c.y))
         inside = abs(nearest - c.frame) <= 2 and 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and m[y, x] > 0
