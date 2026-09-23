@@ -325,6 +325,15 @@ def analyze_trial(
         bag_key = _load_json(bag_cache_path, {}).get("bag_key")
 
     auto_flight: dict[str, Any] | None = None
+    review_file = Path(bag_corrections_path or (output / "bag_corrections.json"))
+    existing_review = BagCorrectionSet.load(review_file)
+    automatic_review = (existing_review.review_note or "").startswith("Automatic physics verification")
+    if (bag_track is not None and bag_track.effective_method.startswith("auto_motion_parabola")
+            and bag_track.effective_method != AUTO_BAG_REVISION and not existing_review.corrections):
+        # An automatic track from an older detector revision is recomputed; manual work is never discarded.
+        bag_track = None
+        if automatic_review:
+            review_file.unlink()
     if bag_track is None and bool(config["bag_tracking"].get("automatic", True)):
         progress("tracking_bag", 0.50, "Finding the bag's flight automatically")
         auto_flight = _automatic_flight(video, filtered, landmarks, context, output)
@@ -334,10 +343,9 @@ def analyze_trial(
             bag_key = canonical_hash({"method": AUTO_BAG_REVISION, "video": video.sha256,
                                       "release": auto_flight["release_frame"]})
             write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
-            review_file = Path(bag_corrections_path or (output / "bag_corrections.json"))
             if not review_file.exists():
                 BagCorrectionSet(
-                    reviewed_through_frame=int(auto_flight["first_contact_frame"]), reviewed_at=utc_now(),
+                    reviewed_through_frame=int(auto_flight["last_tracked_frame"]), reviewed_at=utc_now(),
                     review_note=f"Automatic physics verification ({AUTO_BAG_REVISION}): "
                                 f"{auto_flight['fit']['inliers']} detections on one projectile path, "
                                 f"{auto_flight['fit']['rms_residual_px']:.1f} px RMS.").save(review_file)
@@ -507,8 +515,10 @@ def analyze_trial(
     flight_review = _load_json(output / "flight_review.json", {})
     if auto_accepted:
         # Manual flight review wins; automatic values fill only what is missing.
-        flight_review = {"first_contact_frame": int(auto_flight["first_contact_frame"]),
-                         "fixed_camera": True, "source": "automatic_physics_camera_motion_removed", **flight_review}
+        automatic = {"fixed_camera": True, "source": "automatic_physics_camera_motion_removed"}
+        if auto_flight.get("first_contact_frame") is not None:
+            automatic["first_contact_frame"] = int(auto_flight["first_contact_frame"])
+        flight_review = {**automatic, **flight_review}
     contact_frame = flight_review.get("first_contact_frame")
     if contact_frame is not None and (not isinstance(contact_frame, int) or isinstance(contact_frame, bool)
                                       or not 0 <= contact_frame < sequence.frame_count):

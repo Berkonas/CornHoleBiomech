@@ -26,13 +26,15 @@ import numpy as np
 
 from .bag import GRAVITY_M_S2, _robust_polynomial
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v1"
+AUTO_BAG_REVISION = "auto_motion_parabola_v4"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
 MIN_COVERAGE = 0.6
+MIN_TRAVEL_ARM_LENGTHS = 4.0   # a throw carries the bag metres toward the board; hand/catch motion does not
 IN_HAND_ARM_LENGTHS = 0.3   # bag within this distance of the wrist is treated as held
 MAX_RMS_ARM_LENGTHS = 0.08  # whole-flight parabola residual limit (drag/perspective allowance)
+RELEASE_AT_HAND_ARM_LENGTHS = 0.8  # the first free-flight point must be this close to the wrist
 
 
 @dataclass(frozen=True)
@@ -201,6 +203,32 @@ def _extend(by_frame, chosen, fps, gate, local=6, max_missed=3, wrist=None, in_h
     return chosen
 
 
+def _trim_to_projectile(chosen, f_ref, fps, limit, min_points=6):
+    """Drop end points that no longer follow one parabola (bag still in hand, or sliding/bouncing after contact).
+
+    The end whose residual is worst is removed and the parabola refitted until both
+    ends lie within `limit` pixels. The first remaining frame is free flight; the
+    last is the final frame on the projectile path (first contact happens here).
+    """
+    run = sorted(chosen)
+    while True:
+        t = np.array([(f - f_ref) / fps for f in run])
+        coef_x, _, _ = _robust_polynomial(t, np.array([chosen[f][0].x for f in run]), 2)
+        coef_y, _, _ = _robust_polynomial(t, np.array([chosen[f][0].y for f in run]), 2)
+        if len(run) <= min_points:
+            return run, coef_x, coef_y
+        px, py = _predict(coef_x, coef_y, t)
+        residual = np.hypot(np.array([chosen[f][0].x for f in run]) - px, np.array([chosen[f][0].y for f in run]) - py)
+        # The start was already stopped at the hand by the backward extension, so only a
+        # grossly deviating start is removed; the end (slide/bounce) is trimmed normally.
+        if residual[-1] > limit:
+            run = run[:-1]
+        elif residual[0] > 2 * limit:
+            run = run[1:]
+        else:
+            return run, coef_x, coef_y
+
+
 def _plausible(coef_x, coef_y, sign, g_range) -> bool:
     ay = 2 * coef_y[2]
     ax = 2 * coef_x[2]
@@ -288,14 +316,20 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
     # Fastest plausible bag ≈ 12 m/s; pixels per metre from the arm-length prior.
     ppm_hi = arm_length_px / ARM_LENGTH_RANGE_M[0] if arm_length_px else 250.0
     first_step = 12.0 * ppm_hi / fps
+    # Tracklets often join free flight to the hand before release or the slide after
+    # landing, so seeds come from overlapping sub-windows; one lies inside the flight.
+    window = max(8, int(0.2 * fps))
     for track in build_tracklets(candidates, gate_px=2 * tol, first_step_px=first_step):
-        f1 = track[0].frame
-        t = np.array([(c.frame - f1) / fps for c in track])
-        if t[-1] - t[0] < 4 / fps:
-            continue
-        coef_x, _, _ = _robust_polynomial(t, np.array([c.x for c in track]), 2)
-        coef_y, _, _ = _robust_polynomial(t, np.array([c.y for c in track]), 2)
-        consider(f1, coef_x, coef_y)
+        starts = range(0, max(1, len(track) - window + 1), max(1, window // 2))
+        for start in starts:
+            piece = track[start:start + window]
+            if len(piece) < 5 or piece[-1].frame - piece[0].frame < 4:
+                continue
+            f1 = piece[0].frame
+            t = np.array([(c.frame - f1) / fps for c in piece])
+            coef_x, _, _ = _robust_polynomial(t, np.array([c.x for c in piece]), 2)
+            coef_y, _, _ = _robust_polynomial(t, np.array([c.y for c in piece]), 2)
+            consider(f1, coef_x, coef_y)
     # Stage 2: RANSAC fallback for fragmented detections.
     for _ in range(iterations):
         # Guided sampling: flight detections are close in time, so draw the
@@ -335,12 +369,11 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
         chosen = {f: chosen[f] for f in run}
     chosen = _extend(by_frame, chosen, fps, gate=2.5 * tol, wrist=wrist,
                      in_hand_px=IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None)
-    run = sorted(chosen)
+    run, coef_x, coef_y = _trim_to_projectile(chosen, f_ref, fps, 3.0 * tol)
     if not run:
         return result
+    chosen = {f: chosen[f] for f in run}
     t = np.array([(f - f_ref) / fps for f in run])
-    coef_x, _, _ = _robust_polynomial(t, np.array([chosen[f][0].x for f in run]), 2)
-    coef_y, _, _ = _robust_polynomial(t, np.array([chosen[f][0].y for f in run]), 2)
     residual = np.hypot(np.array([chosen[f][0].x for f in run]) - _predict(coef_x, coef_y, t)[0],
                         np.array([chosen[f][0].y for f in run]) - _predict(coef_x, coef_y, t)[1])
     span = (run[-1] - run[0]) / fps
@@ -354,6 +387,10 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
         reasons.append(f"The bag was found in {coverage:.0%} of flight frames; {MIN_COVERAGE:.0%} are needed.")
     if not _plausible(coef_x, coef_y, sign, g_range):
         reasons.append("The refined path is not a plausible throw toward the target for this body scale.")
+    travel = sign * (chosen[run[-1]][0].x - chosen[run[0]][0].x)
+    if arm_length_px and travel < MIN_TRAVEL_ARM_LENGTHS * arm_length_px:
+        reasons.append(f"The path moves only {travel / arm_length_px:.1f} arm lengths toward the target; "
+                       f"a throw needs at least {MIN_TRAVEL_ARM_LENGTHS:.0f}.")
     rms = float(np.sqrt(np.mean(residual**2)))
     rms_limit = MAX_RMS_ARM_LENGTHS * arm_length_px if arm_length_px else 8.0
     if rms > rms_limit:
@@ -465,12 +502,23 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     if not pool:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "fps": fps, "flights": summary,
                 "reasons": ["No moving object followed a plausible projectile path. Check that the bag stays in view."]}
+    def gap_to_wrist(f: dict[str, Any]) -> float:
+        start = f["points"][0]
+        w = wrist[start["frame"]] if wrist is not None and start["frame"] < len(wrist) else None
+        return float(np.hypot(start["x"] - w[0], start["y"] - w[1])) if w is not None and np.isfinite(w).all() else np.inf
     if preferred_release is not None:
         chosen = min(pool, key=lambda f: abs(f["fit"]["first_frame"] - preferred_release))
     else:
-        chosen = pool[0]
+        # The trial's throw is the flight that starts at this athlete's throwing hand.
+        chosen = min(pool, key=lambda f: (gap_to_wrist(f), f["fit"]["first_frame"]))
     fit = chosen["fit"]
     release, contact = int(fit["first_frame"]), int(fit["last_frame"])
+    height, width = frames[0].shape[:2]
+    last = next(p for p in chosen["points"] if p["frame"] == contact)
+    t_last = (contact - fit["reference_frame"]) / fps
+    descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
+    at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
+    contact_known = descending and not at_edge
     ids = {p["frame"]: p for p in chosen["points"]}
     raw = [Candidate(f, ids[f]["x"], ids[f]["y"], ids[f]["area"]) for f in sorted(ids)]
     stabilized = to_reference(raw, to_prev, release)
@@ -479,11 +527,20 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     if wrist is not None and release < len(wrist) and np.isfinite(wrist[release]).all():
         wrist_gap = float(np.hypot(raw[0].x - wrist[release][0], raw[0].y - wrist[release][1]))
     reasons = list(chosen["reasons"])
+    status = chosen["status"]
+    if (wrist_gap is not None and arm_length_px and wrist_gap > RELEASE_AT_HAND_ARM_LENGTHS * arm_length_px):
+        status = "needs_review"
+        reasons.append(f"The detected flight starts {wrist_gap / arm_length_px:.1f} arm lengths from the wrist; a throw "
+                       "leaves from the hand, so the start of the flight was probably missed.")
+    if not contact_known:
+        reasons.append("The bag left view or was lost before landing, so first contact and flight time are unknown; "
+                       "mark contact in Flight & scale if it is visible.")
     if len(accepted) > 1:
-        reasons.append(f"{len(accepted)} throws were found in this clip; the one nearest the wrist-speed release was used.")
+        reasons.append(f"{len(accepted)} flights were found in this clip; the one starting at the throwing hand was used.")
     return {
-        "status": chosen["status"], "revision": AUTO_BAG_REVISION, "fps": fps, "reasons": reasons,
-        "release_frame": release, "first_contact_frame": contact,
+        "status": status, "revision": AUTO_BAG_REVISION, "fps": fps, "reasons": reasons,
+        "release_frame": release, "first_contact_frame": contact if contact_known else None,
+        "last_tracked_frame": contact,
         "event_precision_frames": 1,
         "release_wrist_distance_px": wrist_gap,
         "camera_motion_during_flight_px": motion,

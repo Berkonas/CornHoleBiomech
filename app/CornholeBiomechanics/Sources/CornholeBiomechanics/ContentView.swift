@@ -6,7 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var analysis: AnalysisService
     @AppStorage("appearance") private var appearance = "system"
     @State private var showsAthleteSheet = false
-    @State private var importURL: URL?
+    @State private var importBatch: ImportBatch?
     @State private var importAsReference = false
     @State private var showsOutcomeSheet = false
     @State private var showsSettings = false
@@ -44,7 +44,7 @@ struct ContentView: View {
         .tint(Color.accentColor)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
-        .sheet(item: $importURL) { ImportTrialForm(videoURL: $0, markAsReference: importAsReference) }
+        .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls, markAsReference: importAsReference) }
         .sheet(isPresented: $showsOutcomeSheet) {
             if let trial = store.selectedTrial { OutcomeEditor(trial: trial) }
         }
@@ -148,7 +148,7 @@ struct ContentView: View {
             return
         }
         importAsReference = asReference
-        store.chooseAndImportVideo(athleteID: store.selectedAthleteID) { importURL = $0 }
+        store.chooseVideos { importBatch = ImportBatch(urls: $0) }
     }
 
     private func analyzeSelected() {

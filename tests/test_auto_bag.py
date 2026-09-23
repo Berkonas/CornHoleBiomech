@@ -110,3 +110,21 @@ def test_reference_transform_removes_camera_translation():
     mapped = to_reference(static_world_point, to_prev, reference=4)
     assert all(abs(c.x - (100 - 12)) < 1e-6 for c in mapped)
     assert camera_motion_px(to_prev, 0, 9, (100.0, 50.0)) == pytest.approx(27.0)
+
+
+def test_short_hand_motion_is_not_accepted_as_a_throw():
+    # A small upward toss and catch: plausible gravity, but it barely travels toward the target.
+    flight = true_flight(n=30, vx=0.3, vy=2.5)
+    result = find_flight(candidates_with_clutter(flight, drop=0), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] != "accepted"
+    assert any("arm lengths toward the target" in r for r in result["reasons"])
+
+
+def test_slide_after_landing_is_trimmed_so_contact_is_the_last_flight_frame():
+    flight = true_flight(t0=40, n=40)
+    last_x, last_y = flight[79]
+    for k in range(1, 20):                        # bag slides along the board after first contact
+        flight[79 + k] = (last_x + 6 * k, last_y - 1.5 * k)
+    result = find_flight(candidates_with_clutter(flight, drop=0.05), FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] == "accepted"
+    assert 77 <= result["fit"]["last_frame"] <= 81

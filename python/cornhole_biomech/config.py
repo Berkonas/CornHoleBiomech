@@ -36,7 +36,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "minimum_velocity_points": 4,
         "acceleration_minimum_fps": 60.0,
         "acceleration_minimum_points": 6,
-        "acceleration_maximum_fit_rmse_arm_lengths": 0.03,
+        # ~6 px for a ~100 px arm: normal centroid noise of a small, blurred bag at 60 fps.
+        "acceleration_maximum_fit_rmse_arm_lengths": 0.06,
     },
 }
 

@@ -825,19 +825,17 @@ def estimate_projectile_release_kinematics(
         return base
     end_limit = min(len(points), release_frame + max(minimum_points, int(math.ceil(window_seconds * fps)) + 1))
     valid = np.isfinite(points[:, 0]) & np.isfinite(points[:, 1])
-    candidate_runs = [(a, b) for a, b in _finite_runs(valid[release_frame:end_limit])]
-    if not candidate_runs:
-        base["acceleration"]["reason"] = "No reliable contiguous bag samples follow release."
+    # A polynomial fit does not need consecutive frames: use every direct observation
+    # in the window, but require one within two frames of release and enough of them.
+    sample_indices = release_frame + np.flatnonzero(valid[release_frame:end_limit])
+    if not sample_indices.size:
+        base["acceleration"]["reason"] = "No reliable bag samples follow release."
         return base
-    first, last = candidate_runs[0]
-    first += release_frame
-    last += release_frame
-    if first - release_frame > 1:
+    if sample_indices[0] - release_frame > 2:
         base["acceleration"]["reason"] = "The first reliable bag sample is too far after release."
         return base
-    sample_indices = np.arange(first, last)
     if len(sample_indices) < minimum_points:
-        base["acceleration"]["reason"] = f"Only {len(sample_indices)} contiguous samples follow release; {minimum_points} are required for velocity."
+        base["acceleration"]["reason"] = f"Only {len(sample_indices)} samples follow release; {minimum_points} are required for velocity."
         return base
     # Anchor the fit at the reviewed/candidate release frame. If the first
     # centroid occurs one frame later, the polynomial is extrapolated back by

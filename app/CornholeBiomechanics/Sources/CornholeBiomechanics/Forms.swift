@@ -1,11 +1,18 @@
 import AppKit
 import SwiftUI
 
+struct ImportBatch: Identifiable {
+    let id = UUID()
+    let urls: [URL]
+}
+
 struct ImportTrialForm: View {
     @EnvironmentObject private var store: ProjectStore
+    @EnvironmentObject private var analysis: AnalysisService
     @Environment(\.dismiss) private var dismiss
-    let videoURL: URL
+    let videoURLs: [URL]
     var markAsReference = false
+    @State private var analyzeAutomatically = true
     @State private var athleteID: UUID?
     @State private var cameraView: CameraView = .side
     @State private var throwingSide: ThrowingSide = .right
@@ -15,8 +22,9 @@ struct ImportTrialForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Import Trial Video").font(.title2.weight(.semibold))
-            Label(videoURL.lastPathComponent, systemImage: "film").foregroundStyle(.secondary)
+            Text(videoURLs.count == 1 ? "Import Throw Video" : "Import \(videoURLs.count) Throw Videos").font(.title2.weight(.semibold))
+            Label(videoURLs.count == 1 ? videoURLs[0].lastPathComponent : "\(videoURLs[0].lastPathComponent) … \(videoURLs[videoURLs.count - 1].lastPathComponent)",
+                  systemImage: videoURLs.count == 1 ? "film" : "film.stack").foregroundStyle(.secondary)
             Form {
                 Picker("Athlete", selection: $athleteID) {
                     Text("Choose…").tag(UUID?.none)
@@ -31,6 +39,7 @@ struct ImportTrialForm: View {
                 Picker("Direction toward target", selection: $targetDirection) {
                     ForEach(TargetDirection.allCases) { Text($0.label).tag($0) }
                 }
+                Toggle("Analyze automatically (body tracking, bag flight, release)", isOn: $analyzeAutomatically)
                 TextField("Source URL (optional)", text: $sourceURL)
                 TextField("Source attribution / permission note", text: $sourceAttribution, axis: .vertical)
             }.formStyle(.grouped)
@@ -45,17 +54,24 @@ struct ImportTrialForm: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
-                Button("Import Copy") {
+                Button(videoURLs.count == 1 ? "Import Copy" : "Import \(videoURLs.count) Copies") {
+                    var imported: [Trial] = []
                     do {
-                        _ = try store.importVideo(ImportDraft(
-                            videoURL: videoURL, athleteID: athleteID, cameraView: cameraView,
-                            throwingSide: throwingSide, targetDirection: targetDirection,
-                            sourceURL: sourceURL, sourceAttribution: sourceAttribution,
-                            sessionID: store.project?.sessions?.first(where: { $0.id == store.selectedSessionID && $0.athleteID == athleteID })?.id, isReference: markAsReference
-                        ))
-                        store.selectedSection = markAsReference ? .reference : .trials
-                        dismiss()
+                        for url in videoURLs {
+                            imported.append(try store.importVideo(ImportDraft(
+                                videoURL: url, athleteID: athleteID, cameraView: cameraView,
+                                throwingSide: throwingSide, targetDirection: targetDirection,
+                                sourceURL: sourceURL, sourceAttribution: sourceAttribution,
+                                sessionID: store.project?.sessions?.first(where: { $0.id == store.selectedSessionID && $0.athleteID == athleteID })?.id, isReference: markAsReference
+                            )))
+                        }
                     } catch { store.errorMessage = error.localizedDescription }
+                    store.selectedSection = markAsReference ? .reference : .trials
+                    dismiss()
+                    if analyzeAutomatically && !imported.isEmpty {
+                        // One worker at a time; each throw is analyzed end to end without clicks.
+                        Task { for trial in imported { await analysis.analyze(trial: trial, store: store) } }
+                    }
                 }.buttonStyle(.borderedProminent).disabled(athleteID == nil)
             }
         }.padding(24).frame(width: 600)

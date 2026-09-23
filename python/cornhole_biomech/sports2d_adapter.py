@@ -148,9 +148,11 @@ def read_mot(path: str | Path) -> dict[str, np.ndarray]:
     if len(rows) < 2:
         raise ValueError("MOT contains no samples")
     columns = rows[0].split("\t") if "\t" in rows[0] else rows[0].split()
-    data = np.asarray([[float(v) for v in line.split()] for line in rows[1:]])
-    if data.shape[1] != len(columns):
-        raise ValueError("MOT sample width does not match header")
+    parsed = [[float(v) for v in line.split()] for line in rows[1:]]
+    if any(len(r) > len(columns) for r in parsed):
+        raise ValueError("MOT sample width exceeds its header")
+    # Sports2D can omit trailing values when angles are unavailable: pad as missing.
+    data = np.asarray([r + [np.nan] * (len(columns) - len(r)) for r in parsed])
     return dict(zip(columns, data.T))
 
 
@@ -234,8 +236,12 @@ class Sports2DAdapter:
             repair = correct_pixel_trc_units(trc)
             if repair: unit_repairs.append(repair)
             read_trc(trc)
+        diagnostic_warnings = []
         for mot in mots:
-            read_mot(mot)
+            try:
+                read_mot(mot)   # diagnostic export only; our angles come from the landmarks
+            except ValueError as error:
+                diagnostic_warnings.append(f"{mot.name}: {error}")
         model_files = {}
         tracker = snapshot.get("pose_tracker")
         for component in ("pose_model", "det_model"):
@@ -244,6 +250,7 @@ class Sports2DAdapter:
             if isinstance(filename, (str, Path)) and Path(filename).is_file():
                 model_files[component] = {"name": Path(filename).name, "sha256": file_sha256(filename)}
         metadata = {"sports2d_version": info["version"], "sports2d_commit": None,
+                    "diagnostic_export_warnings": diagnostic_warnings,
                     "sports2d_source_sha256": file_sha256(engine.__file__),
                     "pose2sim_version": importlib.metadata.version("pose2sim"),
                     "rtmlib_version": importlib.metadata.version("rtmlib"),

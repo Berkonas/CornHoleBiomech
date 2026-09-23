@@ -538,15 +538,17 @@ final class ProjectStore: ObservableObject {
         return trial
     }
 
-    func chooseAndImportVideo(athleteID: UUID?, completion: @escaping (URL) -> Void) {
+    /// Choose one or more throw videos (a whole session can be imported at once).
+    func chooseVideos(completion: @escaping ([URL]) -> Void) {
         let panel = NSOpenPanel()
-        panel.title = "Choose a Local Throw Video"
+        panel.title = "Choose Throw Videos"
+        panel.message = "Select one or more videos. Each becomes a throw and is analyzed automatically."
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.movie, .video, .mpeg4Movie, .quickTimeMovie]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        completion(url)
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        completion(panel.urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending })
     }
 
     func updateTrial(_ changed: Trial) throws {
