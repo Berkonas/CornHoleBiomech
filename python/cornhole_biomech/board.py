@@ -33,8 +33,12 @@ RIM_GROW_FRACTION = 0.08            # rim growth limit as a fraction of the red 
 MIN_APRON_AREA_FRACTION = 0.0005    # pilot aprons: 5 000–8 000 px of 2 073 600
 APRON_MIN_ASPECT = 4.0              # pilot aprons: length / thickness 5.8–7.2
 APRON_MIN_RED_FRACTION = 0.5        # pilot aprons: 0.71–0.90 of columns show red deck just above
-HOLE_DARK_RATIO = 0.5               # hole pixels are darker than half the deck's median brightness
+HOLE_LOCAL_CONTRAST = 0.2           # black-hat depth / deck median; pilot hole blobs at 0.2: 690–880 px of ~1 000
+HOLE_KERNEL_IN = 8                  # black-hat kernel diameter, larger than the 6 in hole
+HOLE_TOLERANCE_IN = 4.0             # hole centroid within this of (12, 39) in; pilot plates measured 0.9–1.5 in
 HOLE_MIN_AREA_FRACTION = 0.1        # of the 3 in radius hole's area in the rectified deck
+EDGE_TOL_PX = 2.0                   # edge-line inlier tolerance (blurred plate edges scatter ~1 px)
+END_FACE_MIN_PX = 3                 # band end this far beyond the near edge's end = a visible end face
 
 
 def camera_matrix(width: int, height: int, hfov_deg: float) -> np.ndarray:
@@ -146,16 +150,21 @@ def detect_board(plate: np.ndarray, target_direction: str, board: Board = Board(
     boards' look) a dark near-side apron with red deck showing along its top.
     """
     red, dark = _red_and_rim(plate)
-    # Apron candidates first: on a tie they win, since a rim grown into an apron puts the near
-    # corners at the apron's floor edge instead of the deck edge.
-    candidates = _apron_candidates(red, dark, target_direction, board) + _rim_candidates(red, dark, target_direction)
+    # A rim grown into an apron (or a visible end face) puts corners at the apron's floor edge
+    # instead of the deck edge, so a rim quad is dropped where an apron quad covers the same
+    # deck (synthetic pilot-look boards: such rim quads were 25–37 px off yet passed the hole
+    # check). Conservative: an apron quad later rejected by PnP still suppresses the rim quad.
+    aprons = _apron_candidates(red, dark, target_direction, board)
+    rims = [(q, s) for q, s in _rim_candidates(red, dark, target_direction)
+            if not any(_quads_overlap(q, a) for a, _ in aprons)]
+    candidates = aprons + rims
     height, width = plate.shape[:2]
     best = None
     for quad, shape_score in candidates:
         if _pnp_residual_px(quad, (width, height), board) > MAX_PNP_RESIDUAL_FRACTION * np.ptp(quad[:, 0]):
             continue      # not a projected regulation deck
         hole_offset = _hole_offset_in(plate, quad)
-        confidence = 0.5 * shape_score + (0.5 if hole_offset is not None and hole_offset <= 4.0 else 0.0)
+        confidence = 0.5 * shape_score + (0.5 if hole_offset is not None and hole_offset <= HOLE_TOLERANCE_IN else 0.0)
         if best is None or confidence > best["confidence"]:
             best = {"corners_px": quad.tolist(), "confidence": confidence, "hole_offset_in": hole_offset}
     if best is None:
@@ -166,6 +175,11 @@ def detect_board(plate: np.ndarray, target_direction: str, board: Board = Board(
                 "reasons": [f"Best board candidate has confidence {best['confidence']:.2f} (< {MIN_CONFIDENCE}); "
                             "click the four deck corners instead."]}
     return {**best, "status": "found", "reasons": []}
+
+
+def _quads_overlap(a: np.ndarray, b: np.ndarray) -> bool:
+    inter, _ = cv2.intersectConvexConvex(np.float32(a), np.float32(b))
+    return inter > 0
 
 
 def _rim_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str) -> list[tuple[np.ndarray, float]]:
@@ -244,15 +258,26 @@ def _apron_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str,
         if near_line is None or far_line is None:
             continue
         far_cols = cols[has_far][far_inliers]
-        front_x, back_x = (lo, hi) if target_direction == "left_to_right" else (hi, lo)
+        # The band can include an end face of the board (pilot boards: the front face, seen
+        # because the camera stands ahead of the board's side). Its top edge climbs toward
+        # the far corner, above the near line, so the near corners are where the band's
+        # top leaves the near-edge line, not the band's extreme columns.
+        near_lo, near_hi = _line_extent(cols, top, present, near_line, inner, max(2.0, 0.25 * thick))
+        front_x, back_x = (near_lo, near_hi) if target_direction == "left_to_right" else (near_hi, near_lo)
+        band_front = lo if target_direction == "left_to_right" else hi
         front_far_x, back_far_x = ((far_cols.min(), far_cols.max()) if target_direction == "left_to_right"
                                    else (far_cols.max(), far_cols.min()))
         on = lambda line, xv: [xv, line[0] * xv + line[1]]   # noqa: E731
         size = (red.shape[1], red.shape[0])
         best_quad, best_residual = None, math.inf
         step = 1 if target_direction == "left_to_right" else -1
-        start = front_x - step * int(0.15 * (hi - lo))       # the front-far corner can sit ahead of the band's end
-        for x_ff in np.arange(start, front_far_x + step, step):
+        if abs(front_x - band_front) >= END_FACE_MIN_PX:
+            # A visible front face ends at the front-far corner: the band's front column.
+            front_far_candidates = [band_front]
+        else:
+            start = front_x - step * int(0.15 * (hi - lo))   # the front-far corner can sit ahead of the band's end
+            front_far_candidates = np.arange(start, front_far_x + step, step)
+        for x_ff in front_far_candidates:
             quad = order_corners(np.array([on(far_line, x_ff), on(near_line, front_x),
                                            on(near_line, back_x), on(far_line, back_far_x)], float), target_direction)
             front_depth, back_depth = quad[1, 1] - quad[0, 1], quad[2, 1] - quad[3, 1]
@@ -266,6 +291,34 @@ def _apron_candidates(red: np.ndarray, dark: np.ndarray, target_direction: str,
         quad = best_quad
         out.append((quad, red_fraction))
     return out
+
+
+def _line_extent(cols: np.ndarray, top: np.ndarray, present: np.ndarray, line: tuple[float, float],
+                 inner: np.ndarray, tol: float, run: int = 3) -> tuple[int, int]:
+    """Columns where the band's top edge stops following `line`, walking out from its fitted span.
+
+    Walking from the middle of the fitted (inner) columns toward each band end, the edge ends
+    at the first run of `run` present columns whose top lies more than `tol` px above the line
+    (an end face rising toward the far side); otherwise it reaches the band's end.
+    """
+    above = present & (top < line[0] * cols + line[1] - tol)
+    idx = np.nonzero(inner)[0]
+    middle = int(idx[len(idx) // 2])
+
+    def walk(start: int, stop: int, step: int) -> int:
+        last, streak = start, 0
+        for j in range(start, stop, step):
+            if not present[j]:
+                continue
+            if above[j]:
+                streak += 1
+                if streak >= run:
+                    return last
+            else:
+                streak, last = 0, j
+        return last
+
+    return int(cols[walk(middle, -1, -1)]), int(cols[walk(middle, len(cols), 1)])
 
 
 def _pnp_residual_px(corners: np.ndarray, image_size: tuple[int, int], board: Board) -> float:
@@ -282,18 +335,37 @@ def _pnp_residual_px(corners: np.ndarray, image_size: tuple[int, int], board: Bo
     return float(np.abs(projected.reshape(-1, 2) - corners).max())
 
 
-def _robust_line(xs: np.ndarray, ys: np.ndarray) -> tuple[tuple[float, float] | None, np.ndarray]:
-    """y = a·x + b by least squares with three rounds of residual clipping; returns (a, b), inlier mask."""
+def _robust_line(xs: np.ndarray, ys: np.ndarray,
+                 tol: float = EDGE_TOL_PX) -> tuple[tuple[float, float] | None, np.ndarray]:
+    """y = a·x + b followed by the most columns within `tol` px; returns (a, b), inlier mask.
+
+    Consensus over point pairs (deterministic sample), then two least-squares refits on the
+    inliers. Residual clipping alone failed on the pilot far edges, where about a third of the
+    columns are other edges (the deck graphic behind a stripe, the back edge): it kept them
+    all, tilted the line and put P1's back-far corner ~45 px beyond the deck.
+    """
     xs, ys = np.asarray(xs, float), np.asarray(ys, float)
     keep = np.ones(len(xs), bool)
     if len(xs) < 5:
         return None, keep
-    for _ in range(3):
+    sample = np.unique(np.linspace(0, len(xs) - 1, min(len(xs), 40)).astype(int))
+    best = None
+    for k, i in enumerate(sample):
+        for j in sample[k + 1:]:
+            if xs[j] == xs[i]:
+                continue
+            a = (ys[j] - ys[i]) / (xs[j] - xs[i])
+            inliers = np.abs(ys - (a * xs + ys[i] - a * xs[i])) <= tol
+            if best is None or inliers.sum() > best.sum():
+                best = inliers
+    keep = best if best is not None else keep
+    for _ in range(2):
         if keep.sum() < 5:
             return None, keep
         a, b = np.polyfit(xs[keep], ys[keep], 1)
-        residual = np.abs(ys - (a * xs + b))
-        keep = residual <= max(2.0, 2.5 * float(np.median(residual[keep])))
+        keep = np.abs(ys - (a * xs + b)) <= tol
+    if keep.sum() < 5:
+        return None, keep
     return (float(a), float(b)), keep
 
 
@@ -307,30 +379,37 @@ def _four_corners(hull: np.ndarray) -> np.ndarray | None:
 
 
 def _hole_offset_in(plate: np.ndarray, corners: np.ndarray, px_per_in: int = 6) -> float | None:
-    """Rectify the deck and look for the dark hole near (12 in, 39 in from the front).
+    """Rectify the deck and return the distance (in) from (12 in, 39 in from the front) to the
+    nearest hole-like dark blob, or None if there is none.
 
-    Dark = below half the deck's median brightness. Blobs touching the rectified border are
-    rim or apron slivers from imperfect corners, not the hole. Seen from the side only the
-    shadowed crescent inside the hole is dark, so the blob need only cover a fraction of it.
+    Dark = locally darker than the surrounding deck (black-hat with a kernel larger than the
+    hole) by HOLE_LOCAL_CONTRAST of the deck's median brightness. On the pilot plates the hole
+    is only a faint shadowed crescent (0.58–0.62 of the median, no darker than the deck's pink
+    stripe), but it stands out locally; broad stripes do not. Blobs touching the rectified
+    border are rim or apron slivers from imperfect corners. Deck graphics (a logo near the
+    front on the pilot boards) can be larger than the hole, so the blob nearest the expected
+    position is used; `found` still needs it within HOLE_TOLERANCE_IN on a regulation-shaped quad.
     """
     dst = np.array([[0, 0], [24, 0], [24, 48], [0, 48]], np.float32) * px_per_in
     M = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
     deck = cv2.warpPerspective(plate, M, (24 * px_per_in, 48 * px_per_in))
     gray = cv2.cvtColor(deck, cv2.COLOR_BGR2GRAY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (HOLE_KERNEL_IN * px_per_in + 1,) * 2)
+    local = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel).astype(float)
     margin = 2 * px_per_in
-    inner = gray[margin:-margin, margin:-margin]
-    dark = (inner < HOLE_DARK_RATIO * np.median(inner)).astype(np.uint8)
+    inner = local[margin:-margin, margin:-margin]
+    dark = (inner > HOLE_LOCAL_CONTRAST * max(1.0, float(np.median(gray[margin:-margin, margin:-margin])))
+            ).astype(np.uint8)
     count, _, stats, centroids = cv2.connectedComponentsWithStats(dark, 8)
     ih, iw = inner.shape
     x, y, w, h, area = (stats[1:, k] for k in range(5))
     interior = (x > 0) & (y > 0) & (x + w < iw) & (y + h < ih)    # rim/apron slivers touch the border
-    if not interior.any():
+    holelike = interior & (area >= HOLE_MIN_AREA_FRACTION * math.pi * (3 * px_per_in) ** 2)
+    if not holelike.any():
         return None
-    i = 1 + int(np.argmax(np.where(interior, area, -1)))
-    if stats[i, cv2.CC_STAT_AREA] < HOLE_MIN_AREA_FRACTION * math.pi * (3 * px_per_in) ** 2:
-        return None
-    u, v = (centroids[i] + margin) / px_per_in
-    return float(math.hypot(u - 12.0, v - 39.0))
+    uv = (centroids[1:] + margin) / px_per_in
+    offsets = np.hypot(uv[:, 0] - 12.0, uv[:, 1] - 39.0)
+    return float(offsets[holelike].min())
 
 
 def transfer_corners(src_plate: np.ndarray, dst_plate: np.ndarray, corners_px) -> np.ndarray | None:

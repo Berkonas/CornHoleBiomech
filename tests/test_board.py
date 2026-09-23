@@ -141,3 +141,87 @@ def test_detect_board_mirrored_for_right_to_left_throws():
     out = detect_board(render_apron_board(corners)[:, ::-1].copy(), "right_to_left", B)
     assert out["status"] == "found"
     assert np.abs(np.array(out["corners_px"]) - order_corners(mirrored, "right_to_left")).max() < 12
+
+
+# ---- pilot-plate findings (task 4b): end face, mixed far-edge profile, faint hole, deck graphic
+def _deck_to_px(corners):
+    to_img = cv2.getPerspectiveTransform(np.float32([[0, 0], [24, 0], [24, 48], [0, 48]]), corners.astype(np.float32))
+    return lambda uv: cv2.perspectiveTransform(np.float32(uv).reshape(-1, 1, 2), to_img).reshape(-1, 2)
+
+
+def render_pilot_board(corners, apron_px=24, hole_bgr=(18, 18, 110), logo=True, hole=True):
+    """Apron board as on the pilot plates: visible dark front face, a faint hole (only ~0.6 of
+    the deck brightness) and a dark deck graphic near the front larger than the hole."""
+    img = render_apron_board(corners, apron_px, stripe=True, hole=False)
+    ordered = order_corners(corners, "left_to_right")
+    ff, fn = ordered[0], ordered[1]
+    cv2.fillConvexPoly(img, np.array([ff, fn, fn + [0, apron_px], ff + [0, apron_px]]).astype(np.int32),
+                       (25, 25, 25))
+    to_px = _deck_to_px(ordered)
+    a = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+    if logo:
+        cv2.fillConvexPoly(img, to_px(np.stack([12 + 5 * np.cos(a), 16 + 4 * np.sin(a)], 1)).astype(np.int32),
+                           (20, 20, 90))
+    if hole:
+        cv2.fillConvexPoly(img, to_px(np.stack([12 + 3 * np.cos(a), 39 + 3 * np.sin(a)], 1)).astype(np.int32),
+                           hole_bgr)
+    return img
+
+
+def pilot_like_corners():
+    # front-far corner ahead of the front-near one (front face visible) and a deck only ~22 px
+    # deep, as on the pilot plates
+    rvec, tvec = side_pose(phi_deg=-20.0, distance=10.0)
+    return project_board(rvec, tvec)
+
+
+def test_visible_front_face_does_not_move_the_front_corners():
+    corners = pilot_like_corners()
+    out = detect_board(render_pilot_board(corners), "left_to_right", B)
+    assert out["status"] == "found"
+    assert np.abs(np.array(out["corners_px"]) - order_corners(corners, "left_to_right")).max() < 12
+
+
+def test_faint_hole_beside_a_larger_deck_graphic_is_found():
+    corners = pilot_like_corners()
+    out = detect_board(render_pilot_board(corners), "left_to_right", B)
+    assert out["status"] == "found"
+    assert out["hole_offset_in"] < 1.5
+
+
+def test_deck_graphic_without_a_hole_is_not_found():
+    corners = pilot_like_corners()
+    out = detect_board(render_pilot_board(corners, hole=False), "left_to_right", B)
+    assert out["status"] == "not_found"
+
+
+def test_hole_check_rejects_corners_shifted_along_the_deck():
+    from cornhole_biomech.board import HOLE_TOLERANCE_IN, _hole_offset_in
+    corners = order_corners(pilot_like_corners(), "left_to_right")
+    img = render_pilot_board(corners)
+    to_px = _deck_to_px(corners)
+    shifted = to_px([[0, 8], [24, 8], [24, 56], [0, 56]])       # quad 8 in toward the back
+    assert _hole_offset_in(img, corners) < 1.5
+    offset = _hole_offset_in(img, shifted)
+    assert offset is None or offset > HOLE_TOLERANCE_IN
+
+
+def test_edge_line_follows_the_majority_edge_not_other_edges():
+    from cornhole_biomech.board import _robust_line
+    xs = np.arange(200.0)
+    ys = 0.15 * xs + 50
+    ys[:40] += 10          # deck graphic seen where a stripe hides the far edge
+    ys[-40:] -= 8          # the back edge
+    (a, b), keep = _robust_line(xs, ys)
+    assert a == pytest.approx(0.15, abs=0.005) and b == pytest.approx(50, abs=1.0)
+    assert keep[40:160].all() and not keep[:40].any() and not keep[-40:].any()
+
+
+def test_rim_grown_into_apron_and_face_does_not_win_over_the_apron_quad():
+    # Closer board: the red deck grown into the dark apron + face forms a rim quad whose near
+    # corners sit on the floor edge (27 px off here) yet still passes the hole check.
+    rvec, tvec = side_pose(phi_deg=-10.0, distance=8.0)
+    corners = project_board(rvec, tvec)
+    out = detect_board(render_pilot_board(corners), "left_to_right", B)
+    assert out["status"] == "found"
+    assert np.abs(np.array(out["corners_px"]) - order_corners(corners, "left_to_right")).max() < 12
