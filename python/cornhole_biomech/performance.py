@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 import numpy as np
+from scipy.stats import norm
 
 MIN_DESCRIPTIVE_PER_GROUP = 3
 MIN_CLAIM_PER_GROUP = 5
@@ -150,7 +151,27 @@ def _unit(unit: str) -> str:
     return unit if unit in ("°", "") else f" {unit}"
 
 
-def _analyze_variable(variable: Variable, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def critical_delta(n1: int, n2: int, comparisons: int, alpha: float = 0.05) -> float:
+    """Smallest |Cliff's δ| unlikely by chance, family-wise across `comparisons` tests.
+
+    Under no difference, δ has variance (n1 + n2 + 1) / (3 n1 n2) (the Mann–Whitney
+    null distribution rescaled). A Bonferroni two-sided z keeps the chance of any
+    false claim across all tested variables near `alpha`. Never below the 0.474
+    "large" threshold, so small but "significant" differences are not reported either.
+    """
+    if n1 < 1 or n2 < 1:
+        return 1.0
+    z = float(norm.ppf(1 - alpha / (2 * max(1, comparisons))))
+    return max(LARGE_EFFECT, z * np.sqrt((n1 + n2 + 1) / (3 * n1 * n2)))
+
+
+def _deviation_from_scored_center(scored: np.ndarray, miss: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """|value − median of scored throws|; each scored throw uses the median of the OTHER scored throws."""
+    loo = np.array([abs(v - np.median(np.delete(scored, i))) for i, v in enumerate(scored)]) if len(scored) > 1 else np.array([])
+    return loo, np.abs(miss - np.median(scored)) if len(scored) else np.array([])
+
+
+def _analyze_variable(variable: Variable, rows: list[dict[str, Any]], comparisons: int = 1) -> dict[str, Any]:
     scored, miss = _values(rows, variable.key, "scored"), _values(rows, variable.key, "miss")
     everything = _values(rows, variable.key)
     floor = _noise_floor(variable, rows)
@@ -158,9 +179,16 @@ def _analyze_variable(variable: Variable, rows: list[dict[str, Any]]) -> dict[st
     delta = cliffs_delta(scored, miss) if enough else None
     median_difference = float(np.median(miss) - np.median(scored)) if len(scored) and len(miss) else None
     below_floor = (median_difference is not None and floor is not None and abs(median_difference) < floor)
-    distinguishes = bool(
-        delta is not None and len(scored) >= MIN_CLAIM_PER_GROUP and len(miss) >= MIN_CLAIM_PER_GROUP
-        and abs(delta) >= LARGE_EFFECT and not below_floor)
+    claimable = len(scored) >= MIN_CLAIM_PER_GROUP and len(miss) >= MIN_CLAIM_PER_GROUP
+    threshold = critical_delta(len(scored), len(miss), comparisons)
+    distinguishes = bool(delta is not None and claimable and abs(delta) >= threshold and not below_floor)
+    # Two-sided effects (too high AND too low both miss) do not shift the median;
+    # they show up as misses lying further from the athlete's scored release.
+    dev_scored, dev_miss = _deviation_from_scored_center(scored, miss) if enough else (np.array([]), np.array([]))
+    spread_delta = cliffs_delta(dev_miss, dev_scored) if len(dev_scored) and len(dev_miss) else None
+    spread_gap = float(np.median(dev_miss) - np.median(dev_scored)) if len(dev_scored) and len(dev_miss) else None
+    spread_distinguishes = bool(spread_delta is not None and claimable and spread_delta >= threshold
+                                and spread_gap is not None and (floor is None or spread_gap > floor) and not distinguishes)
     sd_s, sd_m = (np.std(scored, ddof=1) if len(scored) > 1 else None), (np.std(miss, ddof=1) if len(miss) > 1 else None)
     return {
         "label": variable.label, "unit": variable.unit, "decimals": variable.decimals,
@@ -172,6 +200,10 @@ def _analyze_variable(variable: Variable, rows: list[dict[str, Any]]) -> dict[st
         "sd_ratio_miss_to_scored": float(sd_m / sd_s) if sd_s and sd_m is not None and sd_s > 0 else None,
         "noise_floor": floor, "noise_floor_source": variable.noise_source,
         "below_noise_floor": bool(below_floor), "distinguishes": distinguishes,
+        "critical_delta": threshold,
+        "spread_cliffs_delta": spread_delta, "spread_distinguishes": spread_distinguishes,
+        "miss_median_deviation": float(np.median(dev_miss)) if len(dev_miss) else None,
+        "scored_median_deviation": float(np.median(dev_scored)) if len(dev_scored) else None,
         "cliffs_delta_note": "Scored-minus-miss direction: +1 means every scored throw was higher than every miss.",
     }
 
@@ -199,7 +231,8 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
               "unknown": sum(s is None for s in scores)}
     n_scored, n_known = counts["hole"] + counts["board"], len(rows) - counts["unknown"]
     variables = _selected_variables(rows)
-    analyzed = {v.key: _analyze_variable(v, rows) for v in variables}
+    # Each variable is tested for a shift and for a spread difference.
+    analyzed = {v.key: _analyze_variable(v, rows, comparisons=2 * len(variables)) for v in variables}
     by_key = {v.key: v for v in variables}
     for key, a in analyzed.items():
         # Individual throws for plotting; unknown outcomes keep group None.
@@ -223,10 +256,19 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
         word = v.lower_word if a["median_difference_miss_minus_scored"] < 0 else v.higher_word
         sentences.append(f"Misses were associated with a {word} {v.label.lower()} (median "
                          f"{_fmt(a['miss']['median'], v)}{_unit(v.unit)} vs {_fmt(a['scored']['median'], v)}{_unit(v.unit)} on scored throws).")
+    spread_leaders = sorted((k for k, a in analyzed.items() if a["spread_distinguishes"]),
+                            key=lambda k: -analyzed[k]["spread_cliffs_delta"])[:2]
+    for key in spread_leaders:
+        a, v = analyzed[key], by_key[key]
+        if len(sentences) < 3:
+            sentences.append(f"Misses were further from this athlete's scored {v.label.lower()} (typically "
+                             f"{_fmt(a['miss_median_deviation'], v)}{_unit(v.unit)} off vs "
+                             f"{_fmt(a['scored_median_deviation'], v)}{_unit(v.unit)} on scored throws).")
     for key, a in analyzed.items():
         ratio, v = a["sd_ratio_miss_to_scored"], by_key[key]
         if (ratio and ratio >= VARIABILITY_RATIO and a["n_scored"] >= MIN_CLAIM_PER_GROUP
-                and a["n_miss"] >= MIN_CLAIM_PER_GROUP and key not in leaders and len(sentences) < 3):
+                and a["n_miss"] >= MIN_CLAIM_PER_GROUP and key not in leaders and key not in spread_leaders
+                and len(sentences) < 3):
             sentences.append(f"{v.label} was more spread out on misses (SD {_fmt(a['miss']['sd'], v)} vs "
                              f"{_fmt(a['scored']['sd'], v)}{_unit(v.unit)}).")
     if not sentences:
@@ -238,8 +280,9 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
                              f"{n_known} throws.")
     why = " ".join(sentences)
 
-    if leaders:
-        v, a = by_key[leaders[0]], analyzed[leaders[0]]
+    focus = leaders or spread_leaders
+    if focus:
+        v, a = by_key[focus[0]], analyzed[focus[0]]
         examples = _exemplars(rows, v, labels)
         next_step = (f"Scored throws had a {v.label.lower()} of {_fmt(a['scored']['q25'], v)}–"
                      f"{_fmt(a['scored']['q75'], v)}{_unit(v.unit)} (middle half). ")
@@ -260,8 +303,10 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
         "schema_version": 1, "success_definition": "scored (1 or 3 points) versus miss (0)",
         "counts": counts, "variables": analyzed,
         "feedback": {"result": result, "why": why, "next": next_step, "caveat": caveat},
-        "method": ("Cliff's delta with |δ| ≥ 0.474 (large), ≥ 5 throws per group and a median difference above "
-                   "the variable's noise floor; exploratory, uncorrected for the number of variables."),
+        "method": ("Cliff's delta for a shift in each variable and for misses lying further from the scored-throw "
+                   "median; claimed only with ≥ 5 throws per group, |δ| above both 0.474 (large) and the chance level for "
+                   "this sample size (Bonferroni across all variables tested), and a difference above the noise floor. "
+                   "Stress-tested on simulated athletes (docs/STRESS_TEST.md)."),
     }
 
 
