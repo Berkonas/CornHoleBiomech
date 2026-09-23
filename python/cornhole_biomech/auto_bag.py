@@ -13,8 +13,11 @@ and trajectory-rectification stages, without a trained network):
    moving toward the target. The fitted image gravity must be plausible for the
    athlete's scale (projected arm length ≈ 0.45–0.9 m), which rejects clutter.
 3. Events: release is where the fitted parabola, traced backwards, meets the
-   throwing wrist; first contact is the first frame after the last
-   parabola-consistent detection.
+   throwing wrist. First contact is OBSERVED only when the last
+   parabola-consistent detection lies on the detected board's deck/front face or
+   the floor (contact.py); a flight that ends in the air is `lost_in_flight`,
+   and its parabola is extended to an ESTIMATED (predicted) contact instead.
+   Candidates inside person masks (scene.py) cannot seed a flight.
 4. Acceptance: enough inliers over enough of the flight with small residuals.
    Otherwise the result is "needs_review" with the reason, never silently used.
 """
@@ -22,15 +25,19 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Sequence
 
 import cv2
 import numpy as np
 
+from .background import build_plate
 from .bag import GRAVITY_M_S2, _robust_polynomial
 from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
+from .board import detect_board, solve_board
+from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v10c_stabilized_rms"
+AUTO_BAG_REVISION = "auto_motion_parabola_v11_scene"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -416,10 +423,18 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
     for c in candidates:
         by_frame.setdefault(c.frame, []).append(c)
     frames = sorted(by_frame)
+    # People (athlete, bystanders) cannot SEED a flight: their limbs and clothing
+    # move like a bag. Inliers, extension and trimming still use every candidate,
+    # since a bag right at the hand may sit inside the person mask.
+    seedable = [c for c in candidates if not c.in_person]
+    seed_by_frame: dict[int, list[Candidate]] = {}
+    for c in seedable:
+        seed_by_frame.setdefault(c.frame, []).append(c)
+    seed_frames = sorted(seed_by_frame)
     result: dict[str, Any] = {"status": "not_found", "revision": AUTO_BAG_REVISION, "points": [], "fit": None,
                               "reasons": ["No moving object followed a plausible projectile path."],
                               "gravity_range_px_s2": list(g_range), "tolerance_px": tol}
-    if len(frames) < 3:
+    if len(frames) < 3 or len(seed_frames) < 3:
         return result
     rng = np.random.default_rng(seed)
     max_span = int(1.5 * fps)
@@ -442,7 +457,7 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
     # Tracklets often join free flight to the hand before release or the slide after
     # landing, so seeds come from overlapping sub-windows; one lies inside the flight.
     window = max(8, int(0.2 * fps))
-    for track in build_tracklets(candidates, gate_px=2 * tol, first_step_px=first_step):
+    for track in build_tracklets(seedable, gate_px=2 * tol, first_step_px=first_step):
         starts = range(0, max(1, len(track) - window + 1), max(1, window // 2))
         for start in starts:
             piece = track[start:start + window]
@@ -457,19 +472,19 @@ def find_flight(candidates: list[Candidate], fps: float, target_direction: str,
     for _ in range(iterations):
         # Guided sampling: flight detections are close in time, so draw the
         # three frames within `step` of each other rather than across the clip.
-        f1 = frames[rng.integers(len(frames))]
+        f1 = seed_frames[rng.integers(len(seed_frames))]
         step = max(3, int(0.25 * fps))
-        later = [f for f in frames if f1 < f <= f1 + step]
+        later = [f for f in seed_frames if f1 < f <= f1 + step]
         if not later:
             continue
         f2 = later[rng.integers(len(later))]
-        latest = [f for f in frames if f2 < f <= f2 + step]
+        latest = [f for f in seed_frames if f2 < f <= f2 + step]
         if not latest:
             continue
         f3 = latest[rng.integers(len(latest))]
         if f3 - f1 < 4:
             continue
-        picks = [by_frame[f][rng.integers(len(by_frame[f]))] for f in (f1, f2, f3)]
+        picks = [seed_by_frame[f][rng.integers(len(seed_by_frame[f]))] for f in (f1, f2, f3)]
         t = np.array([(c.frame - f1) / fps for c in picks])
         design = np.column_stack([np.ones(3), t, t * t])
         coef_y = np.linalg.solve(design, [c.y for c in picks]) if abs(np.linalg.det(design)) > 1e-12 else None
@@ -629,8 +644,59 @@ def camera_motion_px(to_prev: list[np.ndarray], first: int, last: int, point: tu
     return worst
 
 
+def _scene_and_board(frames, chain, target_direction, masks, board_corners_px=None, cache_dir=None):
+    """Background plate + board in release-frame pixels (the reference of `chain`).
+
+    Returns (scene_info, board) where board carries `model` (BoardModel) only when
+    the board was found (or corners were clicked); `not_found` may still carry
+    best-guess corners, which are never used.
+    """
+    plate = build_plate(frames, chain, person_masks=masks or None)
+    if cache_dir is not None:   # kept for `set-board-corners --apply-to` (plate-to-plate corner transfer)
+        cv2.imwrite(str(Path(cache_dir) / "plate.jpg"), plate["plate"])
+    height, width = frames[0].shape[:2]
+    scene_info = {"plate_samples": plate["samples"]}
+    if board_corners_px is not None:
+        found = {"status": "found", "corners_px": board_corners_px, "confidence": 1.0, "hole_offset_in": None,
+                 "reasons": ["clicked corners"]}
+    else:
+        found = detect_board(plate["plate"], target_direction)
+    if found["status"] != "found":
+        return scene_info, {**found, "model": None}
+    try:
+        model = solve_board(np.asarray(found["corners_px"], float), (width, height))
+    except ValueError as exc:
+        return scene_info, {**found, "status": "not_found", "reasons": [*found.get("reasons", []), str(exc)],
+                            "model": None}
+    return scene_info, {**found, "model": model}
+
+
+def _contact_from_board(board, end_point_ref, fit, fps, last_frame, frame_count, chain):
+    """Observed contact only when the flight ends at the deck/front/floor; otherwise predicted.
+
+    `end_point_ref` is the last tracked point in the board model's (release-frame)
+    pixels; `fit` is in raw video pixels, so predictions go through `chain`.
+    """
+    if board.get("model") is None:
+        return {"first_contact_frame": None, "predicted_contact": None,
+                "contact": {"kind": "unknown", "state": "unavailable", "plane_xy_m": None,
+                            "reason": "Board not located, so contact cannot be checked against the deck or floor."}}
+    model = board["model"]
+    end = classify_flight_end(end_point_ref, model)
+    if end["kind"] != "lost_in_flight":
+        return {"first_contact_frame": last_frame, "predicted_contact": None,
+                "contact": {"kind": end["kind"], "state": "measured", "plane_xy_m": end["plane_xy_m"], "reason": None}}
+    to_ref = lambda f, p: (chain[f] @ np.array([p[0], p[1], 1.0]))[:2] if f in chain else np.asarray(p, float)
+    predicted = predict_contact(fit["coef_x"], fit["coef_y"], fit["reference_frame"], fps, last_frame, frame_count,
+                                to_ref, model)
+    return {"first_contact_frame": None, "predicted_contact": predicted,
+            "contact": {"kind": "lost_in_flight", "state": "unavailable", "plane_xy_m": end["plane_xy_m"],
+                        "reason": "The bag was lost while still in the air; first contact was not observed."}}
+
+
 def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
-                   target_direction: str, preferred_release: int | None = None) -> dict[str, Any]:
+                   target_direction: str, preferred_release: int | None = None,
+                   cache_dir: Path | None = None, board_corners_px: list | None = None) -> dict[str, Any]:
     """Detect every flight in a clip and pick the one for this trial.
 
     `points` are raw video pixels, the same system as the pose landmarks, manual
@@ -640,12 +706,22 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     so launch fits and the gravity scale can behave as if the camera were fixed.
     (Revision 8 stored only stabilized points; drawn over a hand-held video they
     drifted off the bag by the camera motion, up to ~50 px in the pilot clips.)
+
+    With `cache_dir`, person masks are computed/cached there (scene.py) and the
+    background plate is written as `plate.jpg`. `board_corners_px` (clicked deck
+    corners in release-frame pixels) bypass board detection. `board`, `landing`
+    and `predicted_contact` are in release-frame pixels.
     """
     started = time.perf_counter()
     frames, fps = read_frames(video_path)
     if len(frames) < 5:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": ["The clip is too short."], "flights": []}
     candidates, to_prev = detect_moving_blobs_in_frames(frames)
+    from .scene import person_masks, tag_people   # scene imports Candidate from here
+    height, width = frames[0].shape[:2]
+    masks_info = (person_masks(video_path, cache_dir, (width, height)) if cache_dir is not None
+                  else {"status": "unavailable", "reason": "No cache directory for person masks.", "masks": {}})
+    candidates = tag_people(candidates, masks_info["masks"])
     flights = find_flights(candidates, fps, target_direction, arm_length_px, wrist, to_prev=to_prev)
     summary = [{"status": f["status"], "first_frame": f["fit"]["first_frame"], "last_frame": f["fit"]["last_frame"],
                 "inliers": f["fit"]["inliers"], "reasons": f["reasons"]} for f in flights]
@@ -665,13 +741,26 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         chosen = min(pool, key=lambda f: (gap_to_wrist(f), f["fit"]["first_frame"]))
     fit = chosen["fit"]
     release, contact = int(fit["first_frame"]), int(fit["last_frame"])
-    height, width = frames[0].shape[:2]
     last = next(p for p in chosen["points"] if p["frame"] == contact)
-    t_last = (contact - fit["reference_frame"]) / fps
-    descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
-    at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
-    contact_known = descending and not at_edge
     chain = reference_chain(to_prev, release)
+    scene_info, board = _scene_and_board(frames, chain, target_direction, masks_info["masks"], board_corners_px,
+                                         cache_dir)
+    end_ref = (chain[contact] @ np.array([last["x"], last["y"], 1.0]))[:2]
+    decided = _contact_from_board(board, end_ref, fit, fps, contact, len(frames), chain)
+    if board.get("model") is None:
+        # No board: keep the previous geometric rule (descending, not at the image
+        # edge), but say it is unverified.
+        t_last = (contact - fit["reference_frame"]) / fps
+        descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
+        at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
+        contact_known = descending and not at_edge
+        if contact_known:
+            decided["first_contact_frame"] = contact
+            decided["contact"]["state"] = "estimated"
+        decided["contact"]["reason"] += (" Using the older end-of-track rule (last tracked frame of a descending "
+                                         "flight away from the image edge), unverified.")
+    else:
+        contact_known = decided["first_contact_frame"] is not None
     # Detection blobs mark where the bag differs most from the background, not its
     # centre; a local background mask gives the silhouette centroid (bag_segment.py).
     refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
@@ -711,14 +800,36 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         reasons.append(f"The detected flight starts {wrist_gap / arm_length_px:.1f} arm lengths from the wrist; a throw "
                        "leaves from the hand, so the start of the flight was probably missed.")
     if not contact_known:
-        reasons.append("The bag left view or was lost before landing, so first contact and flight time are unknown; "
-                       "mark contact in Flight & scale if it is visible.")
+        predicted = decided["predicted_contact"]
+        reasons.append(decided["contact"]["reason"] + " Flight time is unknown"
+                       + (f"; contact is estimated at frame {predicted['frame']} ({predicted['kind']})" if predicted else "")
+                       + ". Mark contact in Flight & scale if it is visible.")
+    landing = suggested = None
+    if board.get("model") is not None:
+        model = board["model"]
+        if contact_known and contact in refined:
+            p = chain[contact] @ np.array([refined[contact]["x"], refined[contact]["y"], 1.0])
+            landing = {**landing_summary(p[:2], model), "state": "measured"}
+        elif decided["predicted_contact"] is not None:
+            pc = decided["predicted_contact"]
+            landing = {**landing_summary((pc["x_px"], pc["y_px"]), model), "state": "estimated",
+                       "reason": pc["reason"]}
+        suggested = suggest_outcome(after_contact, model)
+    board_payload = {k: v for k, v in board.items() if k != "model"}
+    if board.get("model") is not None:
+        board_payload.update(board["model"].as_dict())
     if len(accepted) > 1:
         reasons.append(f"{len(accepted)} flights were found in this clip; the one starting at the throwing hand was used.")
     return {
         "status": status, "revision": AUTO_BAG_REVISION, "fps": fps, "reasons": reasons,
         "release_frame": release, "first_contact_frame": contact if contact_known else None,
         "last_tracked_frame": contact,
+        "contact": decided["contact"], "predicted_contact": decided["predicted_contact"],
+        "board": board_payload, "landing": landing, "suggested_outcome": suggested,
+        "scene": {"masks_status": masks_info["status"], "masks_reason": masks_info.get("reason"),
+                  "masks_empty_frames": masks_info.get("empty_frames"),
+                  "plate_samples": scene_info["plate_samples"]},
+        "width": width, "height": height,
         "event_precision_frames": 1,
         "release_wrist_distance_px": wrist_gap,
         "camera_motion_during_flight_px": motion,

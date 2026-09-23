@@ -159,3 +159,48 @@ def test_acceptance_rms_is_measured_with_camera_motion_removed():
                                                      c.y + sway[c.frame][1] - flight.get(c.frame, (0, 1e9))[1]) < 6}
     p = new["points"][len(new["points"]) // 2]
     assert (p["x"], p["y"]) == pytest.approx((by_frame[p["frame"]].x, by_frame[p["frame"]].y))
+
+
+from cornhole_biomech.auto_bag import find_flight as _find_flight
+
+
+def test_person_candidates_cannot_seed_a_flight():
+    flight = true_flight()
+    cands = [Candidate(c.frame, c.x, c.y, c.area, in_person=True)
+             for c in candidates_with_clutter(flight, clutter_per_frame=0, drop=0.0)]
+    result = _find_flight(cands, FPS, "left_to_right", arm_length_px=PPM * 0.62)
+    assert result["status"] == "not_found"
+
+
+def test_auto_track_does_not_report_mid_air_contact(monkeypatch):
+    import cornhole_biomech.auto_bag as ab
+    # A flight that ends high in the air: the classifier says lost_in_flight.
+    monkeypatch.setattr(ab, "classify_flight_end", lambda p, m: {"kind": "lost_in_flight", "plane_xy_m": [0.0, 1.0]})
+    monkeypatch.setattr(ab, "predict_contact", lambda *a, **k: None)
+    out = ab._contact_from_board({"status": "found", "model": _StubModel()}, (500.0, 300.0), fit={
+        "coef_x": [0, 1, 0], "coef_y": [0, 0, 1], "reference_frame": 0}, fps=FPS, last_frame=80,
+        frame_count=200, chain={f: np.eye(3) for f in range(200)})
+    assert out["first_contact_frame"] is None
+    assert out["contact"]["kind"] == "lost_in_flight" and out["contact"]["state"] == "unavailable"
+
+
+class _StubModel:
+    def as_dict(self):
+        return {"phi_deg": 5.0}
+
+
+def test_flight_ending_on_the_deck_is_an_observed_contact(monkeypatch):
+    import cornhole_biomech.auto_bag as ab
+    monkeypatch.setattr(ab, "classify_flight_end", lambda p, m: {"kind": "deck", "plane_xy_m": [0.5, 0.2]})
+    out = ab._contact_from_board({"status": "found", "model": _StubModel()}, (500.0, 300.0), fit={
+        "coef_x": [0, 1, 0], "coef_y": [0, 0, 1], "reference_frame": 0}, fps=FPS, last_frame=80,
+        frame_count=200, chain={f: np.eye(3) for f in range(200)})
+    assert out["first_contact_frame"] == 80 and out["predicted_contact"] is None
+    assert out["contact"] == {"kind": "deck", "state": "measured", "plane_xy_m": [0.5, 0.2], "reason": None}
+
+
+def test_without_a_board_contact_is_not_checked():
+    import cornhole_biomech.auto_bag as ab
+    out = ab._contact_from_board({"status": "not_found", "model": None}, (500.0, 300.0), fit={}, fps=FPS,
+                                 last_frame=80, frame_count=200, chain={})
+    assert out["first_contact_frame"] is None and out["contact"]["state"] == "unavailable"

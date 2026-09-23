@@ -67,14 +67,18 @@ def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], c
     from .auto_bag import auto_track_bag
     from .geometry import robust_segment_length
     cached = _load_json(output / "auto_flight.json", None)
-    if cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256:
+    corners = _load_json(output / "board_corners.json", None)
+    if (cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256
+            and cached.get("board_corners") == corners):
         return cached
     lookup = {name: index for index, name in enumerate(landmarks)}
     side = context.throwing_side
     shoulder, elbow, wrist = (filtered[:, lookup[f"{side}_{j}"], :] for j in ("shoulder", "elbow", "wrist"))
     arm = robust_segment_length(shoulder, elbow) + robust_segment_length(elbow, wrist)
-    result = auto_track_bag(video.path, wrist, arm if np.isfinite(arm) else None, context.target_direction)
+    result = auto_track_bag(video.path, wrist, arm if np.isfinite(arm) else None, context.target_direction,
+                            cache_dir=output, board_corners_px=None if corners is None else corners["corners_px"])
     result["video_sha256"] = video.sha256
+    result["board_corners"] = corners
     write_json(output / "auto_flight.json", result)
     return result
 
