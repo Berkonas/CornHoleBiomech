@@ -196,3 +196,17 @@ def test_sports2d_cached_pose_corrections_and_movement_interval(tmp_path,monkeyp
     event_frames['release']=5
     (output/'events.json').write_text(json.dumps({'manual_overrides':event_frames}))
     with pytest.raises(ValueError,match='order'):analyze_trial(context,output,make_annotated_video=False)
+
+
+def test_automatic_contact_not_checked_against_board_is_flagged():
+    from cornhole_biomech.pipeline import _merge_automatic_flight_review
+    auto = {"first_contact_frame": 90, "contact": {"state": "unverified", "reason": "Board not located."}}
+    review, warnings = _merge_automatic_flight_review(auto, {})
+    assert review["first_contact_frame"] == 90 and review["contact_state"] == "unverified"
+    assert any("not checked against the board" in w for w in warnings)
+    review, warnings = _merge_automatic_flight_review(
+        {"first_contact_frame": 90, "contact": {"state": "measured", "reason": None}}, {})
+    assert review["contact_state"] == "measured" and warnings == []
+    # A manually reviewed contact wins and is not flagged.
+    review, warnings = _merge_automatic_flight_review(auto, {"first_contact_frame": 95})
+    assert review["first_contact_frame"] == 95 and review["contact_state"] == "manual" and warnings == []

@@ -83,6 +83,28 @@ def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], c
     return result
 
 
+def _merge_automatic_flight_review(auto_flight: dict[str, Any], flight_review: dict[str, Any]
+                                   ) -> tuple[dict[str, Any], list[str]]:
+    """Manual flight review wins; automatic values fill only what is missing.
+
+    `contact_state` records where the first-contact frame came from: "manual", or the
+    automatic contact state ("measured" = checked against the board/floor;
+    "unverified" = end of track without a board). Any automatic contact that was not
+    measured is flagged.
+    """
+    automatic: dict[str, Any] = {"fixed_camera": True, "source": "automatic_physics_camera_motion_removed"}
+    warnings: list[str] = []
+    if flight_review.get("first_contact_frame") is not None:
+        automatic["contact_state"] = "manual"
+    elif auto_flight.get("first_contact_frame") is not None:
+        automatic["first_contact_frame"] = int(auto_flight["first_contact_frame"])
+        automatic["contact_state"] = (auto_flight.get("contact") or {}).get("state") or "unverified"
+        if automatic["contact_state"] != "measured":
+            warnings.append(f"Automatic first contact (frame {automatic['first_contact_frame']}) was not checked "
+                            "against the board or floor; confirm it in Flight & scale before relying on flight time.")
+    return {**automatic, **flight_review}, warnings
+
+
 def _bag_track_from_auto_flight(auto_flight: dict[str, Any], video) -> BagTrack:
     """Wrap an accepted automatic flight as a canonical bag track (camera motion removed)."""
     by_frame = {p["frame"]: p for p in auto_flight["points"]}
@@ -518,11 +540,8 @@ def analyze_trial(
     calibration = SpatialCalibration.load(calibration_path)
     flight_review = _load_json(output / "flight_review.json", {})
     if auto_accepted:
-        # Manual flight review wins; automatic values fill only what is missing.
-        automatic = {"fixed_camera": True, "source": "automatic_physics_camera_motion_removed"}
-        if auto_flight.get("first_contact_frame") is not None:
-            automatic["first_contact_frame"] = int(auto_flight["first_contact_frame"])
-        flight_review = {**automatic, **flight_review}
+        flight_review, contact_warnings = _merge_automatic_flight_review(auto_flight, flight_review)
+        bag_warnings.extend(contact_warnings)
     contact_frame = flight_review.get("first_contact_frame")
     if contact_frame is not None and (not isinstance(contact_frame, int) or isinstance(contact_frame, bool)
                                       or not 0 <= contact_frame < sequence.frame_count):

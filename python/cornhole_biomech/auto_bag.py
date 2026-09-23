@@ -48,6 +48,11 @@ MIN_TRAVEL_ARM_LENGTHS = 4.0   # a throw carries the bag metres toward the board
 IN_HAND_ARM_LENGTHS = 0.45
 MAX_RMS_ARM_LENGTHS = 0.08  # whole-flight parabola residual limit (drag/perspective allowance)
 RELEASE_AT_HAND_ARM_LENGTHS = 0.8  # the first free-flight point must be this close to the wrist
+# A descending track that ends this close (frames) before its own predicted surface
+# contact is an observed contact: the last detection is the touchdown, whose
+# throw-plane height reads high when the bag lands off the board centreline
+# (pilot P2: on the floor at 0.14 m "height", predicted floor contact 1 frame later).
+NEAR_CONTACT_FRAMES = 2
 
 
 # Registration (hand-held camera). ORB keypoint steps alone captured only ~66 % of the
@@ -689,9 +694,36 @@ def _contact_from_board(board, end_point_ref, fit, fps, last_frame, frame_count,
     to_ref = lambda f, p: (chain[f] @ np.array([p[0], p[1], 1.0]))[:2] if f in chain else np.asarray(p, float)
     predicted = predict_contact(fit["coef_x"], fit["coef_y"], fit["reference_frame"], fps, last_frame, frame_count,
                                 to_ref, model)
+    t_last = (last_frame - fit["reference_frame"]) / fps
+    descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
+    if predicted is not None and descending and predicted["frame"] - last_frame <= NEAR_CONTACT_FRAMES:
+        gap = predicted["frame"] - last_frame
+        return {"first_contact_frame": last_frame, "predicted_contact": None,
+                "contact": {"kind": predicted["kind"], "state": "measured", "plane_xy_m": end["plane_xy_m"],
+                            "reason": f"Descending track ended within {gap} frame(s) of the predicted "
+                                      f"{predicted['kind']} contact."}}
     return {"first_contact_frame": None, "predicted_contact": predicted,
             "contact": {"kind": "lost_in_flight", "state": "unavailable", "plane_xy_m": end["plane_xy_m"],
                         "reason": "The bag was lost while still in the air; first contact was not observed."}}
+
+
+def _no_board_fallback(decided, fit, fps, last, contact, width, height) -> tuple[bool, str | None]:
+    """No board: the previous geometric rule (descending, away from the image edge), labelled unverified.
+
+    Mutates `decided`. Returns (contact_known, warning for the top-level reasons or None).
+    """
+    t_last = (contact - fit["reference_frame"]) / fps
+    descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
+    at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
+    rule = (" Using the older end-of-track rule (last tracked frame of a descending flight away from the image "
+            "edge), unverified.")
+    decided["contact"]["reason"] += rule
+    if not (descending and not at_edge):
+        return False, None
+    decided["first_contact_frame"] = contact
+    decided["contact"]["state"] = "unverified"
+    return True, (f"First contact (frame {contact}) was taken as the end of the tracked flight: the board was not "
+                  "located, so it is unverified against the deck or floor. Confirm it in Flight & scale.")
 
 
 def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
@@ -747,18 +779,9 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
                                          cache_dir)
     end_ref = (chain[contact] @ np.array([last["x"], last["y"], 1.0]))[:2]
     decided = _contact_from_board(board, end_ref, fit, fps, contact, len(frames), chain)
+    fallback_warning = None
     if board.get("model") is None:
-        # No board: keep the previous geometric rule (descending, not at the image
-        # edge), but say it is unverified.
-        t_last = (contact - fit["reference_frame"]) / fps
-        descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
-        at_edge = min(last["x"], width - last["x"], last["y"], height - last["y"]) < 0.02 * width
-        contact_known = descending and not at_edge
-        if contact_known:
-            decided["first_contact_frame"] = contact
-            decided["contact"]["state"] = "estimated"
-        decided["contact"]["reason"] += (" Using the older end-of-track rule (last tracked frame of a descending "
-                                         "flight away from the image edge), unverified.")
+        contact_known, fallback_warning = _no_board_fallback(decided, fit, fps, last, contact, width, height)
     else:
         contact_known = decided["first_contact_frame"] is not None
     # Detection blobs mark where the bag differs most from the background, not its
@@ -799,6 +822,8 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         status = "needs_review"
         reasons.append(f"The detected flight starts {wrist_gap / arm_length_px:.1f} arm lengths from the wrist; a throw "
                        "leaves from the hand, so the start of the flight was probably missed.")
+    if fallback_warning:
+        reasons.append(fallback_warning)
     if not contact_known:
         predicted = decided["predicted_contact"]
         reasons.append(decided["contact"]["reason"] + " Flight time is unknown"

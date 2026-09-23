@@ -204,3 +204,47 @@ def test_without_a_board_contact_is_not_checked():
     out = ab._contact_from_board({"status": "not_found", "model": None}, (500.0, 300.0), fit={}, fps=FPS,
                                  last_frame=80, frame_count=200, chain={})
     assert out["first_contact_frame"] is None and out["contact"]["state"] == "unavailable"
+
+
+def _near_contact(monkeypatch, coef_y, predicted_frame):
+    import cornhole_biomech.auto_bag as ab
+    monkeypatch.setattr(ab, "classify_flight_end", lambda p, m: {"kind": "lost_in_flight", "plane_xy_m": [-0.8, 0.14]})
+    monkeypatch.setattr(ab, "predict_contact", lambda *a, **k: {
+        "frame": predicted_frame, "x_px": 1.0, "y_px": 2.0, "kind": "floor", "state": "estimated", "reason": "r"})
+    return ab._contact_from_board({"status": "found", "model": _StubModel()}, (500.0, 300.0), fit={
+        "coef_x": [0, 100, 0], "coef_y": coef_y, "reference_frame": 0}, fps=FPS, last_frame=80,
+        frame_count=200, chain={f: np.eye(3) for f in range(200)})
+
+
+def test_descending_track_ending_just_before_predicted_contact_is_observed(monkeypatch):
+    from cornhole_biomech.auto_bag import NEAR_CONTACT_FRAMES
+    out = _near_contact(monkeypatch, [0, 0, 500.0], 80 + NEAR_CONTACT_FRAMES)   # dy/dt > 0: falling
+    assert out["first_contact_frame"] == 80 and out["predicted_contact"] is None
+    assert out["contact"]["kind"] == "floor" and out["contact"]["state"] == "measured"
+    assert out["contact"]["plane_xy_m"] == [-0.8, 0.14]
+    assert f"within {NEAR_CONTACT_FRAMES} frame(s) of the predicted floor contact" in out["contact"]["reason"]
+
+
+def test_rising_track_near_predicted_contact_stays_lost(monkeypatch):
+    out = _near_contact(monkeypatch, [0, -2000.0, 500.0], 81)   # dy/dt < 0 at t = 80/60 s: still rising
+    assert out["first_contact_frame"] is None and out["contact"]["kind"] == "lost_in_flight"
+    assert out["predicted_contact"]["frame"] == 81
+
+
+def test_track_ending_well_before_predicted_contact_stays_lost(monkeypatch):
+    from cornhole_biomech.auto_bag import NEAR_CONTACT_FRAMES
+    out = _near_contact(monkeypatch, [0, 0, 500.0], 80 + NEAR_CONTACT_FRAMES + 1)
+    assert out["first_contact_frame"] is None and out["contact"]["state"] == "unavailable"
+
+
+def test_no_board_fallback_contact_is_unverified_and_said_so():
+    import cornhole_biomech.auto_bag as ab
+    decided = ab._contact_from_board({"status": "not_found", "model": None}, (0, 0), {}, FPS, 80, 200, {})
+    fit = {"coef_x": [0, 100, 0], "coef_y": [0, 0, 500.0], "reference_frame": 0}
+    known, warning = ab._no_board_fallback(decided, fit, FPS, {"x": 900.0, "y": 500.0}, 80, 1920, 1080)
+    assert known and decided["first_contact_frame"] == 80 and decided["contact"]["state"] == "unverified"
+    assert "unverified" in warning
+    decided = ab._contact_from_board({"status": "not_found", "model": None}, (0, 0), {}, FPS, 80, 200, {})
+    known, warning = ab._no_board_fallback(decided, fit, FPS, {"x": 5.0, "y": 500.0}, 80, 1920, 1080)  # at edge
+    assert not known and decided["first_contact_frame"] is None and decided["contact"]["state"] == "unavailable"
+    assert warning is None
