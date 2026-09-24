@@ -25,6 +25,7 @@ MIN_SESSION_THROWS = 3              # fewer measured per-throw HFOVs cannot pool
 MAX_SESSION_IQR_DEG = 6.0           # wider per-throw HFOV spread cannot pool a "measured" session estimate
 MAX_SESSION_DEVIATION_DEG = 8.0     # a member farther than this from the session median is reported as an outlier
 SESSION_HFOV_SOURCE = "session_median_gravity_fov"
+LIBRARY_HFOV_SOURCE = "library_median_gravity_fov"   # fallback for a session with too few measured throws
 MIDPOINT_PROBE_FRACTIONS = (0.05, -0.05, 0.1, -0.1, 0.2, -0.2)   # of the current bracket span, tried in order
 HFOV_ACCEL_TOLERANCE_M_S2 = 0.5     # |a_y - (-g)| at most this close still counts as "measured" when bisection stalls
 MAX_PHI_DEG = 20.0
@@ -329,7 +330,7 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     return package(hfov, "measured", None, a_y_band_edges, horiz, True)
 
 
-def pool_session_hfov(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
+def pool_session_hfov(calibrations: list[dict[str, Any]], scope: str = "session") -> dict[str, Any]:
     """Pool one recording session's per-throw gravity HFOV calibrations into one session estimate.
 
     A single throw's ~0.4 s free flight gives a noisy vertical-acceleration fit, so its
@@ -342,14 +343,14 @@ def pool_session_hfov(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
     dicts, e.g. a throw's persisted `results.json["scale"]` fields); only items with
     `status == "measured"` count. Status "measured" requires at least `MIN_SESSION_THROWS`
     measured throws whose HFOVs' IQR is at most `MAX_SESSION_IQR_DEG`; otherwise "estimated" with
-    a reason. No measured throw at all gives "unavailable".
+    a reason. No measured throw at all gives "unavailable". `scope` names the pool in the reasons.
     """
     measured = [c for c in calibrations if c.get("status") == "measured" and c.get("hfov_deg") is not None]
     n = len(measured)
     if n == 0:
         return {"hfov_deg": None, "status": "unavailable", "n": 0, "iqr_deg": None, "spread_deg": None,
                 "members": [], "outliers": [],
-                "reason": "No throw in this session had a field of view measured from gravity.",
+                "reason": f"No throw in this {scope} had a field of view measured from gravity.",
                 "source": SESSION_HFOV_SOURCE}
     values = np.array([float(c["hfov_deg"]) for c in measured], float)
     members = [c.get("trial_id") for c in measured]
@@ -361,14 +362,30 @@ def pool_session_hfov(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
             "members": members, "outliers": outliers, "source": SESSION_HFOV_SOURCE}
     if n < MIN_SESSION_THROWS:
         return {**base, "status": "estimated",
-                "reason": f"Only {n} throw(s) in this session had a field of view measured from gravity; at "
-                          f"least {MIN_SESSION_THROWS} are needed to pool a session estimate confidently."}
+                "reason": f"Only {n} throw(s) in this {scope} had a field of view measured from gravity; at "
+                          f"least {MIN_SESSION_THROWS} are needed to pool a {scope} estimate confidently."}
     if iqr is not None and iqr > MAX_SESSION_IQR_DEG:
         return {**base, "status": "estimated",
-                "reason": f"This session's {n} measured field-of-view calibrations spread over an IQR of "
+                "reason": f"This {scope}'s {n} measured field-of-view calibrations spread over an IQR of "
                           f"{iqr:.1f}° (> {MAX_SESSION_IQR_DEG:.1f}°); the per-throw values disagree too much "
-                          "to pool as one measured session field of view."}
+                          f"to pool as one measured {scope} field of view."}
     return {**base, "status": "measured", "reason": None}
+
+
+def pool_library_hfov(calibrations: list[dict[str, Any]], session: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Library-wide fallback for a session with fewer than `MIN_SESSION_THROWS` measured throws.
+
+    Pools every measured per-throw calibration of the library run (all sessions) with the same
+    median/n/IQR rules as `pool_session_hfov`, so it is "measured" only if the library pool itself
+    meets them. It assumes every session was filmed with the same camera and zoom, which the
+    reason states. `session` (that session's own pool) is kept for reference.
+    """
+    pooled = pool_session_hfov(calibrations, scope="library run")
+    note = (f"This session had fewer than {MIN_SESSION_THROWS} throws with a field of view measured from gravity, "
+            f"so the median of all {pooled['n']} measured throws in this library run is used; this assumes the "
+            "same camera and zoom in every session.")
+    reason = note if pooled["status"] == "measured" else f"{note} {pooled['reason']}"
+    return {**pooled, "source": LIBRARY_HFOV_SOURCE, "reason": reason, "session_pool": session}
 
 
 def _red_and_rim(plate: np.ndarray, min_sat: int = RED_MIN_SAT) -> tuple[np.ndarray, np.ndarray]:

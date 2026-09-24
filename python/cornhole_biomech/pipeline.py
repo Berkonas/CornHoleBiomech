@@ -201,24 +201,35 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
     Callers reanalyse every listed throw once before calling this (so results.json["scale"] holds
     this session's own per-throw calibrations, not values already pooled from a previous camera.json)
     and once after (so the written camera.json takes effect; see `_board_scale`).
+
+    A session with fewer than `board.MIN_SESSION_THROWS` measured throws falls back to the pool of
+    every measured throw in `analysis_dirs` (`board.pool_library_hfov`, source
+    "library_median_gravity_fov"; Task 8c), when that pool has more measured throws.
     """
-    from .board import pool_session_hfov
+    from .board import MIN_SESSION_THROWS, pool_library_hfov, pool_session_hfov
     sessions: dict[str, list[Path]] = {}
     for directory in analysis_dirs:
         manifest = _load_json(Path(directory) / "manifest.json", {})
         key = session_grouping_key(manifest.get("trial_context") or {})
         sessions.setdefault(key, []).append(Path(directory))
-    pooled: dict[str, dict[str, Any]] = {}
+    calibrations: dict[str, list[dict[str, Any]]] = {}
     for key, members in sessions.items():
-        calibrations = []
+        calibrations[key] = []
         for directory in members:
             manifest = _load_json(directory / "manifest.json", {})
             results = _load_json(directory / "results.json", {})
             scale = results.get("scale") or {}
             trial_id = (manifest.get("trial_context") or {}).get("trial_id") or directory.name
-            calibrations.append({"trial_id": trial_id, "hfov_deg": scale.get("per_throw_hfov_deg"),
-                                 "status": scale.get("per_throw_hfov_status")})
-        camera = {**pool_session_hfov(calibrations), "session_key": key}
+            calibrations[key].append({"trial_id": trial_id, "hfov_deg": scale.get("per_throw_hfov_deg"),
+                                      "status": scale.get("per_throw_hfov_status")})
+    library = [c for group in calibrations.values() for c in group]
+    library_n = pool_session_hfov(library)["n"]
+    pooled: dict[str, dict[str, Any]] = {}
+    for key, members in sessions.items():
+        camera = pool_session_hfov(calibrations[key])
+        if camera["n"] < MIN_SESSION_THROWS and library_n > camera["n"]:
+            camera = pool_library_hfov(library, session=camera)
+        camera = {**camera, "session_key": key}
         for directory in members:
             write_json(directory / "camera.json", camera)
         pooled[key] = camera

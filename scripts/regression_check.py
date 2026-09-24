@@ -10,7 +10,8 @@ each recording session (same athlete, same source-clip folder, from
 `pipeline.pool_session_camera_files`) is then pooled into a camera.json written into its scratch
 copies; pass 2 re-analyses every scratch copy in place (nothing is re-copied from the library) so
 `_board_scale` picks up the pooled field of view. The comparison against the library's stored
-results.json uses pass 2's output.
+results.json uses pass 2's output. A session with fewer than 3 measured throws uses the
+median of every measured throw in the run instead (source "library_median_gravity_fov", Task 8c).
 
     PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
         --library "~/Documents/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
@@ -90,8 +91,9 @@ def main() -> None:
     print(f"Pooling {len(targets)} scratch throw(s) into recording sessions", flush=True)
     pooled = pool_session_camera_files(targets)
     for key, camera in pooled.items():
-        print(f"  {key}: {camera['status']} field of view, {camera['n']} measured of {len(camera['members'])} "
-              f"throw(s), hfov={camera['hfov_deg']}", flush=True)
+        iqr = "—" if camera["iqr_deg"] is None else f"{camera['iqr_deg']:.2f}"
+        print(f"  {key}: {camera['status']} field of view from {camera['source']}, {camera['n']} measured "
+              f"throw(s), hfov={camera['hfov_deg']}, IQR={iqr}", flush=True)
 
     print("Pass 2/2: re-analysing the same scratch copies with the pooled session field of view", flush=True)
     rows = [compare(analysis, scratch, analyze_scratch(analysis, scratch)) for analysis in analyses]

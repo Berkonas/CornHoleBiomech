@@ -6,8 +6,9 @@ import cv2
 import numpy as np
 import pytest
 
-from cornhole_biomech.board import (MAX_SESSION_DEVIATION_DEG, MAX_SESSION_IQR_DEG, MIN_SESSION_THROWS,
-                                    SESSION_HFOV_SOURCE, camera_matrix, order_corners, pool_session_hfov)
+from cornhole_biomech.board import (LIBRARY_HFOV_SOURCE, MAX_SESSION_DEVIATION_DEG, MAX_SESSION_IQR_DEG,
+                                    MIN_SESSION_THROWS, SESSION_HFOV_SOURCE, camera_matrix, order_corners,
+                                    pool_library_hfov, pool_session_hfov)
 from cornhole_biomech.pipeline import _board_scale, pool_session_camera_files, session_grouping_key
 from cornhole_biomech.regulation import Board
 from cornhole_biomech.serialization import write_json
@@ -197,6 +198,58 @@ def test_pool_session_camera_files_groups_pools_and_writes_every_member(tmp_path
         camera = json.loads((d / "camera.json").read_text())
         assert camera["n"] == 3 and camera["status"] == "measured"
         assert sorted(camera["members"]) == ["t0", "t1", "t2"]
+        assert camera["source"] == SESSION_HFOV_SOURCE
+    # only one measured throw in its own session: falls back to the library-wide pool (Task 8c)
     other_camera = json.loads((other_dir / "camera.json").read_text())
-    assert other_camera["members"] == ["t3"]
-    assert other_camera["status"] == "estimated"   # only one measured throw in its session
+    assert other_camera["source"] == LIBRARY_HFOV_SOURCE
+    assert sorted(other_camera["members"]) == ["t0", "t1", "t2", "t3"]
+    assert other_camera["hfov_deg"] == pytest.approx(60.5)
+    assert other_camera["status"] == "measured"          # 4 throws, IQR 3.4° <= 6°
+    assert other_camera["session_pool"]["members"] == ["t3"]
+    assert other_camera["session_pool"]["status"] == "estimated"
+
+
+# ---- task 8c: library-wide fallback for a session with too few measured throws
+def test_pool_library_hfov_measured_states_the_same_camera_assumption():
+    session = pool_session_hfov([_measured("p3a", 55.3)])
+    out = pool_library_hfov([_measured(f"t{i}", v) for i, v in enumerate([58.8, 60.3, 56.6, 61.7, 55.3])],
+                            session=session)
+    assert out["status"] == "measured" and out["source"] == LIBRARY_HFOV_SOURCE
+    assert out["hfov_deg"] == pytest.approx(58.8) and out["n"] == 5
+    assert "same camera and zoom" in out["reason"]
+    assert out["session_pool"] == session
+
+
+def test_pool_library_hfov_estimated_when_the_library_spread_is_too_wide():
+    out = pool_library_hfov([_measured(f"t{i}", v) for i, v in enumerate([55.0, 56.0, 68.0, 70.0])])
+    assert out["iqr_deg"] > MAX_SESSION_IQR_DEG
+    assert out["status"] == "estimated" and out["source"] == LIBRARY_HFOV_SOURCE
+    assert "same camera and zoom" in out["reason"] and "library run" in out["reason"]
+
+
+def test_pool_library_hfov_estimated_when_the_library_has_too_few_throws():
+    out = pool_library_hfov([_measured("a", 60.0), _measured("b", 61.0)])
+    assert out["status"] == "estimated" and out["n"] == 2
+    assert f"at least {MIN_SESSION_THROWS}" in out["reason"]
+
+
+def test_small_session_keeps_its_own_pool_when_the_library_has_nothing_more(tmp_path):
+    videos = tmp_path / "clips"
+    videos.mkdir()
+    (videos / "a.mp4").touch()
+    (videos / "b.mp4").touch()
+    dirs = [_write_throw(tmp_path, "t0", "ath1", videos / "a.mp4", 60.0, "measured"),
+            _write_throw(tmp_path, "t1", "ath1", videos / "b.mp4", None, None)]
+    pooled = pool_session_camera_files(dirs)
+    (camera,) = pooled.values()
+    assert camera["source"] == SESSION_HFOV_SOURCE and camera["status"] == "estimated" and camera["n"] == 1
+
+
+def test_board_scale_uses_a_library_camera_file(tmp_path):
+    auto_flight = _rendered_board_and_flight(true_hfov=62.0)
+    library = pool_library_hfov([_measured(f"t{i}", v) for i, v in enumerate([58.0, 59.0, 60.0])])
+    write_json(tmp_path / "camera.json", {**library, "session_key": "p3"})
+    out = _board_scale(auto_flight, tmp_path)
+    assert out["status"] == "measured" and out["hfov_source"] == LIBRARY_HFOV_SOURCE
+    assert out["hfov_deg"] == pytest.approx(59.0)
+    assert "same camera and zoom" in out["hfov_reason"]

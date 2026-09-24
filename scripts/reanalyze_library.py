@@ -62,8 +62,9 @@ def main() -> None:
     print(f"Pooling {len(folders)} throw(s) into recording sessions", flush=True)
     pooled = pool_session_camera_files(folders)
     for key, camera in pooled.items():
-        print(f"  {key}: {camera['status']} field of view, {camera['n']} measured of {len(camera['members'])} "
-              f"throw(s), hfov={camera['hfov_deg']}", flush=True)
+        iqr = "—" if camera["iqr_deg"] is None else f"{camera['iqr_deg']:.2f}"
+        print(f"  {key}: {camera['status']} field of view from {camera['source']}, {camera['n']} measured "
+              f"throw(s), hfov={camera['hfov_deg']}, IQR={iqr}", flush=True)
 
     print("Pass 2/2: re-analysis with the pooled session field of view", flush=True)
     failures += _analyze_pass(root, project)
