@@ -70,7 +70,19 @@ struct ImportTrialForm: View {
                     dismiss()
                     if analyzeAutomatically && !imported.isEmpty {
                         // One worker at a time; each throw is analyzed end to end without clicks.
-                        Task { for trial in imported { await analysis.analyze(trial: trial, store: store) } }
+                        let batch = Set(imported.map(\.id))
+                        Task {
+                            var last: Trial?
+                            for trial in imported {
+                                // Skip throws deleted while the batch was running; use the current record.
+                                guard let current = store.project?.trials.first(where: { $0.id == trial.id }) else { continue }
+                                await analysis.analyze(trial: current, store: store, selectWhenDone: false)
+                                last = current
+                            }
+                            if let last, store.project?.trials.first(where: { $0.id == last.id })?.analysisStatus == "Analyzed" {
+                                store.showAnalyzedThrow(last, batch: batch)
+                            }
+                        }
                     }
                 }.buttonStyle(.borderedProminent).disabled(athleteID == nil)
             }
@@ -151,6 +163,7 @@ struct AnalysisSettingsView: View {
             }
         }.padding(24).frame(width: 620)
         .onAppear { settings = store.project?.analysisSettings ?? AnalysisSettings() }
+        .onChange(of: store.project?.id) { settings = store.project?.analysisSettings ?? AnalysisSettings() }
         .task {
             do {
                 let info = try await analysis.probe()

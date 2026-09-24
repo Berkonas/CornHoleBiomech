@@ -167,7 +167,7 @@ struct MetricTile: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.label).font(.headline).lineLimit(2)
                 Spacer(minLength: Space.xs)
-                ReliabilityGlyph(status: row.status).help(row.statusText)
+                if isFlagged { ReliabilityGlyph(status: row.status).help(row.statusText) }
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                 Text(row.value.map { number($0, digits: digits) } ?? "—").font(.title.monospacedDigit())
@@ -176,10 +176,13 @@ struct MetricTile: View {
             if !history.isEmpty || target != nil {
                 RangeBar(model: RangeBarModel(values: history, current: row.value, target: target))
             }
+            if isFlagged {
+                Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
             HStack {
                 if let (q1, q3) = RangeBarModel(values: history, current: nil, target: nil).quartiles {
                     Text("Usual \(number(q1, digits: digits))–\(number(q3, digits: digits))").monospacedDigit()
-                } else if row.value == nil {
+                } else if row.value == nil && !isFlagged {
                     Text(row.statusText)
                 }
                 Spacer()
@@ -196,6 +199,9 @@ struct MetricTile: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(0.6)))
         .help(row.definition)
     }
+
+    /// Only caution / unreliable measurements carry a glyph and a reason; reliable ones stay quiet.
+    private var isFlagged: Bool { row.status == "caution" || row.status == "unreliable" }
 
     private var digits: Int {
         guard let value = row.value else { return 1 }

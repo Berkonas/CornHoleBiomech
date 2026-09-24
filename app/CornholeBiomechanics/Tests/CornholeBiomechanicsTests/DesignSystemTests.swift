@@ -35,4 +35,41 @@ final class DesignSystemTests: XCTestCase {
         let noPhysics = try JSONDecoder().decode(Verdict.self, from: Data(#"{"headline": "h", "items": [], "physics": null}"#.utf8))
         XCTAssertNil(noPhysics.physics)
     }
+
+    /// Navigation after analysis only follows the user's current context.
+    @MainActor func testShowAnalyzedThrowRespectsCurrentDestination() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("destination-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        let paths = LibraryPaths(applicationSupportURL: base.appendingPathComponent("Support"), defaultLibraryURL: base.appendingPathComponent("Data"), libraryRootWasOverridden: false)
+        let store = ProjectStore(paths: paths, trashHandler: { _ in })
+        try store.addAthlete(NewAthleteDraft(participantCode: "A", dominantHand: .right))
+        let a = try XCTUnwrap(store.selectedAthleteID)
+        try store.addAthlete(NewAthleteDraft(participantCode: "B", dominantHand: .right))
+        let b = try XCTUnwrap(store.selectedAthleteID)
+        let source = base.appendingPathComponent("source.mov")
+        try Data("video".utf8).write(to: source)
+        let first = try store.importVideo(ImportDraft(videoURL: source, athleteID: a))
+        let second = try store.importVideo(ImportDraft(videoURL: source, athleteID: a))
+
+        store.destination = .summary(a)
+        store.showAnalyzedThrow(first)
+        XCTAssertEqual(store.destination, .throwReport(first.id))
+        XCTAssertEqual(store.selectedTrialID, first.id)
+
+        store.destination = .summary(b)                   // moved to another athlete: stay
+        store.showAnalyzedThrow(first)
+        XCTAssertEqual(store.destination, .summary(b))
+
+        store.destination = .launchLab                    // moved to a tool: stay
+        store.showAnalyzedThrow(first)
+        XCTAssertEqual(store.destination, .launchLab)
+
+        store.destination = .throwReport(first.id)        // another throw of the same batch: follow
+        store.showAnalyzedThrow(second, batch: [first.id, second.id])
+        XCTAssertEqual(store.destination, .throwReport(second.id))
+        store.destination = .throwReport(first.id)        // same throw of another batch: stay
+        store.showAnalyzedThrow(second)
+        XCTAssertEqual(store.destination, .throwReport(first.id))
+    }
 }

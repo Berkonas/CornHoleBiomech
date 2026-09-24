@@ -31,7 +31,8 @@ final class AnalysisService: ObservableObject {
     private var cancelled = false
     private(set) var activeTrialID: UUID?
 
-    func analyze(trial: Trial, store: ProjectStore, backend: String? = nil) async {
+    /// `selectWhenDone`: show the throw's report afterwards if the user is still looking at this throw or its athlete.
+    func analyze(trial: Trial, store: ProjectStore, backend: String? = nil, selectWhenDone: Bool = true) async {
         guard let video = store.videoURL(for: trial) else {
             errorMessage = "The source video is missing. Use Locate / Relink before analysis."
             return
@@ -98,7 +99,7 @@ final class AnalysisService: ObservableObject {
             try store.markAnalysisComplete(trialID: trial.id, relativePath: relativeOutput)
             let dirty = output.appendingPathComponent("needs_reanalysis.json")
             if FileManager.default.fileExists(atPath: dirty.path) { try FileManager.default.removeItem(at: dirty) }
-            store.destination = .throwReport(trial.id)
+            if selectWhenDone { store.showAnalyzedThrow(trial) }
             stage = "Complete"
             let resultsURL = output.appendingPathComponent("results.json")
             let payload = (try? Data(contentsOf: resultsURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }

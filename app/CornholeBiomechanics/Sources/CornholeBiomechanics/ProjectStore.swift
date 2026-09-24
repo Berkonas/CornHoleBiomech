@@ -75,6 +75,19 @@ final class ProjectStore: ObservableObject {
         }
     }
 
+    /// After an analysis, open the throw's report unless the user has moved elsewhere: only when nothing is
+    /// shown, this athlete's summary is shown, or the report of this throw (or another throw of `batch`) is shown.
+    func showAnalyzedThrow(_ trial: Trial, batch: Set<UUID> = []) {
+        guard project?.trials.contains(where: { $0.id == trial.id }) == true else { return }
+        switch destination {
+        case nil: break
+        case .summary(let athleteID) where athleteID == trial.athleteID: break
+        case .throwReport(let id) where id == trial.id || batch.contains(id): break
+        default: return
+        }
+        destination = .throwReport(trial.id)
+    }
+
     var selectedAthlete: Athlete? {
         project?.athletes.first { $0.id == selectedAthleteID }
     }
@@ -823,7 +836,7 @@ final class ProjectStore: ObservableObject {
             try open(savedURL)
             selectedAthleteID = index.selectedAthleteID.flatMap { id in project?.athletes.contains(where: { $0.id == id }) == true ? id : nil } ?? selectedAthleteID
             selectedTrialID = index.selectedTrialID.flatMap { id in project?.trials.contains(where: { $0.id == id }) == true ? id : nil } ?? selectedTrialID
-            selectedSessionID = index.selectedSessionID.flatMap { id in project?.sessions?.contains(where: { $0.id == id }) == true ? id : nil }
+            selectedSessionID = nil  // no session UI remains; a stale session must not steer imports
             selectedReferenceSetID = index.selectedReferenceSetID.flatMap { id in project?.referenceSets.contains(where: { $0.id == id }) == true ? id : nil } ?? selectedReferenceSetID
             destination = selectedAthleteID.map { .summary($0) }
             try persistLibraryLocation()

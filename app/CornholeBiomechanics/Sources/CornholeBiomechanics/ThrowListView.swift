@@ -23,12 +23,19 @@ struct ThrowListView: View {
                 }
             } else {
                 List(selection: $store.destination) {
-                    Label("Summary", systemImage: "chart.bar.xaxis")
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Summary")
+                            Text("All throws").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: { Image(systemName: "chart.bar.xaxis") }
                         .tag(Destination.summary(athleteID))
                     Section("Throws") {
                         ForEach(trials) { trial in
                             ThrowRow(trial: trial, summary: summaries[trial.id],
                                      isAnalyzing: analysis.activeTrialID == trial.id && analysis.isRunning,
+                                     videoMissing: !store.videoState(for: trial).isAvailable,
+                                     canAnalyze: !analysis.isRunning && store.videoState(for: trial).isAvailable,
                                      analyze: { analyze(trial) })
                                 .tag(Destination.throwReport(trial.id))
                                 .contextMenu { menu(for: trial) }
@@ -69,9 +76,11 @@ struct ThrowListView: View {
         Button(trial.analysisRelativePath == nil ? "Analyze" : "Re-analyze") { analyze(trial) }
             .disabled(analysis.isRunning || !store.videoState(for: trial).isAvailable)
         Button("Reveal Video") { store.revealVideo(for: trial) }
+        Button("Locate / Relink Video…") { store.locateAndRelinkVideo(for: trial) }
+            .disabled(analysis.isRunning)
         Divider()
         Button("Delete Throw…") { deleting = trial }
-            .disabled(analysis.activeTrialID == trial.id && analysis.isRunning)
+            .disabled(analysis.isRunning)
     }
 
     private func analyze(_ trial: Trial) {
@@ -96,6 +105,8 @@ struct ThrowRowSummary: Sendable {
     var speed: Double?
     var angle: Double?
     var hasQualityWarning = false
+    /// Corrections or metadata changed after this analysis (needs_reanalysis.json present).
+    var isStale = false
 
     static func load(analysisURL: URL) -> ThrowRowSummary {
         let metrics = CoachMetricsDocument.load(analysisURL.appendingPathComponent("results.json"))?.coach_metrics
@@ -105,6 +116,7 @@ struct ThrowRowSummary: Sendable {
            let grades = try? JSONDecoder().decode(Grades.self, from: data).grades {
             summary.hasQualityWarning = grades.values.contains { $0 == "WARNING" || $0 == "POOR" }
         }
+        summary.isStale = FileManager.default.fileExists(atPath: analysisURL.appendingPathComponent("needs_reanalysis.json").path)
         return summary
     }
 
@@ -119,7 +131,13 @@ private struct ThrowRow: View {
     let trial: Trial
     let summary: ThrowRowSummary?
     let isAnalyzing: Bool
+    let videoMissing: Bool
+    let canAnalyze: Bool
     let analyze: () -> Void
+
+    private var isStale: Bool {
+        summary?.isStale == true || trial.analysisStatus.localizedCaseInsensitiveContains("reanalyze")
+    }
 
     var body: some View {
         HStack(spacing: Space.s) {
@@ -128,8 +146,14 @@ private struct ThrowRow: View {
                 Group {
                     if isAnalyzing {
                         Text("Analyzing…")
+                    } else if videoMissing {
+                        Label("Missing video", systemImage: "questionmark.video").foregroundStyle(.orange)
+                            .help("The video was moved or deleted. Use Locate / Relink Video… in the context menu.")
                     } else if trial.analysisRelativePath == nil {
                         Text(trial.analysisStatus)
+                    } else if isStale {
+                        Label("Re-analyze", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
+                            .help("Corrections or throw details changed after this analysis.")
                     } else {
                         Text(summary?.releaseText ?? "—").monospacedDigit()
                     }
@@ -140,7 +164,7 @@ private struct ThrowRow: View {
             if isAnalyzing {
                 ProgressView().controlSize(.small)
             } else if trial.analysisRelativePath == nil {
-                Button("Analyze", action: analyze).controlSize(.small)
+                Button("Analyze", action: analyze).controlSize(.small).disabled(!canAnalyze)
             } else if summary?.hasQualityWarning == true {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     .help("Some tracking quality checks were WARNING or POOR")

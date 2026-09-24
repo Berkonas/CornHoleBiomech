@@ -17,6 +17,9 @@ struct SettingsView: View {
     }
 }
 
+/// Every tab has the Analysis tab's width so the window does not resize between tabs.
+private let settingsWidth: CGFloat = 620
+
 private struct GeneralSettings: View {
     @AppStorage("appearance") private var appearance = "system"
 
@@ -29,8 +32,8 @@ private struct GeneralSettings: View {
             }
             .pickerStyle(.radioGroup)
         }
-        .frame(width: 420)
         .padding(Space.xl)
+        .frame(width: settingsWidth)
     }
 }
 
@@ -63,8 +66,8 @@ private struct LibrarySettings: View {
             Text("Videos and results stay in this visible folder; only its location and preferences are kept in Application Support.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .disabled(analysis.isRunning)
-        .frame(width: 520)
         .padding(Space.xl)
+        .disabled(analysis.isRunning)
+        .frame(width: settingsWidth)
     }
 }

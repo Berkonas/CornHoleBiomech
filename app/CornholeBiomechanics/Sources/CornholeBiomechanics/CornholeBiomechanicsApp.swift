@@ -58,7 +58,7 @@ struct CornholeBiomechanicsApp: App {
                 Button("Export Analysis…") { post(.exportSelectedTrial) }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
             }
-            CommandGroup(replacing: .help) {
+            CommandGroup(after: .help) {
                 Button("Recording Guide") { post(.showRecordingGuide) }
             }
         }

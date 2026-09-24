@@ -24,6 +24,7 @@ struct SidebarView: View {
                         .tag(SidebarItem.athlete(athlete.id))
                         .contextMenu {
                             Button("Edit…") { editing = athlete }
+                                .disabled(analysis.isRunning)
                             Button("Reveal in Finder") { store.revealAthlete(athlete) }
                             Divider()
                             Button("Delete…") { deleting = athlete }

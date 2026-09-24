@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var showsAthleteSheet = false
     @State private var importBatch: ImportBatch?
-    @State private var showsOutcomeSheet = false
+    @State private var outcomeTrial: Trial?
     @State private var showsRecordingGuide = false
 
     var body: some View {
@@ -35,9 +35,7 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
         .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls) }
-        .sheet(isPresented: $showsOutcomeSheet) {
-            if let trial = shownTrial { OutcomeEditor(trial: trial) }
-        }
+        .sheet(item: $outcomeTrial) { OutcomeEditor(trial: $0) }
         .sheet(isPresented: $showsRecordingGuide) { RecordingGuideSheet() }
         .alert(applicationName, isPresented: errorPresented) {
             Button("OK") { store.errorMessage = nil; analysis.errorMessage = nil }
@@ -54,7 +52,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .addAthlete)) { _ in addAthlete() }
         .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport() }
         .onReceive(NotificationCenter.default.publisher(for: .analyzeSelectedTrial)) { _ in analyzeSelected() }
-        .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in showsOutcomeSheet = shownTrial != nil }
+        .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in outcomeTrial = shownTrial }
         .onReceive(NotificationCenter.default.publisher(for: .exportSelectedTrial)) { _ in
             if let trial = shownTrial { store.exportAnalysis(for: trial) }
         }
