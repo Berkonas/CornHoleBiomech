@@ -4,29 +4,11 @@ let applicationName = "Cornhole Biomechanics Lab"
 let applicationVersion = "0.6.1"
 let currentProjectSchemaVersion = 4
 
-enum AppSection: String, CaseIterable, Identifiable {
-    case overview = "Overview"
-    case dashboard = "Coach Dashboard"
-    case athletes = "Athletes"
-    case reference = "References"
-    case trials = "Throws"
-    case compare = "Compare"
-    case results = "Throw Replay"
-    case physics = "Launch Explorer"
-
-    var id: String { rawValue }
-    var symbol: String {
-        switch self {
-        case .overview: "square.grid.2x2"
-        case .dashboard: "rectangle.3.group"
-        case .athletes: "person.2"
-        case .reference: "scope"
-        case .trials: "video"
-        case .compare: "rectangle.split.2x1"
-        case .results: "play.rectangle"
-        case .physics: "point.topleft.down.to.point.bottomright.curvepath"
-        }
-    }
+/// What the detail column shows: an athlete's summary, one throw's report, or the Launch Lab tool.
+enum Destination: Hashable {
+    case summary(UUID)
+    case throwReport(UUID)
+    case launchLab
 }
 
 enum ThrowingSide: String, Codable, CaseIterable, Identifiable {

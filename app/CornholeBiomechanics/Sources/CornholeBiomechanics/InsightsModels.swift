@@ -39,6 +39,25 @@ struct TrialInsights: Decodable {
     var differences: [Difference]; var coach_summary: String; var consistency: Consistency
     var warnings: [String]; var excluded_trials: [String]; var board_trials: [BoardTrial]
     var relationships: RelationshipDocument?; var provenance: Provenance; var needs_reanalysis: Bool
+    var verdict: Verdict?
+}
+
+/// Per-throw coaching verdict (insights.json → verdict, from the Python coaching module).
+struct Verdict: Decodable {
+    struct Item: Decodable, Identifiable {
+        /// "good", "fix" or "note".
+        var kind: String; var text: String; var metric_key: String?
+        var id: String { kind + text }
+    }
+    /// Drag-free flight to first contact. `distance_source` is "measured", "athlete_median" or "assumed".
+    struct Physics: Decodable {
+        var distance_m: Double; var distance_source: String; var landing: String; var zone: String
+        var from_hole_m: Double?; var required_speed_m_s: Double?; var delta_speed_m_s: Double?; var sensitivity_m_per_m_s: Double?
+        var landing_x_m: Double?; var hole_x_m: Double?
+        var speed_m_s: Double?; var angle_deg: Double?; var height_m: Double?
+    }
+    var headline: String; var items: [Item]; var physics: Physics?
+    var method: String?
 }
 
 func metricLabel(_ key: String) -> String {

@@ -51,7 +51,7 @@ struct ResultsView: View {
                 }
                 section("Compared with this athlete", "How this throw fits the athlete's own pattern.") {
                     if let summary = insight.performance?.summary { AthleteSummaryCard(summary: summary) }
-                    Button("Open coach dashboard for this athlete") { store.selectedSection = .dashboard }
+                    Button("Open coach dashboard for this athlete") { if let id = store.selectedAthleteID { store.destination = .summary(id) } }
                 }
                 if !insight.warnings.isEmpty {
                     DisclosureGroup("\(insight.warnings.count) measurement note\(insight.warnings.count == 1 ? "" : "s")") {
@@ -84,10 +84,10 @@ struct ResultsView: View {
                         }
                     }.padding(.top, 8)
                 }
-                } else { Button("Review and reanalyze this throw") { store.selectedSection = .trials } }
+                } else { Button("Review and reanalyze this throw") { if let id = store.selectedTrialID { store.destination = .throwReport(id) } } }
             } else if !refreshing {
                 ContentUnavailableView("Choose an analyzed throw", systemImage: "figure.disc.sports", description: Text("Import and analyze a video, then return here to replay the measured throw."))
-                Button("Open Throws") { store.selectedSection = .trials }
+                Button("Open Throws") { if let id = store.selectedTrialID { store.destination = .throwReport(id) } }
             }
         }
         .task(id: store.selectedTrialID) { await refresh() }
@@ -204,7 +204,7 @@ struct ResultsView: View {
                 if bag?.review?.coversLaunchFit != true { Label("Inspect the bag marker frame by frame, then confirm the path through flight.", systemImage: "3.circle") }
                 Text("Use Flight & scale to mark first contact when visible, then reanalyze after event edits. Record hole, board or miss with Add outcome. Unknown measurements stay blank.")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Review video & bag") { store.selectedSection = .trials }.buttonStyle(.borderedProminent)
+                Button("Review video & bag") { if let id = store.selectedTrialID { store.destination = .throwReport(id) } }.buttonStyle(.borderedProminent)
             }
         }
     }
@@ -217,9 +217,8 @@ struct ResultsView: View {
     }
     private var actions: some View {
         HStack {
-            Button("Review video") { store.selectedSection = .trials }.disabled(analysis.isRunning)
+            Button("Review video") { if let id = store.selectedTrialID { store.destination = .throwReport(id) } }.disabled(analysis.isRunning)
             Button("Refresh results") { Task { await refresh() } }.disabled(analysis.isRunning || store.selectedTrial?.analysisRelativePath == nil)
-            Button("Compare…") { store.selectedSection = .compare }.disabled(store.selectedTrial?.analysisRelativePath == nil)
         }
     }
     private func measurementStrip(_ value: TrialInsights) -> some View {

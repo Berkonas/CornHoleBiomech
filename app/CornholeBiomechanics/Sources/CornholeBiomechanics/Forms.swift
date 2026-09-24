@@ -66,7 +66,7 @@ struct ImportTrialForm: View {
                             )))
                         }
                     } catch { store.errorMessage = error.localizedDescription }
-                    store.selectedSection = markAsReference ? .reference : .trials
+                    if let first = imported.first { store.destination = .throwReport(first.id) }
                     dismiss()
                     if analyzeAutomatically && !imported.isEmpty {
                         // One worker at a time; each throw is analyzed end to end without clicks.
@@ -97,10 +97,12 @@ struct AnalysisSettingsView: View {
     @State private var settings = AnalysisSettings()
     @EnvironmentObject private var analysis: AnalysisService
     @State private var engineStatus = "Checking local analysis engines…"
+    /// Shown inside the Settings window: no sheet title, no Cancel, and Save keeps the window open.
+    var embedded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Advanced Analysis").font(.title2.weight(.semibold))
+            if !embedded { Text("Advanced Analysis").font(.title2.weight(.semibold)) }
             Text("These values are saved in every analysis manifest. Reanalyze a corrected trial to update derived kinematics.")
                 .foregroundStyle(.secondary)
             Text(engineStatus).font(.callout).foregroundStyle(.secondary)
@@ -136,11 +138,16 @@ struct AnalysisSettingsView: View {
             Text("The 6 Hz default is a documented starting point, not a universal optimum. Cutoff validity depends on frame rate, movement content, and markerless noise; the engine rejects values above Nyquist.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Spacer(); Button("Cancel") { dismiss() }
+                Spacer()
+                if embedded {
+                    Button("Revert") { settings = store.project?.analysisSettings ?? AnalysisSettings() }
+                        .disabled(settings == (store.project?.analysisSettings ?? AnalysisSettings()))
+                } else { Button("Cancel") { dismiss() } }
                 Button("Save") {
-                    do { try store.updateSettings(settings); dismiss() }
+                    do { try store.updateSettings(settings); if !embedded { dismiss() } }
                     catch { store.errorMessage = error.localizedDescription }
                 }.buttonStyle(.borderedProminent)
+                    .disabled(store.project == nil || (embedded && settings == (store.project?.analysisSettings ?? AnalysisSettings())))
             }
         }.padding(24).frame(width: 620)
         .onAppear { settings = store.project?.analysisSettings ?? AnalysisSettings() }

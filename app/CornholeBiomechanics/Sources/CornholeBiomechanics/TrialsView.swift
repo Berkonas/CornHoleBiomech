@@ -101,7 +101,7 @@ struct TrialDetailView: View {
                 Button("Trim / Crop / Rotate…") { preparingVideo = true }.disabled(analysis.isRunning || store.originalVideoURL(for: trial) == nil)
                 Button(trial.analysisRelativePath == nil ? "Analyze throw" : "Reanalyze") { Task { await analysis.analyze(trial: trial, store: store) } }
                     .disabled(analysis.isRunning || store.videoURL(for: trial) == nil)
-                Button("Understand this throw") { store.selectedSection = .results }.buttonStyle(.borderedProminent).disabled(trial.analysisRelativePath == nil)
+                Button("Understand this throw") { store.destination = .throwReport(trial.id) }.buttonStyle(.borderedProminent).disabled(trial.analysisRelativePath == nil)
                 Button("Add / edit outcome") { NotificationCenter.default.post(name: .addTrialOutcome, object: nil) }.disabled(analysis.isRunning)
                 if let error = data.loadError { Text(error).font(.caption).foregroundStyle(.orange) }
                 Spacer()

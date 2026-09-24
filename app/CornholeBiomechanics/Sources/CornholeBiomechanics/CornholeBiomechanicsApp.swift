@@ -7,16 +7,15 @@ extension Notification.Name {
     static let importLegacyProject = Notification.Name("importLegacyProject")
     static let addAthlete = Notification.Name("addAthlete")
     static let importTrialVideo = Notification.Name("importTrialVideo")
-    static let importReferenceVideo = Notification.Name("importReferenceVideo")
     static let analyzeSelectedTrial = Notification.Name("analyzeSelectedTrial")
     static let addTrialOutcome = Notification.Name("addTrialOutcome")
     static let exportSelectedTrial = Notification.Name("exportSelectedTrial")
+    static let showRecordingGuide = Notification.Name("showRecordingGuide")
 }
 
 @main
 struct CornholeBiomechanicsApp: App {
     @FocusedObject private var trackingEditor: TrialDataController?
-    @AppStorage("appearance") private var appearance = "system"
     @StateObject private var store = ProjectStore()
     @StateObject private var analysis = AnalysisService()
 
@@ -45,20 +44,13 @@ struct CornholeBiomechanicsApp: App {
                 Button("Undo") { undoTrackingOrText(redo: false) }.keyboardShortcut("z", modifiers: .command)
                 Button("Redo") { undoTrackingOrText(redo: true) }.keyboardShortcut("z", modifiers: [.command, .shift])
             }
-            CommandMenu("Appearance") {
-                Picker("Appearance", selection: $appearance) {
-                    Text("Follow System").tag("system")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                }
-            }
             CommandMenu("Throw") {
-                Button("Import Throw Video…") { post(.importTrialVideo) }
+                Button("Import Videos…") { post(.importTrialVideo) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                     .disabled(analysis.isRunning)
-                Button("Import Reference Video…") { post(.importReferenceVideo) }.disabled(analysis.isRunning)
-                Button("Analyze Selected Trial") { post(.analyzeSelectedTrial) }
+                Button("Analyze Throw") { post(.analyzeSelectedTrial) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(analysis.isRunning)
                 Button("Add or Edit Outcome…") { post(.addTrialOutcome) }
                     .keyboardShortcut("u", modifiers: [.command, .shift])
                     .disabled(analysis.isRunning)
@@ -66,6 +58,14 @@ struct CornholeBiomechanicsApp: App {
                 Button("Export Analysis…") { post(.exportSelectedTrial) }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
             }
+            CommandGroup(replacing: .help) {
+                Button("Recording Guide") { post(.showRecordingGuide) }
+            }
+        }
+        Settings {
+            SettingsView()
+                .environmentObject(store)
+                .environmentObject(analysis)
         }
     }
 

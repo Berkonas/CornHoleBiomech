@@ -34,7 +34,20 @@ private func moveToTrash(_ url: URL) throws {
 final class ProjectStore: ObservableObject {
     @Published private(set) var project: StudyProject?
     @Published private(set) var projectURL: URL?
-    @Published var selectedSection: AppSection? = .athletes
+    /// Detail-column selection. Keeps `selectedAthleteID` / `selectedTrialID` (used by menu commands) in step.
+    @Published var destination: Destination? {
+        didSet {
+            switch destination {
+            case .summary(let athleteID): selectedAthleteID = athleteID
+            case .throwReport(let trialID):
+                selectedTrialID = trialID
+                if let athleteID = project?.trials.first(where: { $0.id == trialID })?.athleteID, athleteID != selectedAthleteID {
+                    selectedAthleteID = athleteID
+                }
+            case .launchLab, nil: break
+            }
+        }
+    }
     @Published var selectedAthleteID: UUID?
     @Published var selectedTrialID: UUID?
     @Published var selectedSessionID: UUID?
@@ -146,7 +159,7 @@ final class ProjectStore: ObservableObject {
         selectedAthleteID = decoded.athletes.first?.id
         selectedTrialID = decoded.trials.first?.id
         selectedReferenceSetID = decoded.referenceSets.first?.id
-        selectedSection = .athletes
+        destination = selectedAthleteID.map { .summary($0) }
         try ensureDirectoryStructure(at: url)
         if normalizedLegacyReferences { try save() } else { try persistLibraryLocation() }
         notice = "Opened \(decoded.name) athlete library."
@@ -179,6 +192,7 @@ final class ProjectStore: ObservableObject {
         )
         project?.athletes.append(athlete)
         selectedAthleteID = athlete.id
+        destination = .summary(athlete.id)
         try save()
     }
 
@@ -388,6 +402,7 @@ final class ProjectStore: ObservableObject {
             }
         }
         if selectedTrialID == trial.id { selectedTrialID = project?.trials.first?.id }
+        if destination == .throwReport(trial.id) { destination = .summary(trial.athleteID) }
         notice = "Deleted the throw record. Its managed video and analysis were moved to Trash when available."
     }
 
@@ -422,6 +437,11 @@ final class ProjectStore: ObservableObject {
         }
         if selectedAthleteID == athlete.id { selectedAthleteID = project?.athletes.first?.id }
         if let selectedTrialID, trialIDs.contains(selectedTrialID) { self.selectedTrialID = project?.trials.first?.id }
+        switch destination {
+        case .summary(athlete.id): destination = selectedAthleteID.map { .summary($0) }
+        case .throwReport(let id) where trialIDs.contains(id): destination = selectedAthleteID.map { .summary($0) }
+        default: break
+        }
         notice = "Deleted \(athlete.displayName). Managed videos and analyses were moved to Trash when available."
     }
 
@@ -792,7 +812,7 @@ final class ProjectStore: ObservableObject {
             let savedURL = resolvedURL(from: index) ?? URL(fileURLWithPath: index.dataRootPath, isDirectory: true)
             guard fileManager.fileExists(atPath: savedURL.appendingPathComponent("project.json").path) else {
                 missingLibraryURL = savedURL
-                selectedSection = .overview
+                destination = nil
                 return
             }
             let candidate = try decodeProject(at: savedURL)
@@ -805,6 +825,7 @@ final class ProjectStore: ObservableObject {
             selectedTrialID = index.selectedTrialID.flatMap { id in project?.trials.contains(where: { $0.id == id }) == true ? id : nil } ?? selectedTrialID
             selectedSessionID = index.selectedSessionID.flatMap { id in project?.sessions?.contains(where: { $0.id == id }) == true ? id : nil }
             selectedReferenceSetID = index.selectedReferenceSetID.flatMap { id in project?.referenceSets.contains(where: { $0.id == id }) == true ? id : nil } ?? selectedReferenceSetID
+            destination = selectedAthleteID.map { .summary($0) }
             try persistLibraryLocation()
             return
         }
@@ -826,7 +847,7 @@ final class ProjectStore: ObservableObject {
         selectedAthleteID = nil
         selectedTrialID = nil
         selectedSessionID = nil
-        selectedSection = .athletes
+        destination = nil
         try save()
     }
 
@@ -1009,7 +1030,7 @@ final class ProjectStore: ObservableObject {
         try JSONEncoder.projectEncoder.encode(log).write(to: logURL, options: .atomic)
         selectedAthleteID = importedAthleteIDs.first ?? selectedAthleteID
         selectedTrialID = importedTrialIDs.first ?? selectedTrialID
-        selectedSection = .athletes
+        destination = selectedAthleteID.map { .summary($0) }
         return MigrationSummary(
             athletesImported: importedAthleteIDs.count,
             sessionsImported: importedSessionIDs.count,

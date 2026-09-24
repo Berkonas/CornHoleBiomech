@@ -24,7 +24,7 @@ struct AthleteDashboardView: View {
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
             if let dashboard {
                 let trials = (store.project?.trials ?? []).filter { $0.athleteID == store.selectedAthleteID && $0.analysisRelativePath != nil }
-                DashboardContent(dashboard: dashboard, trials: trials, open: open) { store.selectedSection = .results }
+                DashboardContent(dashboard: dashboard, trials: trials, open: open) { if let id = store.selectedTrialID { store.destination = .throwReport(id) } }
             } else if store.selectedAthleteID == nil {
                 ContentUnavailableView("Choose an athlete", systemImage: "person.crop.circle",
                                        description: Text("The dashboard summarizes one athlete's analyzed throws."))
@@ -42,8 +42,7 @@ struct AthleteDashboardView: View {
 
     private func open(_ trialID: String) {
         guard let id = UUID(uuidString: trialID) else { return }
-        store.selectedTrialID = id
-        store.selectedSection = .results
+        store.destination = .throwReport(id)
     }
     private func refresh(force: Bool) async {
         guard let athleteID = store.selectedAthleteID, let root = store.projectURL else { dashboard = nil; return }

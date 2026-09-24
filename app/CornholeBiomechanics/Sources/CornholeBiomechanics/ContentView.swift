@@ -1,55 +1,45 @@
 import AppKit
 import SwiftUI
 
+/// Three columns: athletes (sidebar) → the athlete's throws → throw report or athlete summary.
+/// Launch Lab is a tool, not an athlete view, so it uses a two-column split with no throw list.
 struct ContentView: View {
     @EnvironmentObject private var store: ProjectStore
     @EnvironmentObject private var analysis: AnalysisService
     @AppStorage("appearance") private var appearance = "system"
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var showsAthleteSheet = false
     @State private var importBatch: ImportBatch?
-    @State private var importAsReference = false
     @State private var showsOutcomeSheet = false
-    @State private var showsSettings = false
+    @State private var showsRecordingGuide = false
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $store.selectedSection) {
-                Section("Workspace") {
-                    ForEach([AppSection.dashboard, .results, .trials, .athletes, .physics]) { section in
-                        Label(section.rawValue, systemImage: section.symbol).tag(section)
-                    }
+        Group {
+            if store.destination == .launchLab {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    sidebar
+                } detail: {
+                    LaunchLabView().navigationTitle("Launch Lab")
                 }
-                DisclosureGroup("Research tools") {
-                    ForEach([AppSection.compare, .reference, .overview]) { section in
-                        Label(section.rawValue, systemImage: section.symbol).tag(section)
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 155, ideal: 175, max: 230)
-            .disabled(analysis.isRunning)
-            .navigationTitle(store.project?.name ?? applicationName)
-            .safeAreaInset(edge: .bottom) { projectStatus }
-        } detail: {
-            Group {
-                if store.project == nil && store.selectedSection != .physics {
-                    LibraryRecoveryView()
-                } else {
-                    destination
+            } else {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    sidebar
+                } content: {
+                    throwList
+                } detail: {
+                    detail
                 }
             }
-            .disabled(analysis.isRunning)
-            .navigationTitle(store.selectedSection?.rawValue ?? applicationName)
-            .toolbar { if store.selectedSection != .physics { toolbar } }
         }
         .tint(Color.accentColor)
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
-        .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls, markAsReference: importAsReference) }
+        .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls) }
         .sheet(isPresented: $showsOutcomeSheet) {
-            if let trial = store.selectedTrial { OutcomeEditor(trial: trial) }
+            if let trial = shownTrial { OutcomeEditor(trial: trial) }
         }
-        .sheet(isPresented: $showsSettings) { AnalysisSettingsView() }
-        .alert("Cornhole Biomechanics Lab", isPresented: errorPresented) {
+        .sheet(isPresented: $showsRecordingGuide) { RecordingGuideSheet() }
+        .alert(applicationName, isPresented: errorPresented) {
             Button("OK") { store.errorMessage = nil; analysis.errorMessage = nil }
         } message: { Text(store.errorMessage ?? analysis.errorMessage ?? "Unknown error") }
         .safeAreaInset(edge: .bottom) { analysisProgress }
@@ -57,67 +47,79 @@ struct ContentView: View {
             if store.project?.sessions?.first(where: { $0.id == store.selectedSessionID })?.athleteID != id {
                 store.selectedSessionID = nil
             }
-            if store.selectedTrial?.athleteID != id {
-                store.selectedTrialID = store.project?.trials.first(where: { $0.athleteID == id })?.id
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .createStudyProject)) { _ in store.createProject() }
         .onReceive(NotificationCenter.default.publisher(for: .openStudyProject)) { _ in store.openProject() }
         .onReceive(NotificationCenter.default.publisher(for: .importLegacyProject)) { _ in store.importLegacyProject() }
-        .onReceive(NotificationCenter.default.publisher(for: .addAthlete)) { _ in store.selectedSection = .athletes; showsAthleteSheet = true }
-        .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport(asReference: false) }
-        .onReceive(NotificationCenter.default.publisher(for: .importReferenceVideo)) { _ in beginImport(asReference: true) }
+        .onReceive(NotificationCenter.default.publisher(for: .addAthlete)) { _ in addAthlete() }
+        .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport() }
         .onReceive(NotificationCenter.default.publisher(for: .analyzeSelectedTrial)) { _ in analyzeSelected() }
-        .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in showsOutcomeSheet = store.selectedTrial != nil }
+        .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in showsOutcomeSheet = shownTrial != nil }
         .onReceive(NotificationCenter.default.publisher(for: .exportSelectedTrial)) { _ in
-            if let trial = store.selectedTrial { store.exportAnalysis(for: trial) }
+            if let trial = shownTrial { store.exportAnalysis(for: trial) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showRecordingGuide)) { _ in showsRecordingGuide = true }
+    }
+
+    private var sidebar: some View {
+        SidebarView(selection: sidebarSelection, addAthlete: addAthlete)
+    }
+
+    @ViewBuilder private var throwList: some View {
+        if store.project == nil {
+            EmptyState("No Library", symbol: "externaldrive.badge.questionmark", message: "Choose or create an athlete library.")
+        } else if let athleteID = store.selectedAthleteID, store.selectedAthlete != nil {
+            ThrowListView(athleteID: athleteID, beginImport: beginImport)
+        } else if store.project?.athletes.isEmpty == true {
+            EmptyState("No Athletes", symbol: "person.2", message: "Add an athlete, then import videos of their throws.",
+                       action: ("Add Athlete", addAthlete))
+        } else {
+            EmptyState("No Athlete Selected", symbol: "person.2", message: "Choose an athlete in the sidebar.")
         }
     }
 
-    @ViewBuilder private var destination: some View {
-        switch store.selectedSection ?? .overview {
-        case .overview: OverviewView(showsSettings: $showsSettings)
-        case .athletes: AthletesView(showsAddSheet: $showsAthleteSheet)
-        case .reference: ReferenceView()
-        case .trials: TrialsView(beginImport: beginImport)
-        case .compare: CompareView()
-        case .results: ResultsView()
-        case .dashboard: AthleteDashboardView()
-        case .physics: LaunchExplorerView()
-        }
-    }
-
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Picker("Athlete", selection: $store.selectedAthleteID) {
-                Text("Choose athlete").tag(UUID?.none)
-                ForEach(store.project?.athletes ?? []) { Text($0.displayName).tag(Optional($0.id)) }
-            }.frame(maxWidth: 220).disabled(analysis.isRunning)
-            Button { store.selectedSection = .athletes; showsAthleteSheet = true } label: { Label("Add Athlete", systemImage: "person.badge.plus") }
-                .labelStyle(.titleAndIcon).disabled(store.project == nil || analysis.isRunning)
-            Button { beginImport(asReference: false) } label: { Label("Import Throw", systemImage: "square.and.arrow.down") }
-                .labelStyle(.titleAndIcon).disabled(store.project == nil || store.project?.athletes.isEmpty == true || analysis.isRunning)
-        }
-    }
-
-    private var projectStatus: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if let project = store.project {
-                Label("Local athlete library", systemImage: "externaldrive")
-                    .font(.caption.weight(.semibold))
-                Text("\(project.athletes.count) athletes · \(project.trials.count) throws")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("Library needs attention").font(.caption).foregroundStyle(.secondary)
+    @ViewBuilder private var detail: some View {
+        if store.project == nil {
+            LibraryRecoveryView()
+        } else {
+            switch store.destination {
+            case .summary(let athleteID):
+                AthleteSummaryView(athleteID: athleteID).id(athleteID)
+            case .throwReport(let trialID):
+                if let trial = store.project?.trials.first(where: { $0.id == trialID }) {
+                    ThrowReportView(trial: trial).id(trial.id)
+                } else {
+                    EmptyState("Throw Not Found", symbol: "questionmark.video", message: "This throw is no longer in the library.")
+                }
+            case .launchLab:
+                LaunchLabView()
+            case nil:
+                EmptyState("No Throw Selected", symbol: "video", message: "Choose a throw or the athlete summary.")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
+    }
+
+    /// Sidebar rows map onto the detail destination; picking an athlete opens their summary
+    /// unless one of their throws is already showing.
+    private var sidebarSelection: Binding<SidebarItem?> {
+        Binding(get: {
+            if store.destination == .launchLab { return .launchLab }
+            return store.selectedAthleteID.map { .athlete($0) }
+        }, set: { item in
+            switch item {
+            case .launchLab: store.destination = .launchLab
+            case .athlete(let id):
+                if case .throwReport(let trialID) = store.destination,
+                   store.project?.trials.first(where: { $0.id == trialID })?.athleteID == id { return }
+                store.destination = .summary(id)
+            case nil: break
+            }
+        })
     }
 
     @ViewBuilder private var analysisProgress: some View {
         if analysis.isRunning {
-            HStack(spacing: 12) {
+            HStack(spacing: Space.m) {
                 ProgressView(value: analysis.progress).frame(width: 140)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(analysis.stage).font(.subheadline.weight(.semibold))
@@ -127,8 +129,8 @@ struct ContentView: View {
                 Button("Cancel") { analysis.cancel() }
                 Text(analysis.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
             }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(Space.m)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
             .shadow(radius: 10, y: 3)
             .padding()
         }
@@ -140,20 +142,25 @@ struct ContentView: View {
         })
     }
 
-    private func beginImport() { beginImport(asReference: false) }
+    /// The throw in the detail column; Throw menu commands act on it.
+    private var shownTrial: Trial? {
+        guard case .throwReport(let id) = store.destination else { return nil }
+        return store.project?.trials.first { $0.id == id }
+    }
 
-    private func beginImport(asReference: Bool) {
-        guard store.project?.athletes.isEmpty == false else {
-            store.selectedSection = .athletes
-            showsAthleteSheet = true
-            return
-        }
-        importAsReference = asReference
+    private func addAthlete() {
+        guard store.project != nil, !analysis.isRunning else { return }
+        showsAthleteSheet = true
+    }
+
+    private func beginImport() {
+        guard store.project != nil, !analysis.isRunning else { return }
+        guard store.project?.athletes.isEmpty == false else { showsAthleteSheet = true; return }
         store.chooseVideos { importBatch = ImportBatch(urls: $0) }
     }
 
     private func analyzeSelected() {
-        guard let trial = store.selectedTrial else { return }
+        guard let trial = shownTrial, !analysis.isRunning else { return }
         Task { await analysis.analyze(trial: trial, store: store) }
     }
 }
@@ -190,6 +197,7 @@ struct LibraryRecoveryView: View {
     }
 }
 
+// Legacy containers still used by views that the throw report / athlete summary tasks replace.
 struct SectionContainer<Content: View>: View {
     let title: String
     let subtitle: String
