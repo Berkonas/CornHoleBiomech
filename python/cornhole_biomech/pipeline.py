@@ -166,7 +166,10 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
     apparent_g_nominal = None
     if fit_accel_px_s2 is not None:
         from .board import NOMINAL_HFOV_DEG
-        nominal_ppm = solve_board(corners, size, hfov_deg=NOMINAL_HFOV_DEG).pixels_per_meter_at(release_px)
+        try:
+            nominal_ppm = solve_board(corners, size, hfov_deg=NOMINAL_HFOV_DEG).pixels_per_meter_at(release_px)
+        except ValueError:
+            nominal_ppm = None   # the pose may fail at the nominal FOV only; this diagnostic is then omitted
         if nominal_ppm and math.isfinite(nominal_ppm):
             apparent_g_nominal = abs(fit_accel_px_s2) / nominal_ppm
     return {"status": hfov_status, "pixels_per_meter": ppm,
@@ -184,15 +187,40 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
             "phi_deg": phi_deg, "reason": hfov_reason}
 
 
-def session_grouping_key(trial_context: dict[str, Any]) -> str:
-    """Group throws shot from the same camera setup: same athlete, same source clip's folder.
+def recording_date(trial_context: dict[str, Any]) -> str | None:
+    """The clip's recording date (ISO yyyy-mm-dd, local time), or None when it cannot be read.
 
-    Used to pool a recording session's per-throw board HFOV calibrations (Task 8b): throws from
-    the same phone, tripod position and sitting typically live in one folder of source clips.
+    The video container's creation time is not read anywhere in this codebase (video.py reads
+    OpenCV metadata only), so a recording date stated in the manifest's trial context
+    (`recording_date`, yyyy-mm-dd) is used when present; otherwise the source clip's file
+    modification date stands in for it. That is the export/import date when a clip was copied,
+    not necessarily the day it was filmed; an unknown date caps a pooled session at "estimated"
+    (`pool_session_camera_files`).
     """
+    from datetime import date
+    stated = trial_context.get("recording_date")
+    if stated:
+        try:
+            return date.fromisoformat(str(stated)[:10]).isoformat()
+        except ValueError:
+            pass
     video = trial_context.get("source_video")
-    parent = str(Path(video).expanduser().resolve().parent) if video else None
-    return f"{trial_context.get('athlete_id')}::{parent}"
+    if not video:
+        return None
+    try:
+        return date.fromtimestamp(Path(video).expanduser().stat().st_mtime).isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def session_grouping_key(trial_context: dict[str, Any]) -> str:
+    """Group throws shot in one recording session: same athlete, same recording date.
+
+    Used to pool a recording session's per-throw board HFOV calibrations (Task 8b). Grouping by
+    the athlete's clip folder pooled every future day, phone and zoom together; the date
+    (`recording_date`) separates sittings. An unknown date gives its own "unknown-date" group.
+    """
+    return f"{trial_context.get('athlete_id')}::{recording_date(trial_context) or 'unknown-date'}"
 
 
 def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, Any]]:
@@ -208,14 +236,20 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
 
     A session with fewer than `board.MIN_SESSION_THROWS` measured throws falls back to the pool of
     every measured throw in `analysis_dirs` (`board.pool_library_hfov`, source
-    "library_median_gravity_fov"; Task 8c), when that pool has more measured throws.
+    "library_median_gravity_fov"; Task 8c), when that pool has more measured throws; that fallback
+    is at most "estimated". A session whose members' recording date is unknown, or whose members
+    span more than one date, is also capped at "estimated" with the reason (`recording_dates`
+    lists the members' dates).
     """
     from .board import MIN_SESSION_THROWS, pool_library_hfov, pool_session_hfov
     sessions: dict[str, list[Path]] = {}
+    dates: dict[str, set[str | None]] = {}
     for directory in analysis_dirs:
         manifest = _load_json(Path(directory) / "manifest.json", {})
-        key = session_grouping_key(manifest.get("trial_context") or {})
+        trial_context = manifest.get("trial_context") or {}
+        key = session_grouping_key(trial_context)
         sessions.setdefault(key, []).append(Path(directory))
+        dates.setdefault(key, set()).add(recording_date(trial_context))
     calibrations: dict[str, list[dict[str, Any]]] = {}
     for key, members in sessions.items():
         calibrations[key] = []
@@ -233,7 +267,19 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
         camera = pool_session_hfov(calibrations[key])
         if camera["n"] < MIN_SESSION_THROWS and library_n > camera["n"]:
             camera = pool_library_hfov(library, session=camera)
-        camera = {**camera, "session_key": key}
+        member_dates = dates[key]
+        known = sorted(d for d in member_dates if d is not None)
+        date_problem = None
+        if None in member_dates:
+            date_problem = ("The recording date of at least one throw is unknown, so these throws cannot be "
+                            "confirmed to share one camera setup.")
+        elif len(known) > 1:
+            date_problem = (f"These throws span {len(known)} recording dates ({', '.join(known)}), so they cannot "
+                            "be confirmed to share one camera setup.")
+        if date_problem and camera["status"] == "measured":
+            camera = {**camera, "status": "estimated",
+                      "reason": f"{camera['reason']} {date_problem}" if camera.get("reason") else date_problem}
+        camera = {**camera, "session_key": key, "recording_dates": known + (["unknown"] if None in member_dates else [])}
         for directory in members:
             write_json(directory / "camera.json", camera)
         pooled[key] = camera
@@ -280,22 +326,45 @@ def _merge_automatic_flight_review(auto_flight: dict[str, Any], flight_review: d
                                    ) -> tuple[dict[str, Any], list[str]]:
     """Manual flight review wins; automatic values fill only what is missing.
 
-    `contact_state` records where the first-contact frame came from: "manual", or the
-    automatic contact state ("measured" = checked against the board/floor;
-    "unverified" = end of track without a board). Any automatic contact that was not
-    measured is flagged.
+    `contact_state` records where the first-contact frame came from: "manual" (a person marked
+    it), "manual_unseen" (the review explicitly left first contact blank = not seen; the
+    automatic contact is then not used and there is no contact frame), or the automatic contact
+    state ("measured" = checked against the board/floor; "unverified" = end of track without a
+    board). Any automatic contact that was not measured is flagged. "measured" is never recorded
+    with a null frame.
+
+    A manual `fixed_camera: false` does not discard an accepted automatic flight whose camera
+    motion was removed (the flight carries per-frame `camera_to_release` transforms and
+    stabilized points): its board scale and fits are in the release frame's steadied pixels, so
+    the camera is treated as steadied (`fixed_camera` true, `fixed_camera_source`
+    "automatic_camera_motion_removed", `manual_fixed_camera` false) with a warning saying why.
     """
     automatic: dict[str, Any] = {"fixed_camera": True, "source": "automatic_physics_camera_motion_removed"}
     warnings: list[str] = []
+    manual_unseen = "first_contact_frame" in flight_review and flight_review["first_contact_frame"] is None
     if flight_review.get("first_contact_frame") is not None:
         automatic["contact_state"] = "manual"
+    elif manual_unseen:
+        automatic["contact_state"] = "manual_unseen"
+        if auto_flight.get("first_contact_frame") is not None:
+            warnings.append(f"The flight review leaves first contact blank (not seen), so the automatic contact at "
+                            f"frame {int(auto_flight['first_contact_frame'])} is not used; flight time is unknown. "
+                            "Enter the contact frame in Flight & scale if it is visible.")
     elif auto_flight.get("first_contact_frame") is not None:
         automatic["first_contact_frame"] = int(auto_flight["first_contact_frame"])
         automatic["contact_state"] = (auto_flight.get("contact") or {}).get("state") or "unverified"
         if automatic["contact_state"] != "measured":
             warnings.append(f"Automatic first contact (frame {automatic['first_contact_frame']}) was not checked "
                             "against the board or floor; confirm it in Flight & scale before relying on flight time.")
-    return {**automatic, **flight_review}, warnings
+    merged = {**automatic, **flight_review}
+    steadied = bool(auto_flight.get("camera_to_release")) and bool(auto_flight.get("stabilized_points"))
+    if flight_review.get("fixed_camera") is False and steadied:
+        merged.update(fixed_camera=True, manual_fixed_camera=False,
+                      fixed_camera_source="automatic_camera_motion_removed")
+        warnings.append("The flight review leaves the fixed-camera box unchecked, but the accepted automatic flight "
+                        "removed the camera's motion (every frame is steadied into the release frame), so its board "
+                        "scale and flight fits are kept.")
+    return merged, warnings
 
 
 def _bag_track_from_auto_flight(auto_flight: dict[str, Any], video) -> BagTrack:
@@ -437,7 +506,8 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
                  angles: dict[str, np.ndarray], fps: float, forward_swing: int | None, release_frame: int,
                  fit_points: np.ndarray, summaries: dict[str, Any],
                  wrist_speed: list[float | None] | None, calibration: SpatialCalibration | None = None,
-                 gravity_scale: dict[str, Any] | None = None, si_reason: str | None = None) -> dict[str, Any]:
+                 gravity_scale: dict[str, Any] | None = None, si_reason: str | None = None,
+                 release_confirmed: bool = True) -> dict[str, Any]:
     """Task 9: the per-throw body → release → flight → outcome chain (chain.py), wired to this throw's scale.
 
     Joints, hand/bag mechanics and the distance to the board use the board throw-plane scale
@@ -445,6 +515,8 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
     calibration that actually scaled `bag_release_speed_m_s` (`calibration`: the board plane, the
     reviewed flight's own gravity, or a calibration file) — see `_release_scale`. `si_reason` is the
     pipeline's physical-units gate (not a fixed side camera): every metre-based quantity is withheld.
+    `release_confirmed` false (the release frame is an automatic candidate) caps every
+    release-dependent quantity at "estimated" (`_cap_unconfirmed_release`).
     """
     from .board import MAX_PHI_DEG, solve_board
     from .chain import LANDMARK_NOISE_PX, RELEASE_HEIGHT_SD_M, build_chain, scale_relative_sd
@@ -511,12 +583,38 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
         landmark_noise_m=LANDMARK_NOISE_PX / ppm if ppm else None, release_scale=release_scale,
         plane_reason=plane_reason, si_reason=si_reason)
     chain["notes"].extend(notes)
+    if not release_confirmed:
+        _cap_unconfirmed_release(chain)
     chain["release_to_board_front_m"] = None if si_reason else to_front
     series = chain.get("series") or {}
     if joints_m is not None and not si_reason and "start_frame" in series:
         from .chain import _sig
         lo, hi = series["start_frame"], series["start_frame"] + len(series["force_n"])
         chain["joints_plane_m"] = {"start_frame": lo, **{k: _sig(v[lo:hi]) for k, v in joints_m.items()}}
+    return chain
+
+
+# Chain quantities that do not depend on the release frame (observed first contact vs the hole).
+RELEASE_INDEPENDENT_CHAIN = frozenset({"measured_along_error_in"})
+UNCONFIRMED_RELEASE_REASON = ("Release is an automatic candidate; confirm visible separation before interpreting "
+                              "release-dependent values.")
+
+
+def _cap_unconfirmed_release(chain: dict[str, Any]) -> dict[str, Any]:
+    """Cap every release-dependent chain quantity at "estimated" when the release is not confirmed.
+
+    The pipeline also nulls their flattened `chain_*` summaries (as it does the legacy
+    release-dependent summaries), so they never enter athlete analyses; the chain record keeps
+    the values, labelled, for inspection.
+    """
+    for name, item in chain["quantities"].items():
+        if name in RELEASE_INDEPENDENT_CHAIN or item["state"] == "unavailable":
+            continue
+        item["state"] = "estimated"
+        item["reason"] = f"{item['reason']} {UNCONFIRMED_RELEASE_REASON}" if item.get("reason") \
+            else UNCONFIRMED_RELEASE_REASON
+    chain["release_confirmed"] = False
+    chain["notes"].append(UNCONFIRMED_RELEASE_REASON)
     return chain
 
 
@@ -1228,7 +1326,8 @@ def analyze_trial(
             calibration=calibration if calibration and calibration.permits_physical_units else None,
             gravity_scale=gravity_scale,
             si_reason=None if (context.camera_view == "side" and flight_review.get("fixed_camera")) else
-            "Physical units withheld: confirm a fixed side camera and an in-plane scale.")
+            "Physical units withheld: confirm a fixed side camera and an in-plane scale.",
+            release_confirmed=release_confirmed)
         summaries.update(flatten_for_summaries(chain))
         summaries["release_to_board_front_m"] = chain["release_to_board_front_m"]
     # Release window: the first free-flight detection and the backward-flight/wrist
@@ -1250,7 +1349,9 @@ def analyze_trial(
                     or key in ("swing_release_arm_angle_deg", "swing_forward_duration_s", "swing_tempo_ratio",
                                "swing_peak_angular_velocity_deg_s", "swing_pendulum_drive_ratio",
                                "wrist_peak_speed_time_rel_release_ms", "elbow_peak_extension_time_rel_release_ms",
-                               "hand_to_bag_speed_ratio", "launch_direction_difference_deg"):
+                               "hand_to_bag_speed_ratio", "launch_direction_difference_deg",
+                               "release_to_board_front_m") \
+                    or (key.startswith("chain_") and key[len("chain_"):] not in RELEASE_INDEPENDENT_CHAIN):
                 summaries[key] = None
         if bag_result is not None:
             if bag_result["launch"]["status"] == "estimated":

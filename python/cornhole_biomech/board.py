@@ -378,16 +378,20 @@ def pool_library_hfov(calibrations: list[dict[str, Any]], session: dict[str, Any
     """Library-wide fallback for a session with fewer than `MIN_SESSION_THROWS` measured throws.
 
     Pools every measured per-throw calibration of the library run (all sessions) with the same
-    median/n/IQR rules as `pool_session_hfov`, so it is "measured" only if the library pool itself
-    meets them. It assumes every session was filmed with the same camera and zoom, which the
-    reason states. `session` (that session's own pool) is kept for reference.
+    median/n/IQR rules as `pool_session_hfov`. It rests on an unverified assumption -- every
+    session was filmed with the same camera and zoom -- so its status is at most "estimated"
+    (spec §8: nothing "measured" depends on an assumed input), with that assumption as the reason;
+    `pool_status` keeps what the pool's own median/n/IQR rules gave. `session` (that session's
+    own pool) is kept for reference.
     """
     pooled = pool_session_hfov(calibrations, scope="library run")
     note = (f"This session had fewer than {MIN_SESSION_THROWS} throws with a field of view measured from gravity, "
             f"so the median of all {pooled['n']} measured throws in this library run is used; this assumes the "
-            "same camera and zoom in every session.")
+            "same camera and zoom in every session, which is not verified, so the field of view is estimated.")
     reason = note if pooled["status"] == "measured" else f"{note} {pooled['reason']}"
-    return {**pooled, "source": LIBRARY_HFOV_SOURCE, "reason": reason, "session_pool": session}
+    status = "estimated" if pooled["status"] == "measured" else pooled["status"]
+    return {**pooled, "status": status, "pool_status": pooled["status"], "source": LIBRARY_HFOV_SOURCE,
+            "reason": reason, "session_pool": session}
 
 
 def _red_and_rim(plate: np.ndarray, min_sat: int = RED_MIN_SAT) -> tuple[np.ndarray, np.ndarray]:

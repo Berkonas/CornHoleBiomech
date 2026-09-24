@@ -156,14 +156,38 @@ def test_board_scale_without_camera_json_matches_per_throw_calibration(tmp_path)
     assert via_empty_dir["per_throw_hfov_deviation_deg"] is None
 
 
-def test_session_grouping_key_groups_by_athlete_and_clip_folder():
-    a = session_grouping_key({"athlete_id": "ath1", "source_video": "/videos/day1/clip1.mp4"})
-    b = session_grouping_key({"athlete_id": "ath1", "source_video": "/videos/day1/clip2.mp4"})
-    c = session_grouping_key({"athlete_id": "ath1", "source_video": "/videos/day2/clip1.mp4"})
-    d = session_grouping_key({"athlete_id": "ath2", "source_video": "/videos/day1/clip1.mp4"})
-    assert a == b            # same athlete, same clip folder
-    assert a != c            # different clip folder
-    assert a != d            # different athlete
+def _clip(path, day):
+    """An empty clip file whose modification date (the recording-date stand-in) is `day` (yyyy-mm-dd)."""
+    import os
+    from datetime import datetime
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+    stamp = datetime.fromisoformat(f"{day}T12:00:00").timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_session_grouping_key_groups_by_athlete_and_recording_date(tmp_path):
+    a = _clip(tmp_path / "throws" / "clip1.mp4", "2026-09-17")
+    b = _clip(tmp_path / "other_folder" / "clip2.mp4", "2026-09-17")
+    c = _clip(tmp_path / "throws" / "clip3.mp4", "2026-09-24")
+    key = lambda athlete, video: session_grouping_key({"athlete_id": athlete, "source_video": str(video)})
+    assert key("ath1", a) == key("ath1", b) == "ath1::2026-09-17"   # same athlete and day, any folder
+    assert key("ath1", a) != key("ath1", c)                         # same folder, another day
+    assert key("ath1", a) != key("ath2", a)                         # different athlete
+    assert key("ath1", tmp_path / "missing.mp4") == "ath1::unknown-date"
+    # A recording date stated in the manifest wins over the file date.
+    stated = {"athlete_id": "ath1", "source_video": str(c), "recording_date": "2026-09-17"}
+    assert session_grouping_key(stated) == key("ath1", a)
+
+
+def test_session_with_unknown_recording_date_is_capped_at_estimated(tmp_path):
+    dirs = [_write_throw(tmp_path, f"t{i}", "ath1", tmp_path / "gone" / f"{i}.mp4", h, "measured")
+            for i, h in enumerate([60.0, 61.0, 59.5])]
+    (camera,) = pool_session_camera_files(dirs).values()
+    assert camera["source"] == SESSION_HFOV_SOURCE and camera["n"] == 3
+    assert camera["status"] == "estimated" and "recording date" in camera["reason"]
+    assert camera["recording_dates"] == ["unknown"]
 
 
 def _write_throw(root, name, athlete_id, video_path, hfov_deg, status):
@@ -177,12 +201,10 @@ def _write_throw(root, name, athlete_id, video_path, hfov_deg, status):
 
 def test_pool_session_camera_files_groups_pools_and_writes_every_member(tmp_path):
     videos = tmp_path / "clips"
-    videos.mkdir()
     for name in ("a.mp4", "b.mp4", "c.mp4"):
-        (videos / name).touch()
-    other = tmp_path / "other_clips"
-    other.mkdir()
-    (other / "z.mp4").touch()
+        _clip(videos / name, "2026-09-17")
+    other = tmp_path / "clips"
+    _clip(other / "z.mp4", "2026-09-24")      # same folder, another day: another session
 
     session_dirs = [
         _write_throw(tmp_path, "t0", "ath1", videos / "a.mp4", 60.0, "measured"),
@@ -193,10 +215,10 @@ def test_pool_session_camera_files_groups_pools_and_writes_every_member(tmp_path
 
     pooled = pool_session_camera_files(session_dirs + [other_dir])
 
-    assert len(pooled) == 2          # two distinct sessions (different clip folders)
+    assert len(pooled) == 2          # two distinct sessions (different recording dates)
     for d in session_dirs:
         camera = json.loads((d / "camera.json").read_text())
-        assert camera["n"] == 3 and camera["status"] == "measured"
+        assert camera["n"] == 3 and camera["status"] == "measured" and camera["recording_dates"] == ["2026-09-17"]
         assert sorted(camera["members"]) == ["t0", "t1", "t2"]
         assert camera["source"] == SESSION_HFOV_SOURCE
     # only one measured throw in its own session: falls back to the library-wide pool (Task 8c)
@@ -204,17 +226,21 @@ def test_pool_session_camera_files_groups_pools_and_writes_every_member(tmp_path
     assert other_camera["source"] == LIBRARY_HFOV_SOURCE
     assert sorted(other_camera["members"]) == ["t0", "t1", "t2", "t3"]
     assert other_camera["hfov_deg"] == pytest.approx(60.5)
-    assert other_camera["status"] == "measured"          # 4 throws, IQR 3.4° <= 6°
+    # 4 throws, IQR 3.4° <= 6° pass the pool's own rules, but the same-camera assumption caps it
+    assert other_camera["pool_status"] == "measured" and other_camera["status"] == "estimated"
     assert other_camera["session_pool"]["members"] == ["t3"]
     assert other_camera["session_pool"]["status"] == "estimated"
 
 
 # ---- task 8c: library-wide fallback for a session with too few measured throws
-def test_pool_library_hfov_measured_states_the_same_camera_assumption():
+def test_pool_library_hfov_is_at_most_estimated_and_states_the_same_camera_assumption():
     session = pool_session_hfov([_measured("p3a", 55.3)])
     out = pool_library_hfov([_measured(f"t{i}", v) for i, v in enumerate([58.8, 60.3, 56.6, 61.7, 55.3])],
                             session=session)
-    assert out["status"] == "measured" and out["source"] == LIBRARY_HFOV_SOURCE
+    # The pool itself meets the median/n/IQR rules, but it rests on an unverified same-camera/zoom assumption.
+    assert out["pool_status"] == "measured"
+    assert out["status"] == "estimated" and out["source"] == LIBRARY_HFOV_SOURCE
+    assert "not verified" in out["reason"]
     assert out["hfov_deg"] == pytest.approx(58.8) and out["n"] == 5
     assert "same camera and zoom" in out["reason"]
     assert out["session_pool"] == session
@@ -250,6 +276,7 @@ def test_board_scale_uses_a_library_camera_file(tmp_path):
     library = pool_library_hfov([_measured(f"t{i}", v) for i, v in enumerate([58.0, 59.0, 60.0])])
     write_json(tmp_path / "camera.json", {**library, "session_key": "p3"})
     out = _board_scale(auto_flight, tmp_path)
-    assert out["status"] == "measured" and out["hfov_source"] == LIBRARY_HFOV_SOURCE
+    assert out["status"] == "estimated" and out["hfov_status"] == "estimated"
+    assert out["hfov_source"] == LIBRARY_HFOV_SOURCE
     assert out["hfov_deg"] == pytest.approx(59.0)
     assert "same camera and zoom" in out["hfov_reason"]

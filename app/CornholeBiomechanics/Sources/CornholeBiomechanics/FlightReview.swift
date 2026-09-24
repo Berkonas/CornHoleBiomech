@@ -66,14 +66,14 @@ struct FlightReviewEditor: View {
             }
             Text("Contact may occur after body follow-through ends. Reopen this panel at the contact frame; review the bag identity through that frame using Bag tracking.").font(.caption).foregroundStyle(.secondary)
             Toggle("I verified a fixed, level side camera, approximately perpendicular to the flight plane", isOn: $fixedCamera)
-            Text("Leave unchecked if the camera pans, tilts or zooms. A side-view label alone does not validate geometry.").font(.caption).foregroundStyle(.secondary)
+            Text("Leave unchecked if the camera pans, tilts or zooms. A side-view label alone does not validate geometry. When the automatic flight was accepted, its camera motion is already removed and its board scale is kept even if this is unchecked.").font(.caption).foregroundStyle(.secondary)
             DisclosureGroup("Optional release-plane scale") {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle("Use an independently measured in-plane length", isOn: $useScale)
                     TextField("Known length (meters)", text: $knownLength)
                     TextField("Length between endpoints in this video (pixels)", text: $pixelLength)
                     TextField("Object, endpoint coordinates and measurement method", text: $source)
-                    Text("Scale = pixel length / known meters. Measure a rigid object in the release plane at this frame; record its two endpoints above. The distant board and apparent arm length are not valid substitutes. This scale applies to release speed only, not the entire flight or board.").font(.caption).foregroundStyle(.secondary)
+                    Text("Scale = pixel length / known meters. Measure a rigid object in the release plane at this frame; record its two endpoints above. Without it, a located board gives the scale (its throw plane, with the field of view calibrated from the bag's gravity); a length entered here replaces that for release speed and height. Apparent arm length is not a valid substitute.").font(.caption).foregroundStyle(.secondary)
                 }.padding(.vertical, 8)
             }
             TextField("Observation notes / uncertainty", text: $note, axis: .vertical)

@@ -95,3 +95,24 @@ def test_board_scale_estimated_when_gravity_not_matched_in_band():
                    "stabilized_points": stabilized_points, "fit": {}}
     out = _board_scale(auto_flight)
     assert out["status"] == "estimated" and out["reason"] is not None
+
+
+def test_board_scale_survives_a_pose_failure_at_the_nominal_fov(monkeypatch):
+    import cornhole_biomech.board as board_module
+    from cornhole_biomech.board import NOMINAL_HFOV_DEG
+    real = board_module.solve_board
+
+    def failing_at_nominal(corners, size, board=None, hfov_deg=NOMINAL_HFOV_DEG):
+        if hfov_deg == NOMINAL_HFOV_DEG:
+            raise ValueError("Board pose could not be solved from these corners.")
+        return real(corners, size, hfov_deg=hfov_deg) if board is None else real(corners, size, board, hfov_deg)
+
+    monkeypatch.setattr(board_module, "solve_board", failing_at_nominal)
+    W, H, fps, corners, stabilized_points = _rendered_board_and_flight(true_hfov=62.0)
+    auto_flight = {"width": W, "height": H, "fps": fps,
+                   "board": {"status": "found", "corners_px": corners.tolist()},
+                   "stabilized_points": stabilized_points,
+                   "fit": {"vertical_acceleration_px_s2": 1000.0}}
+    out = _board_scale(auto_flight)
+    assert out["apparent_gravity_m_s2_at_nominal_hfov"] is None
+    assert out["status"] == "measured" and out["pixels_per_meter"] > 0

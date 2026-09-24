@@ -151,3 +151,97 @@ def test_mask_failure_is_warned_and_cache_retried_once_helper_appears(tmp_path, 
     assert json.loads((out / "auto_flight.json").read_text())["scene_helper_present"] is True
     _analyze(context, pose, out)
     assert len(calls) == 2                     # helper present when cached: not retried every time
+
+
+# ---- item 2: an unconfirmed (automatic-candidate) release caps the chain
+def test_cap_unconfirmed_release_caps_release_dependent_quantities_only():
+    from cornhole_biomech.pipeline import UNCONFIRMED_RELEASE_REASON, _cap_unconfirmed_release
+    chain = {"notes": [], "quantities": {
+        "release_speed_m_s": {"state": "measured", "reason": None, "value": 6.0},
+        "kinetic_energy_j": {"state": "estimated", "reason": "Scale not measured.", "value": 7.0},
+        "hand_speed_at_release_m_s": {"state": "unavailable", "reason": "No joints.", "value": None},
+        "measured_along_error_in": {"state": "measured", "reason": None, "value": 3.0}}}
+    _cap_unconfirmed_release(chain)
+    q = chain["quantities"]
+    assert q["release_speed_m_s"]["state"] == "estimated"
+    assert q["release_speed_m_s"]["reason"] == UNCONFIRMED_RELEASE_REASON
+    assert q["kinetic_energy_j"]["reason"] == f"Scale not measured. {UNCONFIRMED_RELEASE_REASON}"
+    assert q["hand_speed_at_release_m_s"]["state"] == "unavailable"
+    assert q["measured_along_error_in"]["state"] == "measured"
+    assert chain["release_confirmed"] is False
+
+
+def test_unconfirmed_release_nulls_flattened_chain_summaries(tmp_path, no_helper):
+    from cornhole_biomech.bag import BagAutomaticPoint, BagCorrectionSet, BagSeed, BagTrack
+    from cornhole_biomech.pipeline import analyze_trial
+    from cornhole_biomech.video import read_video_metadata
+    context, pose, out = _trial(tmp_path)
+    frames = FRAMES
+    bag_points = []
+    for f in range(frames):
+        if f <= RELEASE:
+            s = f / RELEASE
+            x, y = 54 + 10 * s, 58 - 4 * s
+        else:
+            t = (f - RELEASE) / FPS
+            x, y = 64.0 + 500 * t, 54.0 - 300 * t + 490 * t * t
+        bag_points.append(BagAutomaticPoint(f, x, y, 0.95))
+    meta = read_video_metadata(context.source_video)
+    track = tmp_path / "bag_in.json"
+    BagTrack(1, frames, 96, 96, meta.sha256, BagSeed(0, (50, 54, 8, 8)), "import", "synthetic",
+             bag_points, "complete").save(track)
+    BagCorrectionSet(reviewed_through_frame=frames - 1).save(out / "bag_corrections.json")
+    r = analyze_trial(context, out, backend="rtmpose", pose_input=pose, bag_track_input=track,
+                      make_annotated_video=False)["results"]
+    events = json.loads((out / "events.json").read_text())
+    assert events["events"]["release"]["confirmed_by"] is None and r["chain"] is not None
+    q = r["chain"]["quantities"]
+    assert r["chain"]["release_confirmed"] is False
+    capped = [name for name, item in q.items() if item["state"] != "unavailable"]
+    assert capped, "the body chain should still have release-dependent values"
+    for name in capped:
+        assert q[name]["state"] == "estimated" and "automatic candidate" in q[name]["reason"]
+        assert r["summaries"][f"chain_{name}"] is None
+    assert r["summaries"]["release_to_board_front_m"] is None
+
+
+# ---- item 6: saving the Flight & scale panel over an accepted automatic flight
+def test_explicit_blank_contact_is_manual_unseen_never_measured_with_a_null_frame():
+    from cornhole_biomech.pipeline import _merge_automatic_flight_review
+    auto = {"first_contact_frame": 90, "contact": {"state": "measured", "reason": None}}
+    review, warnings = _merge_automatic_flight_review(auto, {"first_contact_frame": None, "note": "n"})
+    assert review["first_contact_frame"] is None and review["contact_state"] == "manual_unseen"
+    assert any("frame 90 is not used" in w for w in warnings)
+    # No key at all: the automatic measured contact still fills in.
+    review, _ = _merge_automatic_flight_review(auto, {"note": "n"})
+    assert review["first_contact_frame"] == 90 and review["contact_state"] == "measured"
+
+
+def test_manual_unchecked_fixed_camera_keeps_a_steadied_automatic_flight():
+    from cornhole_biomech.pipeline import _merge_automatic_flight_review
+    steadied = {"camera_to_release": {"0": [[1, 0, 0], [0, 1, 0]]}, "stabilized_points": [{"frame": 0, "x": 1, "y": 2}]}
+    review, warnings = _merge_automatic_flight_review(steadied, {"fixed_camera": False})
+    assert review["fixed_camera"] is True and review["manual_fixed_camera"] is False
+    assert review["fixed_camera_source"] == "automatic_camera_motion_removed"
+    assert any("camera's motion" in w for w in warnings)
+    # Without removed camera motion the manual "not fixed" stands.
+    review, warnings = _merge_automatic_flight_review({}, {"fixed_camera": False})
+    assert review["fixed_camera"] is False and warnings == []
+
+
+def test_saved_panel_over_accepted_flight_keeps_board_scale(tmp_path, monkeypatch, no_helper):
+    import cornhole_biomech.auto_bag as ab
+    calls = []
+    fake, corners = _stub_auto_track_bag(calls)
+    monkeypatch.setattr(ab, "auto_track_bag", fake)
+    context, pose, out = _trial(tmp_path)
+    (out / "board_corners.json").write_text(json.dumps({"corners_px": corners, "reference_frame": RELEASE}))
+    # What FlightReviewEditor.save() writes when only a note is typed.
+    (out / "flight_review.json").write_text(json.dumps({"schema_version": 1, "first_contact_frame": None,
+                                                        "fixed_camera": False, "note": "looked fine"}))
+    r = _analyze(context, pose, out)
+    assert r["scale"]["status"] == "measured"
+    assert not any("Physical units withheld" in w for w in r["warnings"])
+    assert any("camera's motion" in w for w in r["warnings"])
+    assert r["chain"]["release_to_board_front_m"] is not None
+    assert r["flight"]["time_of_flight_seconds"] is None
