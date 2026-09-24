@@ -241,8 +241,11 @@ def test_after_contact_seeds_from_predicted_contact_when_lost_in_flight(monkeypa
     # A bag lost mid-air with a predicted (estimated) contact must still get an
     # after-contact track, seeded from the PREDICTED frame/position converted back
     # to that frame's raw pixels, not from the (nonexistent) observed contact frame.
+    # The chain is a genuine translation (not identity) so that dropping the inverse
+    # (or applying it backwards) would move the seed point and fail this test.
     import cornhole_biomech.auto_bag as ab
-    chain = {f: np.eye(3) for f in range(200)}
+    translate = np.array([[1.0, 0.0, 50.0], [0.0, 1.0, 50.0], [0.0, 0.0, 1.0]])  # raw + 50 = release-frame
+    chain = {f: translate for f in range(200)}
     decided = {"predicted_contact": {"frame": 85, "x_px": 12.0, "y_px": 34.0, "kind": "floor",
                                      "state": "estimated", "reason": "predicted"},
               "contact": {"kind": "lost_in_flight", "state": "unavailable"}}
@@ -260,7 +263,8 @@ def test_after_contact_seeds_from_predicted_contact_when_lost_in_flight(monkeypa
                                                        frames=[None] * 200, release=0, fps=FPS, typical_area=100.0)
     assert from_predicted is True
     assert calls["contact"] == 85
-    assert calls["start"] == pytest.approx((12.0, 34.0))
+    # raw = inverse(translate) @ (12.0, 34.0, 1) = (12.0 - 50.0, 34.0 - 50.0)
+    assert calls["start"] == pytest.approx((-38.0, -16.0))
     assert after_contact["status"] == "rest_found"
 
 

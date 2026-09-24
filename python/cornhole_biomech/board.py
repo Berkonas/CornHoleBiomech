@@ -123,6 +123,120 @@ def solve_board(corners_px: np.ndarray, image_size: tuple[int, int], board: Boar
     return BoardModel(corners, hfov_deg, K, rvec, tvec, phi, plane_H, deck_H, board)
 
 
+def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_px, frames, fps: float,
+                               board: Board = Board(), hfov_range: tuple[float, float] = HFOV_RANGE_DEG,
+                               grid_deg: float = 0.25, min_points: int = 6) -> dict[str, Any]:
+    """Find the HFOV in `hfov_range` whose board-plane vertical acceleration matches gravity.
+
+    A single still image cannot separate a wide lens seen from close up from a narrow lens seen
+    from far away: both project the same board corners for a suitable camera distance, but they
+    disagree about the metric scale of everything else in the frame. The bag's own free flight
+    does not have that ambiguity — it obeys -9.80665 m/s^2 regardless of the lens — so matching
+    it pins down the otherwise-free HFOV parameter and, with it, the whole plane's metric scale.
+
+    `points_px`/`frames` are one accepted flight's release-frame (camera-motion-removed) pixel
+    points and their frame indices, in flight order; `points_px[0]` is taken as the release
+    point, at which the returned pixels-per-metre scale (and its 55-75 deg band) is evaluated.
+    Each candidate HFOV re-solves the board's PnP pose from the same corners and image size, and
+    maps the flight through that pose's plane homography (`BoardModel.to_plane`) into the
+    board's own metres; the vertical (height) coordinate's quadratic-fit acceleration a_y(HFOV)
+    is compared with gravity.
+
+    A root of a_y(HFOV) = -g strictly inside `hfov_range` (bracketed by a `grid_deg` grid search,
+    then refined by bisection) gives status "measured". If a_y never crosses -g in the band, the
+    closer edge is used with status "estimated" and a reason (`a_y_band_edges_m_s2` reports both
+    ends). Fewer than `min_points` flight points cannot be fit at all; the nominal HFOV is used,
+    status "estimated".
+    """
+    from .bag import GRAVITY_M_S2
+    lo, hi = hfov_range
+    pts = np.asarray(points_px, float).reshape(-1, 2) if len(points_px) else np.zeros((0, 2))
+    fr = np.asarray(frames, float)
+    release_px = (float(pts[0, 0]), float(pts[0, 1])) if len(pts) else None
+
+    def solve_at(hfov: float) -> BoardModel:
+        return solve_board(corners_px, image_size, board, hfov_deg=hfov)
+
+    def ppm_band() -> list[float] | None:
+        if release_px is None:
+            return None
+        values = [solve_at(h).pixels_per_meter_at(release_px) for h in (lo, hi)]
+        return sorted(values) if all(math.isfinite(v) for v in values) else None
+
+    def package(hfov: float, status: str, reason: str | None,
+               a_y_band_edges: list[float] | None, horizontal: float | None) -> dict[str, Any]:
+        model = solve_at(hfov)
+        ppm = model.pixels_per_meter_at(release_px) if release_px is not None else None
+        if ppm is not None and not math.isfinite(ppm):
+            ppm = None
+        return {"status": status, "hfov_deg": float(hfov), "phi_deg": model.phi_deg,
+                "pixels_per_meter": ppm, "pixels_per_meter_band": ppm_band(),
+                "a_y_band_edges_m_s2": a_y_band_edges, "horizontal_acceleration_m_s2": horizontal,
+                "reason": reason, "model": model}
+
+    if len(pts) < min_points or len(pts) != len(fr):
+        return package(NOMINAL_HFOV_DEG, "estimated",
+                       f"Only {len(pts)} flight point(s); {min_points} are needed to calibrate the field of "
+                       f"view from gravity. Using the nominal {NOMINAL_HFOV_DEG:.0f}°.", None, None)
+
+    t = (fr - fr[0]) / fps
+    target = -GRAVITY_M_S2
+
+    def vertical_accel(hfov: float) -> float:
+        xy = solve_at(hfov).to_plane(pts)
+        return float(2 * np.polyfit(t, xy[:, 1], 2)[0])
+
+    def horizontal_accel(hfov: float) -> float:
+        xy = solve_at(hfov).to_plane(pts)
+        return float(2 * np.polyfit(t, xy[:, 0], 2)[0])
+
+    steps = max(2, int(round((hi - lo) / grid_deg)))
+    grid = np.linspace(lo, hi, steps + 1)
+    accel = [vertical_accel(h) for h in grid]
+    a_y_band_edges = [accel[0], accel[-1]]
+    diffs = [a - target for a in accel]
+    bracket = None
+    for i in range(len(grid) - 1):
+        if diffs[i] == 0:
+            bracket = (float(grid[i]), float(grid[i]))
+            break
+        if (diffs[i] > 0) != (diffs[i + 1] > 0):
+            bracket = (float(grid[i]), float(grid[i + 1]))
+            break
+    if bracket is None:
+        hfov = lo if abs(diffs[0]) <= abs(diffs[-1]) else hi
+        reason = (f"The flight's vertical acceleration ({accel[0]:.2f} to {accel[-1]:.2f} m/s^2 across the "
+                 f"band) never matches gravity ({-target:.2f} m/s^2) in the {lo:.0f}-{hi:.0f}° HFOV band; "
+                 f"using the {'lower' if hfov == lo else 'upper'} edge. The scale is flagged.")
+        horiz = horizontal_accel(hfov)
+        if not (math.isfinite(hfov) and math.isfinite(horiz)):
+            return package(NOMINAL_HFOV_DEG, "estimated",
+                           "The gravity fit did not converge to a finite result; using the nominal "
+                           f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None)
+        return package(hfov, "estimated", reason, a_y_band_edges, horiz)
+    a, b = bracket
+    fa = vertical_accel(a) - target
+    for _ in range(40):
+        if b - a < 1e-4:
+            break
+        mid = 0.5 * (a + b)
+        fm = vertical_accel(mid) - target
+        if fm == 0:
+            a = b = mid
+            break
+        if (fm > 0) == (fa > 0):
+            a, fa = mid, fm
+        else:
+            b = mid
+    hfov = 0.5 * (a + b)
+    horiz = horizontal_accel(hfov)
+    if not (math.isfinite(hfov) and math.isfinite(horiz)):
+        return package(NOMINAL_HFOV_DEG, "estimated",
+                       "The gravity fit did not converge to a finite result; using the nominal "
+                       f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None)
+    return package(hfov, "measured", None, a_y_band_edges, horiz)
+
+
 def _red_and_rim(plate: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     hsv = cv2.cvtColor(plate, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]

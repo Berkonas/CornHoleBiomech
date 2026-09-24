@@ -76,26 +76,55 @@ def _scale_agreement(board_ppm: float | None, gravity_ppm: float | None,
             "board_ppm": board_ppm, "gravity_ppm": gravity_ppm, "stature_ppm": stature_ppm}
 
 
-def _board_scale(auto_flight: dict[str, Any] | None, point_px) -> dict[str, Any]:
-    """Pixels-per-metre scale in the athlete/bag plane from the detected board's throw plane.
+def _board_scale(auto_flight: dict[str, Any] | None) -> dict[str, Any]:
+    """Pixels-per-metre scale at the bag's release point, from the board's throw plane, with the
+    field of view calibrated to the accepted automatic flight's own vertical acceleration.
 
-    Only `board["status"] == "found"` counts as a board; `phi_status == "measured"`
-    (out-of-plane angle within tolerance) is required for the scale to be trusted as
-    "measured" rather than merely "estimated". The 55-75 deg field-of-view range is
-    re-solved at `point_px` to give the scale's uncertainty (`hfov_range_ppm`).
+    A still image alone cannot tell a wide lens close up from a narrow lens far away, so the
+    board's field of view (HFOV, 55-75 deg) is calibrated by requiring the accepted flight's own
+    vertical acceleration to match gravity (`board.calibrate_hfov_from_flight`); the scale is
+    then evaluated at the flight's first point (release), not the athlete's shoulder, since that
+    is the point downstream launch quantities actually need. Only `board["status"] == "found"`
+    counts as a board. `status == "measured"` only when a HFOV inside the band reproduces
+    gravity; otherwise "estimated" (edge of the band, or too few flight points), flagged via
+    `hfov_status`/`hfov_reason`.
     """
-    from .board import HFOV_RANGE_DEG, NOMINAL_HFOV_DEG, solve_board
+    from .board import calibrate_hfov_from_flight
+    empty = {"status": "unavailable", "pixels_per_meter": None, "pixels_per_meter_band": None,
+            "hfov_deg": None, "hfov_status": "unavailable", "hfov_reason": None,
+            "apparent_gravity_m_s2_at_nominal_hfov": None, "horizontal_acceleration_m_s2": None,
+            "a_y_band_edges_m_s2": None, "phi_deg": None, "reason": None}
     board = (auto_flight or {}).get("board") or {}
     if board.get("status") != "found" or not board.get("corners_px"):
-        return {"status": "unavailable", "pixels_per_meter": None, "hfov_range_ppm": None, "phi_deg": None,
-                "reason": "Board not located; " + "; ".join(board.get("reasons") or ["no board result"])}
+        return {**empty, "reason": "Board not located; " + "; ".join(board.get("reasons") or ["no board result"])}
+    stabilized = auto_flight.get("stabilized_points") or []
+    if not stabilized:
+        return {**empty, "reason": "No accepted automatic flight to calibrate the field of view from gravity."}
     corners = np.asarray(board["corners_px"], float)
     size = (int(auto_flight.get("width") or 1920), int(auto_flight.get("height") or 1080))
-    ppm = [solve_board(corners, size, hfov_deg=h).pixels_per_meter_at(point_px)
-           for h in (*HFOV_RANGE_DEG, NOMINAL_HFOV_DEG)]
-    status = "measured" if board.get("phi_status") == "measured" else "estimated"
-    return {"status": status, "pixels_per_meter": ppm[2], "hfov_range_ppm": sorted(ppm[:2]),
-            "phi_deg": board.get("phi_deg"), "reason": board.get("phi_reason")}
+    points = np.array([[p["x"], p["y"]] for p in stabilized], float)
+    frames = np.array([p["frame"] for p in stabilized], float)
+    fps = float(auto_flight.get("fps") or 30.0)
+    calib = calibrate_hfov_from_flight(corners, size, points, frames, fps)
+    ppm = calib.get("pixels_per_meter")
+    if ppm is None or not math.isfinite(ppm):
+        return {**empty, "hfov_deg": calib.get("hfov_deg"), "hfov_status": calib.get("status"),
+                "hfov_reason": calib.get("reason"), "phi_deg": calib.get("phi_deg"),
+                "reason": calib.get("reason") or "Non-finite scale at the release point."}
+    fit_accel_px_s2 = (auto_flight.get("fit") or {}).get("vertical_acceleration_px_s2")
+    apparent_g_nominal = None
+    if fit_accel_px_s2 is not None:
+        from .board import NOMINAL_HFOV_DEG, solve_board
+        nominal_ppm = solve_board(corners, size, hfov_deg=NOMINAL_HFOV_DEG).pixels_per_meter_at(
+            (float(points[0, 0]), float(points[0, 1])))
+        if nominal_ppm and math.isfinite(nominal_ppm):
+            apparent_g_nominal = abs(fit_accel_px_s2) / nominal_ppm
+    return {"status": calib["status"], "pixels_per_meter": ppm, "pixels_per_meter_band": calib.get("pixels_per_meter_band"),
+            "hfov_deg": calib.get("hfov_deg"), "hfov_status": calib.get("status"), "hfov_reason": calib.get("reason"),
+            "apparent_gravity_m_s2_at_nominal_hfov": apparent_g_nominal,
+            "horizontal_acceleration_m_s2": calib.get("horizontal_acceleration_m_s2"),
+            "a_y_band_edges_m_s2": calib.get("a_y_band_edges_m_s2"),
+            "phi_deg": calib.get("phi_deg"), "reason": calib.get("reason")}
 
 
 def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
@@ -575,9 +604,7 @@ def analyze_trial(
     summaries.update(arm_motion["summaries"])
 
     calibration = SpatialCalibration.load(calibration_path)
-    board_scale_point = (filtered[release_frame, lookup[f"{context.throwing_side}_shoulder"]]
-                         if release_frame is not None else (960.0, 540.0))
-    board_scale = _board_scale(auto_flight if auto_accepted else None, board_scale_point)
+    board_scale = _board_scale(auto_flight if auto_accepted else None)
     if calibration is None and board_scale["status"] == "measured":
         calibration = SpatialCalibration(board_scale["pixels_per_meter"], "board_throw_plane", True,
                                          "regulation_board_pnp")
@@ -589,7 +616,7 @@ def analyze_trial(
     if contact_frame is not None and (not isinstance(contact_frame, int) or isinstance(contact_frame, bool)
                                       or not 0 <= contact_frame < sequence.frame_count):
         raise ValueError("First-contact frame must be an integer inside this clip")
-    # Athlete-plane SI scale is never authorized for a front/oblique/moving camera.
+    # SI scale (athlete-plane or board-plane) is never authorized for a front/oblique/moving camera.
     if calibration and (context.camera_view != "side" or not flight_review.get("fixed_camera")):
         bag_warnings.append("Physical units withheld: confirm a fixed side camera and an in-plane scale.")
         calibration = None
@@ -629,11 +656,33 @@ def analyze_trial(
         # No measured scale: the flight's own gravity sets the bag-plane scale.
         calibration = SpatialCalibration(gravity_scale["pixels_per_meter"], "bag_flight_plane_gravity",
                                          True, "reviewed_flight_gravity_fit")
+    # The board scale's own HFOV was calibrated from the accepted flight's implied gravity
+    # (board.calibrate_hfov_from_flight), so it is no longer an independent check against
+    # `gravity_scale` in general; `gravity_scale` is only genuinely independent when it comes
+    # from a REVIEWED flight (contact confirmed, covered by review) rather than the automatic
+    # one used for HFOV calibration, and `gravity_scale.pixels_per_meter` is only non-None in
+    # that reviewed case (see gravity_scale_from_flight). The comparison below still runs, but
+    # `gravity_used_for_fov` records that it is not independent when no reviewed value exists.
     scale_check = _scale_agreement(board_scale.get("pixels_per_meter"),
                                    gravity_scale.get("pixels_per_meter"), None)
+    board_hfov_deg_known = board_scale.get("hfov_deg") is not None
+    scale_check["gravity_used_for_fov"] = board_hfov_deg_known
+    horizontal_accel = board_scale.get("horizontal_acceleration_m_s2")
+    hfov_not_measured = board_hfov_deg_known and board_scale.get("hfov_status") != "measured"
+    horizontal_accel_high = horizontal_accel is not None and abs(horizontal_accel) > 2.0
+    if hfov_not_measured or horizontal_accel_high:
+        scale_check["flag"] = True
     if scale_check["flag"]:
-        bag_warnings.append(f"Board and flight-gravity scales disagree by {100 * scale_check['max_disagreement']:.0f}% "
-                            "(> 10%); metre values are flagged.")
+        reasons = []
+        if scale_check.get("max_disagreement") is not None and scale_check["max_disagreement"] > 0.10:
+            reasons.append(f"board and flight-gravity scales disagree by {100 * scale_check['max_disagreement']:.0f}% (> 10%)")
+        if hfov_not_measured:
+            reasons.append("the board's field of view could not be calibrated to gravity inside the 55-75° band"
+                           + (f" ({board_scale['hfov_reason']})" if board_scale.get("hfov_reason") else ""))
+        if horizontal_accel_high:
+            reasons.append(f"the flight's horizontal acceleration is {horizontal_accel:.1f} m/s² (> 2.0 m/s²), "
+                           "suggesting drag or perspective error")
+        bag_warnings.append("Scale check: " + "; ".join(reasons) + "; metre values are flagged.")
 
     from .bag_filter import filtered_to_raw, smooth_flight
     from .trajectory_model import ballistic_model_check
@@ -955,14 +1004,28 @@ def analyze_trial(
     }
     if auto_flight:
         results["board"] = auto_flight.get("board")
-        results["contact"] = auto_flight.get("contact")
-        results["predicted_contact"] = auto_flight.get("predicted_contact")
-        results["landing"] = auto_flight.get("landing")
-        results["suggested_outcome"] = auto_flight.get("suggested_outcome")
         results["scene"] = auto_flight.get("scene")
+        # contact/landing/outcome describe the CHOSEN flight; they are only trustworthy results
+        # when that flight was accepted. An unaccepted flight's guesses are kept, clearly
+        # separated, so a person reviewing the trial can still see what automatic tracking found.
+        if auto_accepted:
+            results["contact"] = auto_flight.get("contact")
+            results["predicted_contact"] = auto_flight.get("predicted_contact")
+            results["landing"] = auto_flight.get("landing")
+            results["suggested_outcome"] = auto_flight.get("suggested_outcome")
+        else:
+            results["auto_flight_unaccepted"] = {
+                "status": auto_flight.get("status"),
+                "contact": auto_flight.get("contact"),
+                "predicted_contact": auto_flight.get("predicted_contact"),
+                "landing": auto_flight.get("landing"),
+                "suggested_outcome": auto_flight.get("suggested_outcome"),
+            }
+    results["scale"] = board_scale
     results["scale_check"] = scale_check
-    landing = (auto_flight or {}).get("landing") or {}
-    summaries["landing_along_error_m"] = landing.get("along_error_m") if landing.get("state") == "measured" else None
+    landing = auto_flight.get("landing") if (auto_flight and auto_accepted) else None
+    summaries["landing_along_error_m"] = (landing or {}).get("along_error_m") \
+        if landing and landing.get("state") == "measured" else None
     summaries["board_phi_deg"] = board_scale.get("phi_deg")
     after_contact = (auto_flight or {}).get("after_contact") if auto_accepted else None
     flight["after_contact"] = None if after_contact is None else {

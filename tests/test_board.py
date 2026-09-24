@@ -4,8 +4,9 @@ import cv2
 import numpy as np
 import pytest
 
-from cornhole_biomech.board import (HIDDEN_FRONT_CORNER_REASON, HOLE_TOLERANCE_IN, MAX_PHI_DEG, NOMINAL_HFOV_DEG,
-                                    camera_matrix, detect_board, order_corners, solve_board)
+from cornhole_biomech.board import (HFOV_RANGE_DEG, HIDDEN_FRONT_CORNER_REASON, HOLE_TOLERANCE_IN, MAX_PHI_DEG,
+                                    NOMINAL_HFOV_DEG, calibrate_hfov_from_flight, camera_matrix, detect_board,
+                                    order_corners, solve_board)
 from cornhole_biomech.regulation import INCH_M, Board
 
 W, H = 1920, 1080
@@ -60,6 +61,47 @@ def test_deck_inches_of_corners():
     model = solve_board(corners, (W, H), B)
     uv = model.to_deck_inches(corners)
     assert uv == pytest.approx(np.array([[0, 0], [24, 0], [24, 48], [0, 48]]), abs=0.5)
+
+
+def test_calibrate_hfov_from_flight_recovers_known_hfov():
+    true_hfov = 60.0
+    rvec, tvec = side_pose(phi_deg=6.0)
+    corners = order_corners(project_board(rvec, tvec, hfov=true_hfov), "left_to_right")
+    K = camera_matrix(W, H, true_hfov)
+    fps = 60.0
+    n = 20
+    t = np.arange(n) / fps
+    # A free-fall path in the board's own throw plane (Z=0): x(t) linear, y(t) quadratic
+    # (downward, -g), so its true HFOV is recoverable from gravity alone.
+    obj = np.stack([0.5 + 3.0 * t, 1.3 + 1.0 * t - 0.5 * 9.80665 * t * t, np.zeros(n)], axis=1)
+    points_px = cv2.projectPoints(obj, rvec, tvec, K, None)[0].reshape(-1, 2)
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, np.arange(n), fps, B)
+    assert result["status"] == "measured"
+    assert result["hfov_deg"] == pytest.approx(true_hfov, abs=1.0)
+    assert result["horizontal_acceleration_m_s2"] == pytest.approx(0.0, abs=0.5)
+    assert result["pixels_per_meter"] is not None
+
+
+def test_calibrate_hfov_from_flight_estimated_when_gravity_not_matched_in_band():
+    rvec, tvec = side_pose(phi_deg=6.0)
+    corners = order_corners(project_board(rvec, tvec), "left_to_right")
+    # A perfectly straight pixel-space line stays straight under ANY board homography
+    # (homographies preserve collinearity), so its plane-mapped vertical curvature is zero for
+    # every HFOV: gravity is never matched anywhere in the band.
+    frames = np.arange(20)
+    points_px = np.stack([900.0 + 3.0 * frames, 500.0 + 1.0 * frames], axis=1)
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, 60.0, B)
+    assert result["status"] == "estimated"
+    assert result["hfov_deg"] in (pytest.approx(HFOV_RANGE_DEG[0]), pytest.approx(HFOV_RANGE_DEG[1]))
+    assert result["reason"] is not None
+
+
+def test_calibrate_hfov_from_flight_estimated_with_too_few_points():
+    rvec, tvec = side_pose()
+    corners = order_corners(project_board(rvec, tvec), "left_to_right")
+    result = calibrate_hfov_from_flight(corners, (W, H), [[900.0, 500.0], [905.0, 502.0]], [0, 1], 60.0, B)
+    assert result["status"] == "estimated" and result["hfov_deg"] == NOMINAL_HFOV_DEG
+    assert "nominal" in result["reason"]
 
 
 def test_detect_board_on_rendered_plate():

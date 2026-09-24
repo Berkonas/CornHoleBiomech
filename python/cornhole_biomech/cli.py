@@ -10,6 +10,8 @@ import importlib.util
 import json
 import sys
 
+import numpy as np
+
 from . import __version__
 from .bag import BagSeed, BagTrack, bag_tracking_qa, track_bag_from_seed
 from .models import BoardPoint, TrialContext, TrialOutcome
@@ -169,10 +171,14 @@ def parser() -> argparse.ArgumentParser:
     pair.add_argument("--b", required=True, help="Trial ID of the second throw")
     pair.set_defaults(handler=handle_compare_throws)
 
-    corners = commands.add_parser("set-board-corners", help="Store four clicked deck corners for a trial (and others)")
-    corners.add_argument("--trial-dir", required=True)
-    corners.add_argument("--corners", required=True, help="x1,y1,x2,y2,x3,y3,x4,y4 in the release frame's pixels")
-    corners.add_argument("--apply-to", nargs="*", default=[])
+    corners = commands.add_parser("set-board-corners",
+        help="Store four clicked deck corners for a trial's analysis output folder (and others)")
+    corners.add_argument("--trial-dir", required=True,
+        help="The trial's analysis output folder (has manifest.json and plate.jpg)")
+    corners.add_argument("--corners", required=True,
+        help="Four deck corners, in any order, as x1,y1,x2,y2,x3,y3,x4,y4 release-frame pixels")
+    corners.add_argument("--apply-to", nargs="*", default=[],
+        help="Other trials' analysis output folders shot from the same camera position")
     corners.set_defaults(handler=handle_set_board_corners)
     return root
 
@@ -488,20 +494,30 @@ def handle_outcome(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def handle_set_board_corners(args: argparse.Namespace) -> dict[str, Any]:
-    """Store clicked deck corners for a trial, and transfer them to other trials shot from the same position."""
+    """Store clicked deck corners for a trial's analysis output folder, ordered consistently
+    (front-far, front-near, back-near, back-far) regardless of click order, and transfer them
+    to other trials' analysis output folders shot from the same camera position.
+    """
     import cv2
-    from .board import transfer_corners
+    from .board import order_corners, transfer_corners
     values = [float(v) for v in args.corners.split(",")]
     if len(values) != 8:
         raise ValueError("Give exactly four corners: x1,y1,x2,y2,x3,y3,x4,y4.")
     source = Path(args.trial_dir)
-    write_json(source / "board_corners.json", {"corners_px": [values[i:i + 2] for i in range(0, 8, 2)],
-                                               "source": "clicked"})
+    manifest_path = source / "manifest.json"
+    if not manifest_path.exists():
+        raise ValueError(f"{manifest_path} does not exist. --trial-dir is the trial's analysis output folder "
+                         "(analyze it first).")
+    target_direction = (load_json(str(manifest_path), {}).get("trial_context") or {}).get("target_direction")
+    if target_direction not in ("left_to_right", "right_to_left"):
+        raise ValueError(f"{manifest_path} has no target_direction; analyze this trial first.")
+    ordered = order_corners(np.asarray(values, float).reshape(4, 2), target_direction)
+    write_json(source / "board_corners.json", {"corners_px": ordered.tolist(), "source": "clicked"})
     applied, failed = [], []
     src_plate = cv2.imread(str(source / "plate.jpg"))
     for other in args.apply_to:
         dst_plate = cv2.imread(str(Path(other) / "plate.jpg"))
-        moved = None if src_plate is None or dst_plate is None else transfer_corners(src_plate, dst_plate, values)
+        moved = None if src_plate is None or dst_plate is None else transfer_corners(src_plate, dst_plate, ordered)
         if moved is None:
             failed.append(other)
             continue
