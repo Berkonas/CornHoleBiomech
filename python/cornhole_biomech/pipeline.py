@@ -111,7 +111,8 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
             "per_throw_hfov_deg": None, "per_throw_hfov_status": None, "per_throw_hfov_deviation_deg": None,
             "hfov_iqr_deg": None, "hfov_pool_n": None,
             "apparent_gravity_m_s2_at_nominal_hfov": None, "horizontal_acceleration_m_s2": None,
-            "a_y_band_edges_m_s2": None, "phi_deg": None, "reason": None}
+            "a_y_band_edges_m_s2": None, "phi_deg": None, "phi_status": "unavailable", "phi_reason": None,
+            "reason": None}
     board = (auto_flight or {}).get("board") or {}
     if board.get("status") != "found" or not board.get("corners_px"):
         return {**empty, "reason": "Board not located; " + "; ".join(board.get("reasons") or ["no board result"])}
@@ -161,7 +162,8 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
         return {**empty, "hfov_deg": hfov_deg, "hfov_status": hfov_status, "hfov_reason": hfov_reason,
                 "hfov_source": hfov_source, "hfov_gravity_used": gravity_used,
                 "per_throw_hfov_deg": per_throw_hfov, "per_throw_hfov_status": per_throw_status,
-                "per_throw_hfov_deviation_deg": deviation, "phi_deg": phi_deg, "reason": reason}
+                "per_throw_hfov_deviation_deg": deviation, "phi_deg": phi_deg, **_phi_status(phi_deg),
+                "reason": reason}
     fit_accel_px_s2 = (auto_flight.get("fit") or {}).get("vertical_acceleration_px_s2")
     apparent_g_nominal = None
     if fit_accel_px_s2 is not None:
@@ -184,7 +186,19 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
             "apparent_gravity_m_s2_at_nominal_hfov": apparent_g_nominal,
             "horizontal_acceleration_m_s2": calib.get("horizontal_acceleration_m_s2"),
             "a_y_band_edges_m_s2": calib.get("a_y_band_edges_m_s2"),
-            "phi_deg": phi_deg, "reason": hfov_reason}
+            "phi_deg": phi_deg, **_phi_status(phi_deg), "reason": hfov_reason}
+
+
+def _phi_status(phi_deg: float | None) -> dict[str, Any]:
+    """Whether the throw line is close enough to the image plane for plane distances to be measured."""
+    from .board import MAX_PHI_DEG
+    if phi_deg is None or not math.isfinite(phi_deg):
+        return {"phi_status": "unavailable", "phi_reason": "The throw line's angle to the image plane is unknown."}
+    if phi_deg > MAX_PHI_DEG:
+        return {"phi_status": "estimated",
+                "phi_reason": f"Throw line is {phi_deg:.0f}° out of the image plane (> {MAX_PHI_DEG:.0f}°); plane "
+                              "distances depend strongly on the assumed field of view."}
+    return {"phi_status": "measured", "phi_reason": None}
 
 
 def recording_date(trial_context: dict[str, Any]) -> str | None:
@@ -1002,8 +1016,15 @@ def analyze_trial(
     calibration = SpatialCalibration.load(calibration_path)
     board_scale = _board_scale(auto_flight if auto_accepted else None, output)
     if calibration is None and board_scale["status"] == "measured":
-        calibration = SpatialCalibration(board_scale["pixels_per_meter"], "board_throw_plane", True,
-                                         "regulation_board_pnp")
+        # The board's throw-plane scale is promoted to the pipeline's calibration (legacy
+        # bag_release_speed_m_s, physical_units) only when the throw line is near the image
+        # plane; otherwise those values are not labelled measured from the board.
+        if board_scale.get("phi_status") == "measured":
+            calibration = SpatialCalibration(board_scale["pixels_per_meter"], "board_throw_plane", True,
+                                             "regulation_board_pnp")
+        else:
+            bag_warnings.append("The board scale is not used for release speed in metres: "
+                                + (board_scale.get("phi_reason") or "throw-line angle not measured."))
     flight_review = _load_json(output / "flight_review.json", {})
     if auto_accepted:
         flight_review, contact_warnings = _merge_automatic_flight_review(auto_flight, flight_review)

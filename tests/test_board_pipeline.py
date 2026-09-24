@@ -116,3 +116,17 @@ def test_board_scale_survives_a_pose_failure_at_the_nominal_fov(monkeypatch):
     out = _board_scale(auto_flight)
     assert out["apparent_gravity_m_s2_at_nominal_hfov"] is None
     assert out["status"] == "measured" and out["pixels_per_meter"] > 0
+
+
+def test_board_scale_reports_phi_status():
+    from cornhole_biomech.board import MAX_PHI_DEG
+    from cornhole_biomech.pipeline import _phi_status
+    W, H, fps, corners, stabilized_points = _rendered_board_and_flight(true_hfov=62.0)
+    auto_flight = {"width": W, "height": H, "fps": fps, "board": {"status": "found", "corners_px": corners.tolist()},
+                   "stabilized_points": stabilized_points, "fit": {}}
+    out = _board_scale(auto_flight)
+    assert out["phi_status"] == ("measured" if out["phi_deg"] <= MAX_PHI_DEG else "estimated")
+    assert _phi_status(MAX_PHI_DEG + 5)["phi_status"] == "estimated"
+    assert "out of the image plane" in _phi_status(MAX_PHI_DEG + 5)["phi_reason"]
+    assert _phi_status(None)["phi_status"] == "unavailable"
+    assert _board_scale(None)["phi_status"] == "unavailable"

@@ -245,3 +245,27 @@ def test_saved_panel_over_accepted_flight_keeps_board_scale(tmp_path, monkeypatc
     assert any("camera's motion" in w for w in r["warnings"])
     assert r["chain"]["release_to_board_front_m"] is not None
     assert r["flight"]["time_of_flight_seconds"] is None
+
+
+# ---- item 11: the board calibration is promoted only with a measured throw-line angle
+def test_board_scale_not_promoted_when_phi_not_measured(tmp_path, monkeypatch, no_helper):
+    import cornhole_biomech.auto_bag as ab
+    import cornhole_biomech.pipeline as pipeline
+    calls = []
+    fake, corners = _stub_auto_track_bag(calls)
+    monkeypatch.setattr(ab, "auto_track_bag", fake)
+    context, pose, out = _trial(tmp_path)
+    (out / "board_corners.json").write_text(json.dumps({"corners_px": corners, "reference_frame": RELEASE}))
+    promoted = _analyze(context, pose, out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert promoted["scale"]["phi_status"] == "measured"
+    assert manifest["spatial_calibration"]["plane"] == "board_throw_plane"
+
+    monkeypatch.setattr(pipeline, "_phi_status", lambda phi: {
+        "phi_status": "estimated", "phi_reason": "Throw line is 40° out of the image plane (> 30°)."})
+    held = _analyze(context, pose, out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert held["scale"]["phi_status"] == "estimated"
+    assert (manifest["spatial_calibration"] or {}).get("plane") != "board_throw_plane"
+    assert any("board scale is not used for release speed" in w and "out of the image plane" in w
+               for w in held["warnings"])
