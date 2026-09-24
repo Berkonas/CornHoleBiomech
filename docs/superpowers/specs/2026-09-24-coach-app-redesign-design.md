@@ -121,7 +121,8 @@ loads), `release_to_board_front_m` for this throw (from the chain/board engine) 
 
 1. **Physics check** (needs release speed, angle, height with status ≠ unreliable):
    distance `d` = this throw's measured release-to-board-front distance when available, else the
-   settings value (7.7 m) and the text says "assumed regulation distance". Drag-free first contact
+   athlete's median measured distance (≥ 3 measured throws, source "athlete_median"), else the
+   settings value (7.7 m, source "assumed"; the UI says "assumed regulation distance"). Drag-free first contact
    `x(v, θ, h)` with the board profile (zones.landing). Required speed `v*` = speed_to_hole(θ, h).
    Report landing class, signed distance to the hole centre along the board, `Δv = v − v*`, and the
    linear sensitivity `∂x/∂v`. If the scale is WARNING the numbers carry "≈".
@@ -129,10 +130,10 @@ loads), `release_to_board_front_m` for this throw (from the chain/board engine) 
    throws; flag when `|value − median| > max(noise_floor, 1.5 × IQR/1.349)` (≈ 1.5 robust SD).
    Direction words come from a per-metric table (e.g. elbow: "more extended" / "more bent").
 3. **Selection**: headline = physics result if available, else personal outliers, else "measured;
-   need more throws to compare". "To work on" = the release variable with the largest share of the
-   predicted landing error (|∂x/∂q · Δq|, Δq relative to the value that reaches the hole), plus at
-   most one body metric flagged by step 2 that the dashboard evidence chain links to that release
-   variable (or any flagged body metric, labelled "unusual for this athlete"). "Went well" = release
+   need more throws to compare". "To work on" = release speed when the speed error moves first
+   contact by more than 0.15 m (the landing error is shared by every release variable, so speed —
+   the most sensitive and most trainable — carries the physics cue), plus release angle/height and
+   at most two body metrics flagged by step 2, labelled "unusual for this athlete". "Went well" = release
    variables within the hole window or within the athlete's IQR. Data notes = WARNING/POOR grades.
 4. Output `insights.verdict = {headline, items:[{kind: good|fix|note, text, metric_key?}],
    physics:{distance_m, distance_source, landing, from_hole_m, required_speed_m_s, delta_speed_m_s,

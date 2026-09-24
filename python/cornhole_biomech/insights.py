@@ -1,5 +1,6 @@
 """Deterministic trial explanations, within-athlete repeatability and local reports."""
 from __future__ import annotations
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 import html
@@ -244,7 +245,7 @@ def generate_insights(project_path, trial_id, export_report=True):
     from .verdict import throw_verdict
     other_metrics=[read(d/'results.json',{}).get('coach_metrics') or {} for d in eligible_dirs if d!=directory]
     grades={k:v.get('grade') for k,v in (results.get('quality',{}).get('grades') or {}).items() if isinstance(v,dict)}
-    verdict=throw_verdict(results.get('coach_metrics') or {},other_metrics,grades,(results.get('summaries') or {}).get('release_to_board_front_m'),zone_settings)
+    verdict=throw_verdict(results.get('coach_metrics') or {},other_metrics,grades,(results.get('summaries') or {}).get('release_to_board_front_m'),replace(zone_settings,release_to_board_m=default_distance),athlete_median_m=float(np.median(measured)) if len(measured)>=3 else None)
     performance["summary"]["feedback"]["physics"]=physics_sentence(performance["zones"],rows)
     from .coaching import athlete_dashboard
     grade_rows,coach_rows=[],[]

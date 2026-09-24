@@ -46,19 +46,25 @@ def _usable(metrics: dict, key: str) -> float | None:
     return float(value)
 
 
-def physics_check(metrics: dict, release_to_board_m: float | None, settings: ZoneSettings) -> dict[str, Any] | None:
+def physics_check(metrics: dict, release_to_board_m: float | None, settings: ZoneSettings, athlete_median_m: float | None = None) -> dict[str, Any] | None:
     v, a, h = (_usable(metrics, k) for k in RELEASE)
     if v is None or a is None or h is None:
         return None
     measured = release_to_board_m is not None and np.isfinite(release_to_board_m) and release_to_board_m > 0
-    s = replace(settings, release_to_board_m=float(release_to_board_m)) if measured else settings
+    if measured:
+        distance, source = float(release_to_board_m), "measured"
+    elif athlete_median_m is not None and np.isfinite(athlete_median_m) and athlete_median_m > 0:
+        distance, source = float(athlete_median_m), "athlete_median"
+    else:
+        distance, source = settings.release_to_board_m, "assumed"
+    s = replace(settings, release_to_board_m=distance)
     hit = predicted_zone(v, a, h, s)
     need = speed_to_hole(a, h, s)
     dv = 0.05
     x_hi = landing(v + dv, a, h, s.release_to_board_m, s.board)["horizontal_m"]
     x_lo = landing(v - dv, a, h, s.release_to_board_m, s.board)["horizontal_m"]
     hole_x = s.release_to_board_m + s.board.hole_along * np.cos(s.board.angle)
-    return {"distance_m": s.release_to_board_m, "distance_source": "measured" if measured else "assumed",
+    return {"distance_m": s.release_to_board_m, "distance_source": source,
             "speed_m_s": v, "angle_deg": a, "height_m": h,
             "landing": hit["kind"], "zone": hit["zone"], "from_hole_m": hit["from_hole_m"],
             "landing_x_m": hit["horizontal_m"], "hole_x_m": float(hole_x),
@@ -89,9 +95,17 @@ def _fmt(value: float, unit: str) -> str:
     return f"{value:.{digits}f}{'' if unit == '°' else ' '}{unit}".strip()
 
 
+def _fmt_range(low: float, high: float, unit: str) -> str:
+    digits = 0 if unit in ("°", "ms", "°/s") else 2 if unit in ("m", "s") else 1
+    low_str = f"{low:.{digits}f}".replace("-", "−")
+    high_str = f"{high:.{digits}f}".replace("-", "−")
+    sep = " to " if (low < 0 or high < 0) else "–"
+    return f"{low_str}{sep}{high_str}{'' if unit == '°' else ' '}{unit}".strip()
+
+
 def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_board_m: float | None,
-                  settings: ZoneSettings) -> dict[str, Any]:
-    physics = physics_check(metrics, release_to_board_m, settings)
+                  settings: ZoneSettings, athlete_median_m: float | None = None) -> dict[str, Any]:
+    physics = physics_check(metrics, release_to_board_m, settings, athlete_median_m)
     flags = personal_flags(metrics, others)
     approx = "≈" if grades.get("calibration") != "GOOD" else ""
     items: list[dict[str, Any]] = []
@@ -126,8 +140,12 @@ def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_bo
         if not words:
             continue
         word = words[0] if flag["direction"] == "high" else words[1]
-        items.append({"kind": "fix" if physics is None or flag["key"] not in RELEASE else "note", "metric_key": flag["key"],
-                      "text": f"Unusual for this athlete: {word} ({_fmt(flag['value'], flag['unit'])}; usual {_fmt(flag['q25'], flag['unit'])}–{_fmt(flag['q75'], flag['unit'])})."})
+        if physics and flag["key"] == "bag_release_speed_m_s":
+            kind = "note"
+        else:
+            kind = "fix" if physics is None or flag["key"] not in RELEASE else "fix"
+        items.append({"kind": kind, "metric_key": flag["key"],
+                      "text": f"Unusual for this athlete: {word} ({_fmt(flag['value'], flag['unit'])}; usual {_fmt_range(flag['q25'], flag['q75'], flag['unit'])})."})
     steady = [k for k in ("elbow_angle_deg_at_release", "trunk_inclination_deg_at_release", "wrist_peak_speed_arm_lengths_s")
               if _usable(metrics, k) is not None and k not in {f["key"] for f in flags}
               and sum(_usable(o, k) is not None for o in others) >= MINIMUM_OTHERS]

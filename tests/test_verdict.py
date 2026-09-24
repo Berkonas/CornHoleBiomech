@@ -60,3 +60,34 @@ def test_fix_item_names_speed_when_speed_is_off():
     assert fixes and fixes[0]["metric_key"] == "bag_release_speed_m_s"
     assert any(i["kind"] == "note" for i in v["items"])      # WARNING grade becomes a data note
     assert "long" in v["headline"] or "past" in v["headline"]
+
+
+def test_physics_uses_athlete_median_when_throw_unmeasured():
+    settings = ZoneSettings()
+    p = physics_check(release(7.0), None, settings, athlete_median_m=6.2)
+    assert p["distance_source"] == "athlete_median" and p["distance_m"] == 6.2
+
+
+def test_physics_assumed_distance_both_none():
+    p = physics_check(release(8.0), None, ZoneSettings(), athlete_median_m=None)
+    assert p["distance_source"] == "assumed" and p["distance_m"] == 7.7
+
+
+def test_release_angle_flag_is_fix_when_physics_exists():
+    others = [{"bag_release_angle_deg": metric(v, noise=3.0)} for v in (38, 39, 40, 41, 40)]
+    others.extend([{"bag_release_angle_deg": metric(40.0)} for _ in range(1)])  # 6 total
+    v = throw_verdict(release(7.0, angle=55.0), others, {}, 6.0, ZoneSettings())
+    angle_items = [i for i in v["items"] if i["metric_key"] == "bag_release_angle_deg"]
+    assert angle_items and angle_items[0]["kind"] == "fix"
+
+
+def test_fmt_range_negative_degrees():
+    from cornhole_biomech.verdict import _fmt_range
+    s = _fmt_range(-99, -85, "°")
+    assert s == "−99 to −85°"
+
+
+def test_fmt_range_multi_word_unit():
+    from cornhole_biomech.verdict import _fmt_range
+    s = _fmt_range(1.3, 1.7, "back ÷ forward")
+    assert s == "1.3–1.7 back ÷ forward"
