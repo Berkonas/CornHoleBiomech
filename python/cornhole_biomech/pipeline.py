@@ -100,7 +100,8 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
     exists, otherwise this throw's own -- has status "measured"; without a usable camera.json,
     behaviour is exactly the per-throw calibration. `hfov_gravity_used` is true only when that
     chosen HFOV came from an actual gravity fit (this throw's own, or a session pooled from
-    other throws' gravity fits) rather than a nominal fallback.
+    other throws' gravity fits) rather than a nominal fallback. `hfov_iqr_deg`/`hfov_pool_n` carry the
+    pooled camera.json's IQR and throw count (None without one); chain.scale_relative_sd uses them.
     """
     from .board import calibrate_hfov_from_flight, solve_board
     empty = {"status": "unavailable", "pixels_per_meter": None,
@@ -108,6 +109,7 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
             "hfov_deg": None, "hfov_status": "unavailable", "hfov_reason": None,
             "hfov_source": None, "hfov_gravity_used": False,
             "per_throw_hfov_deg": None, "per_throw_hfov_status": None, "per_throw_hfov_deviation_deg": None,
+            "hfov_iqr_deg": None, "hfov_pool_n": None,
             "apparent_gravity_m_s2_at_nominal_hfov": None, "horizontal_acceleration_m_s2": None,
             "a_y_band_edges_m_s2": None, "phi_deg": None, "reason": None}
     board = (auto_flight or {}).get("board") or {}
@@ -174,6 +176,8 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
             "hfov_source": hfov_source, "hfov_gravity_used": gravity_used,
             "per_throw_hfov_deg": per_throw_hfov, "per_throw_hfov_status": per_throw_status,
             "per_throw_hfov_deviation_deg": deviation,
+            "hfov_iqr_deg": session.get("iqr_deg") if use_session else None,
+            "hfov_pool_n": session.get("n") if use_session else None,
             "apparent_gravity_m_s2_at_nominal_hfov": apparent_g_nominal,
             "horizontal_acceleration_m_s2": calib.get("horizontal_acceleration_m_s2"),
             "a_y_band_edges_m_s2": calib.get("a_y_band_edges_m_s2"),
@@ -372,6 +376,114 @@ def _metrics_metadata(summaries: dict[str, Any], camera_view: str) -> dict[str, 
             "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
         }
     return result
+
+
+def _throw_plane_joints(auto_flight: dict[str, Any] | None, board_scale: dict[str, Any], filtered: np.ndarray,
+                        landmarks: tuple[str, ...], side: str,
+                        camera_to_release: dict[str, Any] | None) -> tuple[dict[str, np.ndarray] | None, Any, str | None]:
+    """Throwing-side shoulder/elbow/wrist in the board's throw plane (metres; front edge x = 0, y above floor).
+
+    The board is solved at the field of view the metric scale actually used (`board_scale["hfov_deg"]`),
+    never silently at the nominal one. Landmarks are camera-steadied into the flight's release frame
+    (`camera_to_release`), which matches the board's pixels only when the board payload's
+    `reference_frame` is that same release frame; otherwise nothing is mapped. Returns
+    (joints or None, BoardModel or None, reason when None).
+    """
+    from .bag_filter import stabilize_points
+    from .board import solve_board
+    board = (auto_flight or {}).get("board") or {}
+    if board.get("status") != "found" or not board.get("corners_px"):
+        return None, None, "Board not located, so joints cannot be mapped into the throw plane."
+    hfov = board_scale.get("hfov_deg")
+    if hfov is None:
+        return None, None, f"No field of view for the board pose ({board_scale.get('reason') or 'scale unavailable'})."
+    if not camera_to_release:
+        return None, None, "No camera-steadying transforms to bring the pose into the board's frame."
+    reference, release = board.get("reference_frame"), auto_flight.get("release_frame")
+    if reference is None or reference != release:
+        return None, None, (f"The board is in frame {reference}'s pixels but the pose is steadied into the flight's "
+                            f"release frame {release}; joints are not mapped across frames.")
+    size = (int(auto_flight.get("width") or 1920), int(auto_flight.get("height") or 1080))
+    try:
+        model = solve_board(np.asarray(board["corners_px"], float), size, hfov_deg=float(hfov))
+    except ValueError:
+        return None, None, f"The board's pose could not be solved at {hfov:.1f}°."
+    joints: dict[str, np.ndarray] = {}
+    for joint in ("shoulder", "elbow", "wrist"):
+        steady = stabilize_points(filtered[:, landmarks.index(f"{side}_{joint}")], camera_to_release)
+        plane = np.full_like(steady, np.nan)
+        ok = np.isfinite(steady).all(axis=1)
+        if ok.any():
+            plane[ok] = model.to_plane(steady[ok])
+        joints[joint] = plane
+    return joints, model, None
+
+
+def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, Any], filtered: np.ndarray,
+                 landmarks: tuple[str, ...], side: str, camera_to_release: dict[str, Any] | None,
+                 angles: dict[str, np.ndarray], fps: float, forward_swing: int | None, release_frame: int,
+                 fit_points: np.ndarray, summaries: dict[str, Any],
+                 wrist_speed: list[float | None] | None) -> dict[str, Any]:
+    """Task 9: the per-throw body → release → flight → outcome chain (chain.py), wired to this throw's scale."""
+    from .board import MAX_PHI_DEG, solve_board
+    from .chain import LANDMARK_NOISE_PX, RELEASE_HEIGHT_SD_M, build_chain, scale_relative_sd
+    joints_m, model, joints_reason = _throw_plane_joints(auto_flight, board_scale, filtered, landmarks, side,
+                                                         camera_to_release)
+    scale_state = board_scale.get("status") or "unavailable"
+    scale_reason = board_scale.get("reason") or ("Board scale not measured." if scale_state != "measured" else None)
+    if model is not None and model.phi_deg > MAX_PHI_DEG:
+        scale_state = "estimated"
+        scale_reason = ((scale_reason + " ") if scale_reason else "") + (
+            f"Throw line is {model.phi_deg:.0f}° out of the image plane (> {MAX_PHI_DEG:.0f}°).")
+    notes: list[str] = []
+    to_front = plane_height = None
+    ppm = board_scale.get("pixels_per_meter")
+    release_px = None
+    if model is not None:
+        bag = np.asarray(fit_points[release_frame], float) if 0 <= release_frame < len(fit_points) else None
+        if bag is None or not np.isfinite(bag).all():
+            first = (auto_flight.get("stabilized_points") or [None])[0]
+            bag = None if first is None else np.array([first["x"], first["y"]], float)
+            if bag is not None:
+                notes.append("Bag not detected at the release frame; the flight's first detection gives the release "
+                             "point for distance and height.")
+        if bag is not None:
+            release_px = bag
+            x, y = model.to_plane(bag.reshape(1, 2))[0]
+            to_front, plane_height = float(-x), float(y)
+            notes.append("Release height and distance to the board are the bag centroid in the board's throw plane "
+                         "(board floor line).")
+    corners = np.asarray(((auto_flight or {}).get("board") or {}).get("corners_px") or np.zeros((0, 2)), float)
+    size = (int((auto_flight or {}).get("width") or 1920), int((auto_flight or {}).get("height") or 1080))
+
+    def ppm_at(hfov: float) -> float | None:
+        if release_px is None or corners.shape != (4, 2):
+            return None
+        try:
+            return solve_board(corners, size, hfov_deg=hfov).pixels_per_meter_at(release_px)
+        except ValueError:
+            return None
+
+    scale_rel_sd, scale_basis = scale_relative_sd(board_scale, ppm_at)
+    height = plane_height if plane_height is not None else summaries.get("bag_release_height_m")
+    if plane_height is None and height is not None:
+        notes.append("Release height is the foot-based estimate (flight.release_height), not the board plane.")
+    chain = build_chain(
+        angles=angles, fps=fps, forward_swing=forward_swing, release=release_frame, joints_m=joints_m,
+        joints_reason=joints_reason,
+        release_values={"speed": summaries.get("bag_release_speed_m_s"),
+                        "angle": summaries.get("bag_release_angle_deg"), "height": height},
+        release_se={"speed": summaries.get("bag_release_speed_se_m_s") or 0.0,
+                    "angle": summaries.get("bag_release_angle_se_deg") or 0.0, "height": RELEASE_HEIGHT_SD_M},
+        to_front_m=to_front, measured_along_error_m=summaries.get("landing_along_error_m"),
+        scale_rel_sd=scale_rel_sd, scale_state=scale_state, scale_reason=scale_reason, scale_basis=scale_basis,
+        wrist_speed=None if wrist_speed is None else np.array([np.nan if v is None else v for v in wrist_speed], float),
+        landmark_noise_m=LANDMARK_NOISE_PX / ppm if ppm else None)
+    chain["notes"].extend(notes)
+    chain["release_to_board_front_m"] = to_front
+    if joints_m is not None:
+        chain["joints_plane_m"] = {k: v.tolist() for k, v in joints_m.items()}
+    return chain
 
 
 def analyze_trial(
@@ -1023,6 +1135,22 @@ def analyze_trial(
     event_frames["peak_wrist_speed"] = timing.pop("peak_wrist_speed_frame")
     event_frames["peak_elbow_extension"] = timing.pop("peak_elbow_extension_frame")
     summaries.update(timing)
+    landing = auto_flight.get("landing") if (auto_flight and auto_accepted) else None
+    summaries["landing_along_error_m"] = (landing or {}).get("along_error_m") \
+        if landing and landing.get("state") == "measured" else None
+    summaries["board_phi_deg"] = board_scale.get("phi_deg")
+    chain = None
+    if release_frame is not None:
+        from .chain import flatten_for_summaries
+        chain = _throw_chain(
+            auto_flight=auto_flight if auto_accepted else None, board_scale=board_scale, filtered=filtered,
+            landmarks=landmarks, side=context.throwing_side, camera_to_release=camera_to_release,
+            angles={"arm_to_trunk_deg": kinematics.values["arm_to_trunk_deg"],
+                    "elbow_angle_deg": kinematics.values["elbow_angle_deg"]},
+            fps=video.fps, forward_swing=events["forward_swing"].effective_frame, release_frame=release_frame,
+            fit_points=fit_points, summaries=summaries, wrist_speed=wrist_speed_series)
+        summaries.update(flatten_for_summaries(chain))
+        summaries["release_to_board_front_m"] = chain["release_to_board_front_m"]
     # Release window: the first free-flight detection and the backward-flight/wrist
     # cue bracket the true release (the second is early by construction). A person's
     # release label collapses the window to one frame.
@@ -1136,10 +1264,7 @@ def analyze_trial(
             }
     results["scale"] = board_scale
     results["scale_check"] = scale_check
-    landing = auto_flight.get("landing") if (auto_flight and auto_accepted) else None
-    summaries["landing_along_error_m"] = (landing or {}).get("along_error_m") \
-        if landing and landing.get("state") == "measured" else None
-    summaries["board_phi_deg"] = board_scale.get("phi_deg")
+    results["chain"] = chain
     after_contact = (auto_flight or {}).get("after_contact") if auto_accepted else None
     flight["after_contact"] = None if after_contact is None else {
         k: v for k, v in after_contact.items() if k not in ("path", "background_frames")}
