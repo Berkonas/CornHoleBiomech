@@ -53,7 +53,7 @@ from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
 from .pose import analyze_pose, _version
 from .sports2d_adapter import Sports2DAdapter
-from .quality import quality_summary
+from .quality import UNCHECKED_RELEASE_ONSET, quality_summary
 from .serialization import canonical_hash, json_ready, write_json
 from .statistics import grouped_summary, relationship
 from .video import file_sha256, read_video_metadata
@@ -1209,6 +1209,9 @@ def analyze_trial(
         check = (auto_flight or {}).get("release_check") if auto_accepted else None
         if check and events["release"].manual_frame is None and check.get("frame") is not None:
             release_window = (min(int(check["frame"]), release_frame), release_frame)
+        onset = (auto_flight or {}).get("release_onset") if auto_accepted else None
+        if onset and events["release"].manual_frame is None and onset.get("status") in UNCHECKED_RELEASE_ONSET:
+            bag_warnings.append(f"Release onset not verified: {onset.get('reason')}")
     if not release_confirmed:
         bag_warnings.append("Release is an automatic candidate. Confirm visible separation before interpreting release measurements.")
         for key in summaries:
@@ -1245,7 +1248,8 @@ def analyze_trial(
     quality["grades"] = quality_grades(
         quality, flight_filter, gravity_scale, measured_scale is not None, release_confirmed_by,
         None if release_window is None else release_window[1] - release_window[0],
-        (projectile or {}).get("sample_count"), summaries.get("bag_release_angle_se_deg"))
+        (projectile or {}).get("sample_count"), summaries.get("bag_release_angle_se_deg"),
+        (auto_flight or {}).get("release_onset") if auto_accepted and events["release"].manual_frame is None else None)
     from .reliability import assess_metrics
     at_other_release: dict[str, float | None] = {}
     if release_window and release_window[0] != release_window[1]:

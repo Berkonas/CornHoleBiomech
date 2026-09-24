@@ -20,10 +20,18 @@ where the bag has visibly separated from the fingers, in a JSON file
 method − visual for each method (a range counts as 0 inside it, else the distance to its nearest
 end) and how many are within ±1 frame.
 
-    PYTHONPATH=python .venv/bin/python scripts/release_audit.py --analyses /tmp/regression \
-        --sheets /tmp/release-audit/sheets --visual visual.json --output audit.json
+Prerequisite: a scratch re-analysis of the library (never the library itself), e.g.
 
-Only reads the analysed folders and the source videos; never point `--analyses` at a library.
+    PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
+        --library "~/Documents/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
+
+then
+
+    PYTHONPATH=python .venv/bin/python scripts/release_audit.py --analyses /tmp/regression \
+        --sheets /tmp/release-audit/sheets --visual docs/release_audit_visual.json --output audit.json
+
+`docs/release_audit_visual.json` holds the Task 9b visual judgements for the 21 accepted pilot
+throws. Only reads the analysed folders and the source videos; never point `--analyses` at a library.
 """
 from __future__ import annotations
 
@@ -49,16 +57,22 @@ def _load(path: Path, default=None):
         return default
 
 
-def arm_points(directory: Path, side: str, frame_count: int) -> dict[str, np.ndarray]:
-    """Filtered shoulder/elbow/wrist pixels per frame from keypoints.csv (NaN where missing)."""
+def arm_points(directory: Path, side: str, frame_count: int | None = None) -> dict[str, np.ndarray]:
+    """Filtered shoulder/elbow/wrist pixels per frame from keypoints.csv (NaN where missing).
+
+    Without `frame_count` the arrays cover every frame that keypoints.csv lists.
+    """
     names = {f"{side}_{j}": j for j in ("shoulder", "elbow", "wrist")}
-    out = {j: np.full((frame_count, 2), np.nan) for j in names.values()}
     with open(directory / "keypoints.csv", newline="") as handle:
-        for row in csv.DictReader(handle):
-            joint = names.get(row["landmark"])
-            f = int(row["frame"])
-            if joint and f < frame_count and row["filtered_x_px"] not in ("", "nan"):
-                out[joint][f] = (float(row["filtered_x_px"]), float(row["filtered_y_px"]))
+        rows = list(csv.DictReader(handle))
+    if frame_count is None:
+        frame_count = 1 + max((int(r["frame"]) for r in rows), default=-1)
+    out = {j: np.full((frame_count, 2), np.nan) for j in names.values()}
+    for row in rows:
+        joint = names.get(row["landmark"])
+        f = int(row["frame"])
+        if joint and f < frame_count and row["filtered_x_px"] not in ("", "nan"):
+            out[joint][f] = (float(row["filtered_x_px"]), float(row["filtered_y_px"]))
     return out
 
 
@@ -67,7 +81,9 @@ def hand_point(arm: dict[str, np.ndarray]) -> tuple[np.ndarray, float]:
     upper = np.linalg.norm(arm["elbow"] - arm["shoulder"], axis=1)
     fore = np.linalg.norm(arm["wrist"] - arm["elbow"], axis=1)
     length = float(np.nanmedian(upper) + np.nanmedian(fore))
-    unit = (arm["wrist"] - arm["elbow"]) / fore[:, None]
+    # A zero-length (or missing) forearm has no direction: no hand point in that frame.
+    safe = np.where(np.isfinite(fore) & (fore > 1e-9), fore, np.nan)
+    unit = (arm["wrist"] - arm["elbow"]) / safe[:, None]
     return arm["wrist"] + HAND_OFFSET_ARM_LENGTHS * length * unit, length
 
 
@@ -173,12 +189,12 @@ def audit_throw(directory: Path, sheets: Path | None, visual, before: int = BEFO
     context = (_load(directory / "manifest.json", {}) or {}).get("trial_context") or {}
     fps = float(auto["fps"])
     release = int(auto["release_frame"])
-    count = int(auto.get("frames_processed") or release + AFTER + 1)
-    arm = arm_points(directory, context["throwing_side"], count)
+    arm = arm_points(directory, context["throwing_side"], auto.get("frames_processed"))
+    count = len(arm["wrist"])
     hand, arm_px = hand_point(arm)
     bag_at = backward_flight(auto["points"], fps)
     check = (auto.get("release_check") or {}).get("frame")
-    match, angle_rows = angle_match_frame(results, release)
+    match, angle_rows = angle_match_frame(results, release, before)
     first_fit = int(auto["fit"]["first_frame"])
 
     def distance(f):
@@ -188,7 +204,7 @@ def audit_throw(directory: Path, sheets: Path | None, visual, before: int = BEFO
         d = float(np.hypot(bx - hand[f][0], by - hand[f][1]))
         return {"px": round(d, 1), "arm_lengths": round(d / arm_px, 3)}
     lo_visual = None if visual is None else (visual if isinstance(visual, (int, float)) else visual[0])
-    per_frame = {f: distance(f) for f in range(release - BEFORE, release + AFTER + 1)}
+    per_frame = {f: distance(f) for f in range(release - before, release + after + 1)}
     row = {
         "throw": directory.name, "fps": fps, "arm_px": round(arm_px, 1),
         "release": release, "release_check": check, "angle_match": match, "fit_first_frame": first_fit,

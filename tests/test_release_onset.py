@@ -7,6 +7,7 @@ and were accepted as flight. The in-hand gate (IN_HAND_ARM_LENGTHS of the wrist)
 while extending the flight backwards, never to the flight's own first points.
 """
 import numpy as np
+import pytest
 
 import cornhole_biomech.auto_bag as ab
 from cornhole_biomech.auto_bag import IN_HAND_ARM_LENGTHS, MIN_INLIERS, held_at_start
@@ -35,29 +36,45 @@ def _scenario(k_in_hand=3, n=30):
     return points, wrist
 
 
-def test_leading_points_still_in_the_hand_are_counted():
+def test_leading_points_still_in_the_hand_are_counted_status_applied():
     points, wrist = _scenario(k_in_hand=3)
-    assert held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM) == 3
+    onset = held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM)
+    assert onset == {"held": 3, "status": "applied"}
     assert points[3]["frame"] == TRUE_RELEASE
 
 
-def test_no_point_is_dropped_when_the_flight_starts_beyond_the_hand():
+def test_status_no_in_hand_points_when_the_flight_starts_beyond_the_hand():
     points, wrist = _scenario(k_in_hand=0)
-    assert held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM) == 0
+    assert held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM) == {"held": 0, "status": "no_in_hand_points"}
 
 
-def test_points_without_a_wrist_are_never_dropped():
+def test_status_no_wrist_when_the_check_cannot_run():
     points, wrist = _scenario(k_in_hand=3)
-    wrist[:] = np.nan
-    assert held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM) == 0
-    assert held_at_start(points, None, IN_HAND_ARM_LENGTHS * ARM) == 0
-    assert held_at_start(points, _scenario(3)[1], None) == 0
+    missing = wrist.copy()
+    missing[:] = np.nan
+    for w, radius in ((missing, IN_HAND_ARM_LENGTHS * ARM), (None, IN_HAND_ARM_LENGTHS * ARM), (wrist, None)):
+        assert held_at_start(points, w, radius) == {"held": 0, "status": "no_wrist"}
+    # The wrist disappears after one held frame: the second frame cannot be decided.
+    gap = wrist.copy()
+    gap[TRUE_RELEASE - 2] = np.nan
+    assert held_at_start(points, gap, IN_HAND_ARM_LENGTHS * ARM) == {"held": 1, "status": "no_wrist"}
 
 
-def test_a_flight_is_never_trimmed_below_the_minimum_inliers():
+def test_status_capped_when_trimming_would_leave_too_few_detections():
     points, wrist = _scenario(k_in_hand=3, n=MIN_INLIERS + 1)   # dropping all 3 held would leave too few
-    dropped = held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM)
-    assert len(points) - dropped >= MIN_INLIERS
+    onset = held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM)
+    assert onset["status"] == "capped_min_inliers"
+    assert len(points) - onset["held"] >= MIN_INLIERS
+
+
+def test_keep_guard_counts_detections_not_reacquired_frames():
+    # Frames TRUE_RELEASE and +1 were re-acquired by the segmentation, not detected: they do not
+    # count toward the MIN_INLIERS kept (the fit's `inliers` counts detections only).
+    points, wrist = _scenario(k_in_hand=3, n=MIN_INLIERS + 4)
+    detections = [p["frame"] for p in points if not TRUE_RELEASE <= p["frame"] < TRUE_RELEASE + 2]
+    onset = held_at_start(points, wrist, IN_HAND_ARM_LENGTHS * ARM, detection_frames=detections)
+    assert onset["status"] == "capped_min_inliers"
+    assert sum(1 for f in detections if f > points[onset["held"] - 1]["frame"]) >= MIN_INLIERS
 
 
 def _track_with_flight(monkeypatch, points, wrist, reacquired=()):
@@ -98,7 +115,10 @@ def test_auto_track_reports_release_where_the_bag_leaves_the_hand(monkeypatch):
     assert out["board"]["reference_frame"] == TRUE_RELEASE
     assert set(out["camera_to_release"]) == {str(f) for f in range(120)}
     onset = out["release_onset"]
-    assert onset["method"] == "first_flight_point_beyond_hand"
+    assert onset["method"] == "first_flight_point_beyond_hand" and onset["status"] == "applied"
+    assert out["fit"]["refit_after_release_onset"] is True
+    assert out["fit"]["vertical_acceleration_px_s2"] == pytest.approx(1800.0, rel=1e-6)   # the arc, refitted
+    assert out["fit"]["rms_residual_px"] < 1e-6
     assert onset["held_frames"] == [TRUE_RELEASE - 3, TRUE_RELEASE - 2, TRUE_RELEASE - 1]
     assert onset["first_detection_frame"] == TRUE_RELEASE - 3
 
@@ -109,6 +129,29 @@ def test_auto_track_keeps_a_flight_that_already_starts_beyond_the_hand(monkeypat
     assert out["release_frame"] == TRUE_RELEASE
     assert out["fit"]["inliers"] == len(points)
     assert out["release_onset"]["held_frames"] == []
+    assert out["release_onset"]["status"] == "no_in_hand_points"
+    assert "refit_after_release_onset" not in out["fit"]
+
+
+def test_auto_track_without_a_wrist_says_the_check_did_not_run(monkeypatch):
+    points, _ = _scenario(k_in_hand=3)
+    out = _track_with_flight(monkeypatch, points, None)
+    assert out["release_frame"] == TRUE_RELEASE - 3
+    assert out["release_onset"]["status"] == "no_wrist" and "could not be checked" in out["release_onset"]["reason"]
+
+
+def test_release_grade_is_at_most_warning_when_the_onset_was_not_checked():
+    from cornhole_biomech.quality import quality_grades
+    pose = {"usable_frame_percentage": 95.0, "release_visibility": 1.0}
+    for status, expected in (("applied", "GOOD"), ("no_in_hand_points", "GOOD"),
+                             ("no_wrist", "WARNING"), ("capped_min_inliers", "WARNING")):
+        g = quality_grades(pose, None, None, False, "automatic_physics", 3, 8, 1.0,
+                           {"status": status, "reason": "r"})["release"]
+        assert g["grade"] == expected and g["release_onset_status"] == status
+        assert g["reason"] == ("r" if expected == "WARNING" else None)
+    # A person's release label is not affected.
+    assert quality_grades(pose, None, None, False, "manual", None, None, None,
+                          {"status": "no_wrist", "reason": "r"})["release"]["grade"] == "GOOD"
 
 
 def test_release_can_be_a_frame_the_segmentation_reacquired(monkeypatch):

@@ -11,6 +11,8 @@ import numpy as np
 # separation, and the cue-to-release window was 1–4 frames (4 on five throws). The old ≤ 3 rule
 # graded those five correct releases WARNING.
 RELEASE_WINDOW_GOOD_FRAMES = 4
+# In-hand check outcomes (auto_bag.held_at_start) that leave an automatic release unverified.
+UNCHECKED_RELEASE_ONSET = ("no_wrist", "capped_min_inliers")
 
 
 def quality_summary(
@@ -102,8 +104,9 @@ GRADE_RULES = {
                    "(results stay in pixels / arm lengths).",
     "release": "GOOD: release confirmed by a person, or found automatically with the two release cues (first "
                "free-flight frame; backward flight meets the wrist) within 4 frames (67 ms at 60 fps), ≥6 launch-fit "
-               "samples and launch-angle SE ≤ 3°. WARNING: automatic release with a window of 5–6 frames or failing "
-               "a fit check. POOR: no confirmed release, or cues more than 6 frames apart.",
+               "samples and launch-angle SE ≤ 3°. WARNING: automatic release with a window of 5–6 frames, failing "
+               "a fit check, or whose in-hand check could not run (no wrist) or was capped by the minimum "
+               "detection count. POOR: no confirmed release, or cues more than 6 frames apart.",
 }
 
 
@@ -114,8 +117,14 @@ def _grade(good: bool, warning: bool) -> str:
 def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None,
                    gravity_scale: dict[str, Any] | None, measured_scale: bool,
                    release_confirmed_by: str | None, release_window_frames: int | None,
-                   launch_sample_count: int | None, launch_angle_se_deg: float | None) -> dict[str, Any]:
-    """GOOD / WARNING / POOR per measurement stage, each with the numbers that decided it."""
+                   launch_sample_count: int | None, launch_angle_se_deg: float | None,
+                   release_onset: dict[str, Any] | None = None) -> dict[str, Any]:
+    """GOOD / WARNING / POOR per measurement stage, each with the numbers that decided it.
+
+    `release_onset` is auto_flight.json's in-hand check (auto_bag.held_at_start). An automatic
+    release whose check could not run ("no_wrist") or was stopped by the minimum-inlier guard
+    ("capped_min_inliers") is at most WARNING: it may still include frames with the bag in the hand.
+    """
     grades: dict[str, Any] = {"rules": GRADE_RULES}
 
     usable = quality.get("usable_frame_percentage") or 0.0
@@ -156,7 +165,14 @@ def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None
                          else "GOOD" if all(checks) else "WARNING")
     else:
         release_grade = "POOR"
+    onset_status = (release_onset or {}).get("status")
+    onset_reason = None
+    if release_confirmed_by == "automatic_physics" and onset_status in UNCHECKED_RELEASE_ONSET:
+        onset_reason = (release_onset or {}).get("reason")
+        if release_grade == "GOOD":
+            release_grade = "WARNING"
     grades["release"] = {"grade": release_grade, "confirmed_by": release_confirmed_by,
                          "release_window_frames": release_window_frames,
-                         "launch_fit_samples": launch_sample_count, "launch_angle_se_deg": launch_angle_se_deg}
+                         "launch_fit_samples": launch_sample_count, "launch_angle_se_deg": launch_angle_se_deg,
+                         "release_onset_status": onset_status, "reason": onset_reason}
     return grades

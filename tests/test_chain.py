@@ -447,3 +447,21 @@ def test_throw_chain_takes_the_release_scale_from_a_gravity_calibration():
     chain, _ = _scene_chain(calibration=file_cal)
     assert chain["release_scale"]["state"] == "measured"
     assert "known_length" in chain["release_scale"]["basis"]
+
+
+def test_a_maximum_at_the_edge_of_the_search_window_is_not_a_peak():
+    # Task 9b: after the release correction two pilot elbows "peaked" at exactly release + 0.1 s,
+    # the end of the search window. An elbow still extending faster at the window's end has no
+    # peak inside it; nor does a wrist speed that keeps rising.
+    n, release = 140, 90
+    shoulder = 40 * np.tanh((np.arange(n) - 60) / 8.0)                  # interior peak at 60
+    elbow = 150 + 0.02 * (np.arange(n) - 40.0) ** 2                     # extension rate rises monotonically
+    wrist_speed = np.arange(n, dtype=float)                             # speed rises monotonically
+    out = body_chain({"arm_to_trunk_deg": shoulder, "elbow_angle_deg": elbow}, FPS, 40, release,
+                     wrist_speed=wrist_speed)
+    for key in ("elbow_peak_extension_velocity_deg_s", "elbow_peak_time_rel_release_ms",
+                "wrist_peak_speed_time_rel_release_ms"):
+        assert out[key]["state"] == "unavailable"
+        assert "peak at the edge of the search window" in out[key]["reason"]
+    assert out["shoulder_peak_time_rel_release_ms"]["state"] == "measured"
+    assert out["peak_sequence"]["state"] == "unavailable"               # an edge maximum never enters the order

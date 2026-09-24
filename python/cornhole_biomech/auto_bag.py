@@ -38,8 +38,9 @@ from .bag import GRAVITY_M_S2, _robust_polynomial
 from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
+from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v12_release_beyond_hand"
+AUTO_BAG_REVISION = "auto_motion_parabola_v12b_release_onset_status"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -576,39 +577,79 @@ def _stabilized_residual(points: list[Candidate], to_prev: list[np.ndarray], fps
     return np.hypot(xs - px, ys - py)
 
 
+RELEASE_ONSET_REASONS = {
+    "applied": "Leading flight frames with the bag centre still within {r:.2f} arm lengths of the wrist were "
+               "in the hand; release is the first frame beyond it.",
+    "no_in_hand_points": "The flight's first bag centre is already beyond {r:.2f} arm lengths of the wrist.",
+    "no_wrist": "The throwing wrist is missing at the start of the flight, so whether the bag was still in the "
+                "hand could not be checked; release is the first flight frame as detected.",
+    "capped_min_inliers": "The bag centre was still within {r:.2f} arm lengths of the wrist when trimming more "
+                          "frames would leave fewer than {keep} detections; release may be early.",
+}
+
+
 def held_at_start(points: list[dict[str, Any]], wrist: np.ndarray | None, in_hand_px: float | None,
-                  keep: int = MIN_INLIERS) -> int:
-    """How many leading flight points are still in the hand (bag centre within `in_hand_px` of the wrist).
+                  keep: int = MIN_INLIERS, detection_frames: Sequence[int] | None = None) -> dict[str, Any]:
+    """Leading flight points still in the hand (bag centre within `in_hand_px` of the wrist).
 
     The bag's last frames in the hand lie on nearly the same arc as its free flight, so the
     flight fit can accept them; the in-hand gate in `_extend` only stops the backward
     extension. Release onset audit (Task 9b, 21 pilot throws judged frame by frame): the
     first bag centroid beyond 0.45 arm lengths of the wrist was within ±1 frame of the visible
     separation on 21/21 throws (the previous first-flight frame: 16/21, early by 2–3 frames
-    on 5). Points without a wrist stop the count, and at least `keep` points always remain.
+    on 5).
+
+    Returns {"held": n, "status": ..., "reason": ...}; status is "applied" (n > 0, stopped at a
+    point beyond the hand), "no_in_hand_points" (the first point is beyond the hand), "no_wrist"
+    (no wrist where the check stopped, so it could not decide) or "capped_min_inliers" (still in
+    the hand, but dropping it would leave fewer than `keep` of `detection_frames`, which default
+    to the points' own frames; this is the same count as the fit's `inliers`).
     """
-    if wrist is None or not in_hand_px:
-        return 0
-    held = 0
-    for p in points[:max(0, len(points) - keep)]:
-        f = int(p["frame"])
-        if f >= len(wrist) or not np.isfinite(wrist[f]).all():
-            break
-        if np.hypot(p["x"] - wrist[f][0], p["y"] - wrist[f][1]) >= in_hand_px:
-            break
-        held += 1
-    return held
+    detections = sorted(int(f) for f in (detection_frames if detection_frames is not None
+                                         else [p["frame"] for p in points]))
+    held, status = 0, "no_wrist"
+    if wrist is not None and in_hand_px:
+        for p in points:
+            f = int(p["frame"])
+            if f >= len(wrist) or not np.isfinite(wrist[f]).all():
+                status = "no_wrist"
+                break
+            if np.hypot(p["x"] - wrist[f][0], p["y"] - wrist[f][1]) >= in_hand_px:
+                status = "applied" if held else "no_in_hand_points"
+                break
+            if sum(1 for d in detections if d > f) < keep:
+                status = "capped_min_inliers"
+                break
+            held += 1
+        else:
+            status = "capped_min_inliers"
+    return {"held": held, "status": status}
 
 
-def _start_after_hand(chosen: dict[str, Any], release: int, fps: float) -> dict[str, Any]:
-    """The flight from frame `release` on (earlier points were still in the hand); fit bookkeeping updated.
+def _start_after_hand(chosen: dict[str, Any], release: int, fps: float,
+                      to_prev: list[np.ndarray] | None = None) -> dict[str, Any]:
+    """The flight from frame `release` on (earlier points were still in the hand), refitted.
 
     `release` may be a frame the segmentation re-acquired between detections, so it can
-    precede the first remaining detection.
+    precede the first remaining detection. The parabola, its accelerations and the RMS residual
+    (camera motion removed when `to_prev` is given, as in `find_flight`) are refitted on the
+    remaining detections.
     """
     points = [p for p in chosen["points"] if p["frame"] >= release]
     last = points[-1]["frame"]
+    f_ref = chosen["fit"]["reference_frame"]
+    t = np.array([(p["frame"] - f_ref) / fps for p in points])
+    coef_x, _, _ = _robust_polynomial(t, np.array([p["x"] for p in points]), 2)
+    coef_y, _, _ = _robust_polynomial(t, np.array([p["y"] for p in points]), 2)
+    if to_prev is not None:
+        residual = _stabilized_residual([Candidate(p["frame"], p["x"], p["y"], 0.0) for p in points], to_prev, fps)
+    else:
+        px, py = _predict(coef_x, coef_y, t)
+        residual = np.hypot(np.array([p["x"] for p in points]) - px, np.array([p["y"] for p in points]) - py)
     fit = {**chosen["fit"], "first_frame": release, "inliers": len(points),
+           "coef_x": list(map(float, coef_x)), "coef_y": list(map(float, coef_y)),
+           "vertical_acceleration_px_s2": float(2 * coef_y[2]), "horizontal_acceleration_px_s2": float(2 * coef_x[2]),
+           "rms_residual_px": float(np.sqrt(np.mean(residual ** 2))), "refit_after_release_onset": True,
            "span_seconds": (last - release) / fps,
            "coverage": len(points) / (last - release + 1),
            "early_points": [{"frame": p["frame"], "x": p["x"], "y": p["y"]} for p in points[:8]]}
@@ -912,10 +953,11 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     # Every refined frame counts, including gaps the segmentation re-acquired between detections.
     centres = [{"frame": f, "x": refined[f]["x"], "y": refined[f]["y"]} for f in sorted(refined)]
     in_hand_px = IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None
-    held = held_at_start(centres, wrist, in_hand_px)
+    onset = held_at_start(centres, wrist, in_hand_px, detection_frames=[p["frame"] for p in chosen["points"]])
+    held = onset["held"]
     held_frames = [c["frame"] for c in centres[:held]]
     if held:
-        chosen = _start_after_hand(chosen, centres[held]["frame"], fps)
+        chosen = _start_after_hand(chosen, centres[held]["frame"], fps, to_prev)
         refined = {f: r for f, r in refined.items() if f >= chosen["fit"]["first_frame"]}
     fit = chosen["fit"]
     release, contact = int(fit["first_frame"]), int(fit["last_frame"])
@@ -948,7 +990,8 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         if cue_frame is not None:
             release_check = {"method": "backward_flight_meets_wrist", "frame": int(cue_frame),
                              "wrist_distance_px": cue_distance, "difference_frames": int(release - cue_frame),
-                             "agrees_within_2_frames": abs(release - cue_frame) <= 2}
+                             "agrees_within_frames": RELEASE_WINDOW_GOOD_FRAMES,
+                             "agrees": abs(release - cue_frame) <= RELEASE_WINDOW_GOOD_FRAMES}
     motion = camera_motion_px(to_prev, release, contact, (raw[0].x, raw[0].y))
     wrist_gap = None
     if wrist is not None and release < len(wrist) and np.isfinite(wrist[release]).all():
@@ -1009,9 +1052,11 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         "camera_to_release": camera_to_release,
         "after_contact": after_contact,
         "release_check": release_check,
-        "release_onset": {"method": "first_flight_point_beyond_hand", "first_detection_frame": first_detection,
-                          "held_frames": held_frames, "in_hand_px": in_hand_px,
-                          "in_hand_arm_lengths": IN_HAND_ARM_LENGTHS},
+        "release_onset": {"method": "first_flight_point_beyond_hand", "status": onset["status"],
+                          "reason": RELEASE_ONSET_REASONS[onset["status"]].format(r=IN_HAND_ARM_LENGTHS,
+                                                                                 keep=MIN_INLIERS),
+                          "first_detection_frame": first_detection, "held_frames": held_frames,
+                          "in_hand_px": in_hand_px, "in_hand_arm_lengths": IN_HAND_ARM_LENGTHS},
         "typical_bag_area_px": typical_area,
         "runtime_seconds": time.perf_counter() - started,
         "frames_processed": len(frames),

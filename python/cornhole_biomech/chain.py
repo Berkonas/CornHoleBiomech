@@ -183,11 +183,28 @@ def _window(forward_swing: int | None, release: int, fps: float) -> tuple[int, s
     return forward_swing, "Window starts at the forward-swing event."
 
 
-def _peak(series: np.ndarray, start: int, stop: int) -> int | None:
-    seg = np.asarray(series, float)[max(0, start):min(len(series), stop + 1)]
+EDGE_PEAK_REASON = "peak at the edge of the search window"
+
+
+def _peak_or_edge(series: np.ndarray, start: int, stop: int) -> tuple[int | None, bool]:
+    """(frame of the maximum in [start, stop], whether it sits on the window's first or last sample).
+
+    A maximum on a window boundary is not a peak: the series was still rising (or had been
+    falling from before the window), so the real peak lies outside the search range.
+    """
+    lo, hi = max(0, start), min(len(series), stop + 1)
+    seg = np.asarray(series, float)[lo:hi]
     if seg.size == 0 or not np.isfinite(seg).any():
-        return None
-    return max(0, start) + int(np.nanargmax(seg))
+        return None, False
+    finite = np.flatnonzero(np.isfinite(seg))
+    i = int(np.nanargmax(seg))
+    return lo + i, i in (int(finite[0]), int(finite[-1]))
+
+
+def _peak(series: np.ndarray, start: int, stop: int) -> int | None:
+    """Interior maximum in [start, stop]; None when there is none or it lies on a window edge."""
+    frame, edge = _peak_or_edge(series, start, stop)
+    return None if edge else frame
 
 
 # ---------------------------------------------------------------------------------------------- body
@@ -219,25 +236,30 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
                        if at is not None else _missing("°", f"{label} at release", "Landmark missing at release."))
         velocity = derivative(series, fps)
         if name == "shoulder":
-            p = _peak(np.abs(velocity), start, stop)
+            p, edge = _peak_or_edge(np.abs(velocity), start, stop)
             formula = "max |dθ/dt| of the filtered shoulder angle"
         else:
-            p = _peak(velocity, start, stop)
+            p, edge = _peak_or_edge(velocity, start, stop)
             formula = "max dθ/dt of the filtered elbow angle (positive = extending)"
             if p is not None and velocity[p] <= 0:
-                p = None
-        if p is None:
-            out[v_key] = _missing("°/s", formula, f"No {name} angular-velocity peak in the swing window.")
-            out[t_key] = _missing("ms", "t_peak − t_release", f"No {name} peak.")
+                p, edge = None, False
+        if p is None or edge:
+            why = (f"{name.capitalize()} angular velocity: {EDGE_PEAK_REASON} ({ms(p):+.0f} ms from release)."
+                   if edge else f"No {name} angular-velocity peak in the swing window.")
+            out[v_key] = _missing("°/s", formula, why)
+            out[t_key] = _missing("ms", "t_peak − t_release", why if edge else f"No {name} peak.")
             continue
         peaks[name] = p
         out[v_key] = quantity(float(abs(velocity[p])), "°/s", "measured", formula, assumptions=[window_note])
         out[t_key] = quantity(ms(p), "ms", "measured", "t_peak − t_release (negative = before release)",
                               assumptions=[window_note])
-    p_wrist = None if wrist_speed is None else _peak(np.asarray(wrist_speed, float), start, stop)
-    if p_wrist is None:
+    p_wrist, wrist_edge = ((None, False) if wrist_speed is None
+                           else _peak_or_edge(np.asarray(wrist_speed, float), start, stop))
+    if p_wrist is None or wrist_edge:
         out["wrist_peak_speed_time_rel_release_ms"] = _missing(
-            "ms", "t(max |v_wrist|) − t_release", "Wrist speed not available in the swing window.")
+            "ms", "t(max |v_wrist|) − t_release",
+            f"Wrist speed: {EDGE_PEAK_REASON} ({ms(p_wrist):+.0f} ms from release)." if wrist_edge
+            else "Wrist speed not available in the swing window.")
     else:
         peaks["wrist"] = p_wrist
         out["wrist_peak_speed_time_rel_release_ms"] = quantity(
@@ -257,7 +279,8 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
                           for a, b, fa, fb in zip(chain, chain[1:], frames, frames[1:])}
         out["peak_sequence"] = seq
     else:
-        out["peak_sequence"] = _missing("", "peak order", "Shoulder and elbow peaks are both needed.")
+        out["peak_sequence"] = _missing("", "peak order", "Shoulder and elbow peaks are both needed (a maximum on "
+                                                          "the edge of the search window is not a peak).")
     return _with_inputs(out)
 
 

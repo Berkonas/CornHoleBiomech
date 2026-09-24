@@ -41,10 +41,16 @@ def _analysis_axes(v: np.ndarray, target_direction: str) -> np.ndarray:
 
 
 def _peak(values: np.ndarray, start: int, stop: int) -> int | None:
+    """Interior maximum in [start, stop]. A maximum on the window's first or last finite sample
+    is not a peak (the real one lies outside the search range), so None is returned."""
     segment = values[max(0, start):min(len(values), stop + 1)]
     if not segment.size or not np.isfinite(segment).any():
         return None
-    return int(max(0, start) + np.nanargmax(segment))
+    finite = np.flatnonzero(np.isfinite(segment))
+    i = int(np.nanargmax(segment))
+    if i in (int(finite[0]), int(finite[-1])):
+        return None
+    return int(max(0, start) + i)
 
 
 def release_timing_metrics(wrist_px: np.ndarray, elbow_angle_deg: np.ndarray, fps: float,

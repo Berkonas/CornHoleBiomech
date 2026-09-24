@@ -36,6 +36,18 @@ def test_timing_peak_speed_at_bottom_and_direction():
     assert out["elbow_peak_extension_velocity_deg_s"] is None     # a constant elbow never extends
 
 
+def test_timing_ignores_a_maximum_at_the_window_edge():
+    # Monotonically rising wrist speed and elbow extension rate: the maxima sit on the last frame
+    # of the search window (release + 0.1 s), which is not a peak.
+    n = 120
+    wrist = np.column_stack([500 + 0.05 * np.arange(n) ** 2, np.full(n, 400.0)])
+    elbow = 120 + 0.01 * np.arange(n) ** 2
+    out = release_timing_metrics(wrist, elbow, FPS, {"release": 80, "peak_backswing": 20}, 100.0, "left_to_right")
+    assert out["peak_wrist_speed_frame"] is None and out["wrist_peak_speed_time_rel_release_ms"] is None
+    assert out["peak_elbow_extension_frame"] is None and out["elbow_peak_extension_time_rel_release_ms"] is None
+    assert out["wrist_speed_at_release_arm_lengths_s"] is not None
+
+
 def _pose(n=60, foreshorten_at=None):
     landmarks = ("right_shoulder", "right_elbow", "right_wrist", "left_shoulder", "left_hip", "right_hip")
     raw = np.zeros((n, len(landmarks), 2))
