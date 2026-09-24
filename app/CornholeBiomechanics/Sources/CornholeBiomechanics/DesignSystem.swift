@@ -1,0 +1,268 @@
+import SwiftUI
+
+// Visual system (spec §7). Data inks `scoredInk`, `missInk`, `measuredInk`, `athleteInk` and
+// `modelInk` are defined next to the views that introduced them and reused everywhere.
+
+/// Spacing scale: 4 / 8 / 12 / 16 / 24 / 32.
+enum Space {
+    static let xs: CGFloat = 4, s: CGFloat = 8, m: CGFloat = 12, l: CGFloat = 16, xl: CGFloat = 24, xxl: CGFloat = 32
+}
+
+enum Radius { static let card: CGFloat = 12 }
+
+// MARK: - Page and card
+
+/// One scrolling detail page: 24 pt margins, 24 pt between cards, readable max width 1120.
+struct Page<Content: View>: View {
+    private let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.xl) { content }
+                .frame(maxWidth: 1120, alignment: .leading)
+                .padding(Space.xl)
+                .frame(maxWidth: .infinity)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+struct CardHeader: View {
+    let title: String
+    var symbol: String? = nil
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Group {
+                if let symbol { Label(title, systemImage: symbol) } else { Text(title) }
+            }
+            .font(.title2.weight(.semibold))
+            if let subtitle { Text(subtitle).font(.callout).foregroundStyle(.secondary) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Grouped content on a raised surface: padding 16, corner radius 12, optional header.
+struct Card<Content: View>: View {
+    private let title: String?
+    private let symbol: String?
+    private let subtitle: String?
+    private let content: Content
+
+    init(_ title: String? = nil, symbol: String? = nil, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title; self.symbol = symbol; self.subtitle = subtitle; self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.m) {
+            if let title { CardHeader(title: title, symbol: symbol, subtitle: subtitle) }
+            content
+        }
+        .padding(Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(0.6)))
+    }
+}
+
+// MARK: - Range bar
+
+/// Where one value sits among an athlete's history: dots, interquartile band, target band, current mark.
+struct RangeBarModel {
+    let values: [Double]
+    let current: Double?
+    let target: ClosedRange<Double>?
+
+    /// Everything that must be visible (values, current, target), padded 10 % of the span each side.
+    var domain: ClosedRange<Double> {
+        var points = values.filter(\.isFinite)
+        if let current, current.isFinite { points.append(current) }
+        if let target { points += [target.lowerBound, target.upperBound] }
+        guard var lo = points.min(), var hi = points.max() else { return 0...1 }
+        let minimumSpan = 1e-6 * max(abs(lo), abs(hi)) + 1e-3
+        if hi - lo < minimumSpan {
+            let mid = (lo + hi) / 2
+            lo = mid - minimumSpan / 2; hi = mid + minimumSpan / 2
+        }
+        let pad = 0.1 * (hi - lo)
+        return (lo - pad)...(hi + pad)
+    }
+
+    /// First and third quartile by linear interpolation (NumPy's default); nil below three values.
+    var quartiles: (Double, Double)? {
+        let sorted = values.filter(\.isFinite).sorted()
+        guard sorted.count >= 3 else { return nil }
+        func percentile(_ p: Double) -> Double {
+            let position = p * Double(sorted.count - 1)
+            let lower = Int(position.rounded(.down)), upper = min(lower + 1, sorted.count - 1)
+            return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - Double(lower))
+        }
+        return (percentile(0.25), percentile(0.75))
+    }
+}
+
+struct RangeBar: View {
+    let model: RangeBarModel
+    init(model: RangeBarModel) { self.model = model }
+
+    var body: some View {
+        Canvas { context, size in
+            let domain = model.domain
+            let span = domain.upperBound - domain.lowerBound
+            func x(_ value: Double) -> CGFloat { CGFloat((value - domain.lowerBound) / span) * size.width }
+            let mid = size.height / 2
+            context.fill(Path(roundedRect: CGRect(x: 0, y: mid - 1.5, width: size.width, height: 3), cornerRadius: 1.5),
+                         with: .color(.secondary.opacity(0.18)))
+            if let target = model.target {
+                let rect = CGRect(x: x(target.lowerBound), y: 2, width: max(x(target.upperBound) - x(target.lowerBound), 2), height: size.height - 4)
+                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.18)))
+                context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.55)), lineWidth: 1)
+            }
+            if let (q1, q3) = model.quartiles {
+                let rect = CGRect(x: x(q1), y: mid - 4, width: max(x(q3) - x(q1), 3), height: 8)
+                context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(athleteInk.opacity(0.35)))
+            }
+            for value in model.values where value.isFinite {
+                context.fill(Path(ellipseIn: CGRect(x: x(value) - 2, y: mid - 2, width: 4, height: 4)), with: .color(.secondary.opacity(0.7)))
+            }
+            if let current = model.current, current.isFinite {
+                let marker = CGRect(x: x(current) - 2, y: 1, width: 4, height: size.height - 2)
+                context.fill(Path(roundedRect: marker, cornerRadius: 2), with: .color(.primary))
+            }
+        }
+        .frame(height: 22)
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        var parts: [String] = []
+        if let current = model.current { parts.append("This throw \(number(current, digits: 2))") }
+        if let (q1, q3) = model.quartiles { parts.append("usual range \(number(q1, digits: 2)) to \(number(q3, digits: 2))") }
+        if let target = model.target { parts.append("target \(number(target.lowerBound, digits: 2)) to \(number(target.upperBound, digits: 2))") }
+        parts.append("\(model.values.count) throws")
+        return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Metric tile
+
+/// Headline label, monospaced value with unit, reliability glyph, and the value against the athlete's history.
+struct MetricTile: View {
+    let row: CoachMetricRow
+    let history: [Double]
+    var target: ClosedRange<Double>? = nil
+    var seek: ((Int) -> Void)? = nil
+
+    init(row: CoachMetricRow, history: [Double], target: ClosedRange<Double>? = nil, seek: ((Int) -> Void)? = nil) {
+        self.row = row; self.history = history; self.target = target; self.seek = seek
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(row.label).font(.headline).lineLimit(2)
+                Spacer(minLength: Space.xs)
+                ReliabilityGlyph(status: row.status).help(row.statusText)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                Text(row.value.map { number($0, digits: digits) } ?? "—").font(.title.monospacedDigit())
+                if row.value != nil, !row.unit.isEmpty { Text(row.unit).font(.callout).foregroundStyle(.secondary) }
+            }
+            if !history.isEmpty || target != nil {
+                RangeBar(model: RangeBarModel(values: history, current: row.value, target: target))
+            }
+            HStack {
+                if let (q1, q3) = RangeBarModel(values: history, current: nil, target: nil).quartiles {
+                    Text("Usual \(number(q1, digits: digits))–\(number(q3, digits: digits))").monospacedDigit()
+                } else if row.value == nil {
+                    Text(row.statusText)
+                }
+                Spacer()
+                if let seek, let frame = row.frame {
+                    Button("Show in video", systemImage: "play.circle") { seek(frame) }
+                        .buttonStyle(.link).labelStyle(.titleAndIcon)
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(0.6)))
+        .help(row.definition)
+    }
+
+    private var digits: Int {
+        guard let value = row.value else { return 1 }
+        return abs(value) >= 100 ? 0 : abs(value) >= 10 || row.unit == "°" ? 0 : abs(value) >= 1 ? 1 : 2
+    }
+}
+
+/// Reliability status always carries a glyph as well as a colour.
+struct ReliabilityGlyph: View {
+    let status: String
+    var body: some View {
+        let (symbol, color): (String, Color) = switch status {
+        case "reliable": ("checkmark.circle.fill", .green)
+        case "caution": ("exclamationmark.triangle.fill", .orange)
+        case "unreliable": ("xmark.octagon.fill", .red)
+        default: ("minus.circle", .secondary)
+        }
+        Image(systemName: symbol).foregroundStyle(color).accessibilityLabel(status.isEmpty ? "Not measured" : status.capitalized)
+    }
+}
+
+// MARK: - Result badge
+
+/// Observed result of a throw: Hole / Board / Miss, or an em dash when not recorded.
+struct ResultBadge: View {
+    let score: ScoreCategory?
+    init(score: ScoreCategory?) { self.score = score }
+
+    var body: some View {
+        let (text, symbol, color): (String, String, Color) = switch score {
+        case .throughHole: ("Hole", "circle.inset.filled", scoredInk)
+        case .onBoard: ("Board", "square.fill", scoredInk)
+        case .offBoard: ("Miss", "xmark", missInk)
+        case nil: ("—", "", Color.secondary)
+        }
+        HStack(spacing: 3) {
+            if !symbol.isEmpty { Image(systemName: symbol).imageScale(.small) }
+            Text(text)
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 7).padding(.vertical, 2)
+        .foregroundStyle(color)
+        .background(color.opacity(score == nil ? 0.08 : 0.15), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(score == nil ? "No result recorded" : "Result: \(text)")
+    }
+}
+
+// MARK: - Empty state
+
+struct EmptyState: View {
+    let title: String
+    let symbol: String
+    let message: String
+    let action: (label: String, run: () -> Void)?
+
+    init(_ title: String, symbol: String, message: String, action: (label: String, run: () -> Void)? = nil) {
+        self.title = title; self.symbol = symbol; self.message = message; self.action = action
+    }
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: symbol)
+        } description: {
+            Text(message)
+        } actions: {
+            if let action { Button(action.label, action: action.run).buttonStyle(.borderedProminent) }
+        }
+    }
+}
