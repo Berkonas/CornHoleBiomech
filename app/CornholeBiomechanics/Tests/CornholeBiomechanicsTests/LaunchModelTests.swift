@@ -121,4 +121,47 @@ final class LaunchModelTests: XCTestCase {
         let farShort = LaunchModel.Landing(kind: .shortOfBoard, time: 1, horizontal: 7.399)
         XCTAssertEqual(LaunchModel.zone(for: farShort, distance: 7.7, board: b), .off)
     }
+
+    // MARK: - Success map and scene geometry
+
+    func testSuccessMapMatchesModelZoneInEveryCell() {
+        for (height, distance) in [(0.8, 7.7), (0.5, 5.0), (1.3, 9.0), (0.25, 7.7)] {
+            let grid = SuccessMapGrid.compute(height: height, distance: distance)
+            XCTAssertEqual(grid.runs.count, SuccessMapGrid.columns)
+            var mismatches = 0
+            for column in 0..<SuccessMapGrid.columns {
+                for row in 0..<SuccessMapGrid.rows {
+                    let p = LaunchParameters(speed: SuccessMapGrid.speed(row: row), angleDegrees: SuccessMapGrid.angle(column: column),
+                                             releaseHeight: height, distanceToBoard: distance)
+                    if grid.zone(column: column, row: row) != LaunchModel(p).zone() { mismatches += 1 }
+                }
+            }
+            XCTAssertEqual(mismatches, 0, "h \(height) D \(distance)")
+        }
+    }
+
+    func testSuccessMapGridIs120By160HalfDegreeByFiveCentimetreCells() {
+        XCTAssertEqual(SuccessMapGrid.columns, 120)
+        XCTAssertEqual(SuccessMapGrid.rows, 160)
+        XCTAssertEqual(SuccessMapGrid.angle(column: 0), 10.25, accuracy: 1e-12)
+        XCTAssertEqual(SuccessMapGrid.speed(row: 159), 10.975, accuracy: 1e-12)
+    }
+
+    func testThrowerHandIsAtReleasePointAtRelease() {
+        for (h, angle) in [(0.8, 35.0), (0.3, 10.0), (1.8, 60.0), (0.2, 0.0), (1.1, -5.0)] {
+            let p = LaunchParameters(speed: 6, angleDegrees: angle, releaseHeight: h, distanceToBoard: 7.7)
+            let pose = ThrowerPose.at(p, time: ThrowTimeline.swing)
+            XCTAssertEqual(pose.hand.x, 0, accuracy: 1e-9, "h \(h) angle \(angle)")
+            XCTAssertEqual(pose.hand.y, h, accuracy: 1e-9, "h \(h) angle \(angle)")
+            // Segments keep their lengths (the elbow joint closes the arm).
+            XCTAssertEqual(hypot(pose.elbow.x - pose.shoulder.x, pose.elbow.y - pose.shoulder.y), ThrowerPose.upperArm, accuracy: 1e-6)
+            XCTAssertEqual(hypot(pose.hand.x - pose.elbow.x, pose.hand.y - pose.elbow.y), ThrowerPose.forearm, accuracy: 1e-6)
+            XCTAssertEqual(pose.frontAnkle.y, ThrowerPose.ankleHeight, accuracy: 1e-12)
+        }
+    }
+
+    func testTimelineIsFlightPlusSixTenths() {
+        let p = LaunchParameters(speed: 7, angleDegrees: 35, releaseHeight: 0.9, distanceToBoard: 7.7)
+        XCTAssertEqual(ThrowTimeline.total(p), LaunchModel(p).landing().time + 0.6, accuracy: 1e-12)
+    }
 }
