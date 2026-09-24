@@ -1296,6 +1296,17 @@ def analyze_trial(
         "event_frames": event_frames,
         "wrist_speed_arm_lengths_s": wrist_speed_series,
     }
+    if release_frame is not None:
+        # Same forward-swing guard chain.py uses: a forward-swing event more than 1 s before
+        # release, or missing, falls back to a 0.6 s window before release (chain._window).
+        from .chain import _window as _chain_forward_swing_window
+        swing_start, _ = _chain_forward_swing_window(events["forward_swing"].effective_frame, release_frame, video.fps)
+        if release_frame - swing_start > 2:
+            grid = np.linspace(swing_start, release_frame, 101)
+            frames_idx = np.arange(len(kinematics.values["elbow_angle_deg"]))
+            results["swing_curve_deg"] = np.column_stack([
+                np.interp(grid, frames_idx, kinematics.values["arm_to_trunk_deg"]),
+                np.interp(grid, frames_idx, kinematics.values["elbow_angle_deg"])]).tolist()
     if auto_flight:
         results["board"] = auto_flight.get("board")
         results["scene"] = auto_flight.get("scene")
@@ -1523,6 +1534,7 @@ def analyze_relationships(
         if comparison is not None:
             comparison_by_trial[comparison["test_trial_id"]] = comparison
     rows: list[dict[str, Any]] = []
+    curves: list[np.ndarray] = []
     normalized_by_trial: dict[str, dict[str, Any]] = {}
     athlete_ids: set[str] = set()
     for directory in analysis_dirs:
@@ -1559,6 +1571,9 @@ def analyze_relationships(
         spatial = outcome.get("spatial_error") or {}
         row["radial_error_inches"] = spatial.get("radial_error_inches")
         rows.append(row)
+        swing_curve = result.get("swing_curve_deg")
+        if swing_curve:
+            curves.append(np.asarray(swing_curve, float))
         normalized = _load_json(Path(directory) / "normalized.json", None)
         if normalized is not None:
             normalized_by_trial[result["trial_id"]] = normalized
@@ -1661,5 +1676,7 @@ def analyze_relationships(
         "data_rows": rows,
         "claim_scope": "within_athlete_observational_association_not_causation",
     }
+    from .chain_analysis import summarize as chain_summarize
+    result["chain_analysis"] = chain_summarize(rows, curves)
     write_json(output_path, result)
     return result
