@@ -135,15 +135,14 @@ def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_bo
         headline = f"Measured. {MINIMUM_OTHERS - len(others)} more analysed throw{'s' if MINIMUM_OTHERS - len(others) != 1 else ''} are needed to compare it with this athlete's usual pattern."
     else:
         headline = "Every reliable measurement was within this athlete's usual range."
-    for flag in flags[:2]:
+    release_flags = [f for f in flags if f["key"] in RELEASE]
+    body_flags = [f for f in flags if f["key"] not in RELEASE]
+    for flag in release_flags + body_flags[:2]:
         words = BODY_WORDS.get(flag["key"])
         if not words:
             continue
         word = words[0] if flag["direction"] == "high" else words[1]
-        if physics and flag["key"] == "bag_release_speed_m_s":
-            kind = "note"
-        else:
-            kind = "fix" if physics is None or flag["key"] not in RELEASE else "fix"
+        kind = "note" if physics and flag["key"] == "bag_release_speed_m_s" else "fix"
         items.append({"kind": kind, "metric_key": flag["key"],
                       "text": f"Unusual for this athlete: {word} ({_fmt(flag['value'], flag['unit'])}; usual {_fmt_range(flag['q25'], flag['q75'], flag['unit'])})."})
     steady = [k for k in ("elbow_angle_deg_at_release", "trunk_inclination_deg_at_release", "wrist_peak_speed_arm_lengths_s")

@@ -91,3 +91,21 @@ def test_fmt_range_multi_word_unit():
     from cornhole_biomech.verdict import _fmt_range
     s = _fmt_range(1.3, 1.7, "back ÷ forward")
     assert s == "1.3–1.7 back ÷ forward"
+
+
+def test_release_speed_flag_is_note_when_physics_exists():
+    others = [{"bag_release_speed_m_s": metric(v, noise=0.15)} for v in (7.0, 7.2, 7.1, 7.3, 7.0)]
+    others.extend([{"bag_release_speed_m_s": metric(7.1)} for _ in range(1)])  # 6 total
+    v = throw_verdict(release(8.5), others, {}, 6.0, ZoneSettings())
+    speed_items = [i for i in v["items"] if i["metric_key"] == "bag_release_speed_m_s" and "Unusual for this athlete" in i["text"]]
+    assert speed_items and speed_items[0]["kind"] == "note"
+
+
+def test_release_angle_not_dropped_by_body_flags():
+    others = [{"bag_release_angle_deg": metric(v, noise=3.0)} for v in (38, 39, 40, 41, 40, 39)]
+    others.extend([{"elbow_angle_deg_at_release": metric(v, noise=10.0)} for v in (145, 150, 148, 152, 150, 149)])
+    others.extend([{"trunk_inclination_deg_at_release": metric(v, noise=5.0)} for v in (25, 26, 27, 28, 26, 27)])
+    others.extend([{"wrist_peak_speed_arm_lengths_s": metric(v, noise=0.5)} for v in (3.2, 3.3, 3.1, 3.4, 3.2, 3.3)])
+    v = throw_verdict(release(7.0, angle=55.0, height=1.2), others, {}, 6.0, ZoneSettings())
+    angle_items = [i for i in v["items"] if i["metric_key"] == "bag_release_angle_deg"]
+    assert angle_items and angle_items[0]["kind"] == "fix", "Angle flag should be present with kind fix"
