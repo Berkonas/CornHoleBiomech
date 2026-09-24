@@ -180,6 +180,15 @@ def parser() -> argparse.ArgumentParser:
     corners.add_argument("--apply-to", nargs="*", default=[],
         help="Other trials' analysis output folders shot from the same camera position")
     corners.set_defaults(handler=handle_set_board_corners)
+
+    session = commands.add_parser("calibrate-session",
+        help="Pool a recording session's per-throw board field-of-view calibrations into one "
+             "camera.json, written into every listed throw's analysis folder")
+    session.add_argument("--analyses", nargs="+", required=True,
+        help="Every throw's analysis output folder shot from the same camera setup (has manifest.json "
+             "and results.json)")
+    session.add_argument("--session-key", help="Label for this session; defaults to a hash of the folder paths")
+    session.set_defaults(handler=handle_calibrate_session)
     return root
 
 
@@ -525,6 +534,32 @@ def handle_set_board_corners(args: argparse.Namespace) -> dict[str, Any]:
                   {"corners_px": moved.tolist(), "source": f"transferred:{source.name}"})
         applied.append(other)
     return {"written": str(source / "board_corners.json"), "applied": applied, "failed": failed}
+
+
+def handle_calibrate_session(args: argparse.Namespace) -> dict[str, Any]:
+    """Pool every listed throw's own gravity-calibrated board HFOV (`results.json["scale"]`'s
+    `per_throw_hfov_deg`/`per_throw_hfov_status`, written by `analyze`) into one session estimate
+    (`board.pool_session_hfov`), and write it as `camera.json` into every listed folder. Analyzing
+    (or reanalyzing) those throws afterward prefers this pooled field of view over each throw's own
+    noisy single-flight one (`pipeline._board_scale`).
+    """
+    from .board import pool_session_hfov
+    dirs = [Path(d) for d in args.analyses]
+    calibrations = []
+    for directory in dirs:
+        manifest = load_json(str(directory / "manifest.json"), {})
+        results = load_json(str(directory / "results.json"), {})
+        scale = results.get("scale") or {}
+        trial_id = (manifest.get("trial_context") or {}).get("trial_id") or directory.name
+        calibrations.append({"trial_id": trial_id, "hfov_deg": scale.get("per_throw_hfov_deg"),
+                             "status": scale.get("per_throw_hfov_status")})
+    pooled = pool_session_hfov(calibrations)
+    from .serialization import canonical_hash
+    session_key = args.session_key or canonical_hash(sorted(str(d.resolve()) for d in dirs))
+    camera = {**pooled, "session_key": session_key}
+    for directory in dirs:
+        write_json(directory / "camera.json", camera)
+    return camera
 
 
 def main(argv: list[str] | None = None) -> int:

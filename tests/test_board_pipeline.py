@@ -77,9 +77,11 @@ def test_board_scale_measured_from_an_accepted_flight():
     assert out["status"] == "measured"
     assert out["hfov_deg"] == pytest.approx(62.0, abs=1.0)
     assert out["pixels_per_meter"] is not None and out["pixels_per_meter"] > 0
-    assert len(out["pixels_per_meter_band"]) == 2
-    assert out["pixels_per_meter_band"][0] <= out["pixels_per_meter_band"][1]
+    assert out["pixels_per_meter_at_55_deg"] is not None and out["pixels_per_meter_at_75_deg"] is not None
     assert out["apparent_gravity_m_s2_at_nominal_hfov"] is not None
+    assert out["hfov_gravity_used"] is True
+    assert out["per_throw_hfov_deg"] == pytest.approx(out["hfov_deg"])
+    assert out["per_throw_hfov_deviation_deg"] is None
     assert out["phi_deg"] is not None and 0.0 <= out["phi_deg"] < 20.0
 
 

@@ -102,6 +102,66 @@ def test_calibrate_hfov_from_flight_estimated_with_too_few_points():
     result = calibrate_hfov_from_flight(corners, (W, H), [[900.0, 500.0], [905.0, 502.0]], [0, 1], 60.0, B)
     assert result["status"] == "estimated" and result["hfov_deg"] == NOMINAL_HFOV_DEG
     assert "nominal" in result["reason"]
+    assert result["gravity_fit_used"] is False
+
+
+def _known_hfov_flight(true_hfov: float = 60.0, phi_deg: float = 6.0):
+    rvec, tvec = side_pose(phi_deg=phi_deg)
+    corners = order_corners(project_board(rvec, tvec, hfov=true_hfov), "left_to_right")
+    K = camera_matrix(W, H, true_hfov)
+    fps = 60.0
+    n = 20
+    t = np.arange(n) / fps
+    obj = np.stack([0.5 + 3.0 * t, 1.3 + 1.0 * t - 0.5 * 9.80665 * t * t, np.zeros(n)], axis=1)
+    points_px = cv2.projectPoints(obj, rvec, tvec, K, None)[0].reshape(-1, 2)
+    return corners, points_px, np.arange(n), fps
+
+
+def test_calibrate_hfov_from_flight_reports_gravity_used_and_labeled_band():
+    corners, points_px, frames, fps = _known_hfov_flight()
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, fps, B)
+    assert result["status"] == "measured"
+    assert result["gravity_fit_used"] is True
+    assert result["pixels_per_meter_at_55_deg"] is not None
+    assert result["pixels_per_meter_at_75_deg"] is not None
+    assert result["pixels_per_meter_at_55_deg"] != result["pixels_per_meter_at_75_deg"]
+    assert "pixels_per_meter_band" not in result
+
+
+def test_calibrate_hfov_from_flight_skips_a_hfov_where_pnp_fails(monkeypatch):
+    """A PnP failure at some HFOVs (a degenerate pose for that assumed focal length) must not
+    raise; the search works around it using the HFOVs that do solve."""
+    corners, points_px, frames, fps = _known_hfov_flight(true_hfov=60.0)
+    import cornhole_biomech.board as board_module
+    real_solve_board = board_module.solve_board
+
+    def flaky_solve_board(corners_px, image_size, board=Board(), hfov_deg=NOMINAL_HFOV_DEG):
+        if 58.0 <= hfov_deg <= 62.0:       # brackets the true HFOV: exercises mid-bisection failures too
+            raise ValueError("synthetic PnP failure")
+        return real_solve_board(corners_px, image_size, board, hfov_deg=hfov_deg)
+
+    monkeypatch.setattr(board_module, "solve_board", flaky_solve_board)
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, fps, B)
+    assert result["hfov_deg"] is not None and result["pixels_per_meter"] is not None
+    assert not (58.0 <= result["hfov_deg"] <= 62.0)
+
+
+def test_calibrate_hfov_from_flight_falls_back_when_almost_no_hfov_solves(monkeypatch):
+    corners, points_px, frames, fps = _known_hfov_flight(true_hfov=60.0)
+    import cornhole_biomech.board as board_module
+    real_solve_board = board_module.solve_board
+
+    def mostly_broken_solve_board(corners_px, image_size, board=Board(), hfov_deg=NOMINAL_HFOV_DEG):
+        if hfov_deg != NOMINAL_HFOV_DEG:
+            raise ValueError("synthetic PnP failure")
+        return real_solve_board(corners_px, image_size, board, hfov_deg=hfov_deg)
+
+    monkeypatch.setattr(board_module, "solve_board", mostly_broken_solve_board)
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, fps, B)
+    assert result["status"] == "estimated"
+    assert result["hfov_deg"] == NOMINAL_HFOV_DEG
+    assert result["gravity_fit_used"] is False
+    assert result["pixels_per_meter"] is not None
 
 
 def test_detect_board_on_rendered_plate():

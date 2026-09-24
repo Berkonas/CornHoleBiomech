@@ -20,6 +20,11 @@ from .regulation import INCH_M, Board
 
 NOMINAL_HFOV_DEG = 65.0
 HFOV_RANGE_DEG = (55.0, 75.0)
+MIN_VALID_HFOV_SAMPLES = 3          # fewer PnP-solvable field-of-view grid points cannot bracket a root
+MIN_SESSION_THROWS = 3              # fewer measured per-throw HFOVs cannot pool a "measured" session estimate
+MAX_SESSION_IQR_DEG = 6.0           # wider per-throw HFOV spread cannot pool a "measured" session estimate
+MAX_SESSION_DEVIATION_DEG = 8.0     # a member farther than this from the session median is reported as an outlier
+SESSION_HFOV_SOURCE = "session_median_gravity_fov"
 MAX_PHI_DEG = 20.0
 MIN_DECK_AREA_FRACTION = 0.0015     # red deck + dark rim, of the image; a lone bag is ~0.0002
 MIN_RED_AREA_FRACTION = 0.0004      # red part alone (pilot decks: 0.0006–0.0012; white stripe covers the rest)
@@ -147,6 +152,15 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     closer edge is used with status "estimated" and a reason (`a_y_band_edges_m_s2` reports both
     ends). Fewer than `min_points` flight points cannot be fit at all; the nominal HFOV is used,
     status "estimated".
+
+    `solve_board`'s PnP can fail at some HFOVs even when it succeeds at others (a degenerate pose
+    for that particular assumed focal length); every candidate HFOV is solved defensively, a
+    failure just drops that one grid point or bisection step, and fewer than
+    `MIN_VALID_HFOV_SAMPLES` solvable points in the whole band falls back to the nominal HFOV
+    (status "estimated") rather than raising. `gravity_fit_used` in the result is true only when
+    the returned HFOV came from comparing the flight's own acceleration against gravity (the
+    "measured" case and the real "never crosses -g" edge case); it is false for every nominal
+    fallback (too few flight points, too few solvable HFOVs, or a non-finite fit).
     """
     from .bag import GRAVITY_M_S2
     lo, hi = hfov_range
@@ -154,73 +168,98 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     fr = np.asarray(frames, float)
     release_px = (float(pts[0, 0]), float(pts[0, 1])) if len(pts) else None
 
-    def solve_at(hfov: float) -> BoardModel:
-        return solve_board(corners_px, image_size, board, hfov_deg=hfov)
-
-    def ppm_band() -> list[float] | None:
-        if release_px is None:
+    def try_solve(hfov: float) -> BoardModel | None:
+        try:
+            return solve_board(corners_px, image_size, board, hfov_deg=hfov)
+        except ValueError:
             return None
-        values = [solve_at(h).pixels_per_meter_at(release_px) for h in (lo, hi)]
-        return sorted(values) if all(math.isfinite(v) for v in values) else None
 
-    def package(hfov: float, status: str, reason: str | None,
-               a_y_band_edges: list[float] | None, horizontal: float | None) -> dict[str, Any]:
-        model = solve_at(hfov)
-        ppm = model.pixels_per_meter_at(release_px) if release_px is not None else None
+    def ppm_labeled() -> dict[str, float | None]:
+        out: dict[str, float | None] = {}
+        for h, key in ((lo, "pixels_per_meter_at_55_deg"), (hi, "pixels_per_meter_at_75_deg")):
+            model = try_solve(h) if release_px is not None else None
+            value = model.pixels_per_meter_at(release_px) if model is not None else None
+            out[key] = float(value) if value is not None and math.isfinite(value) else None
+        return out
+
+    def package(hfov: float, status: str, reason: str | None, a_y_band_edges: list[float] | None,
+               horizontal: float | None, gravity_fit_used: bool) -> dict[str, Any]:
+        model = try_solve(hfov)
+        if model is None:
+            # The chosen HFOV itself cannot be solved: report it unmeasurable rather than raising.
+            status, gravity_fit_used = "estimated", False
+            solve_failure = f"The board's pose could not be solved at {hfov:.1f}°."
+            reason = f"{solve_failure} {reason}" if reason else solve_failure
+        ppm = model.pixels_per_meter_at(release_px) if model is not None and release_px is not None else None
         if ppm is not None and not math.isfinite(ppm):
             ppm = None
-        return {"status": status, "hfov_deg": float(hfov), "phi_deg": model.phi_deg,
-                "pixels_per_meter": ppm, "pixels_per_meter_band": ppm_band(),
+        return {"status": status, "hfov_deg": float(hfov), "phi_deg": model.phi_deg if model is not None else None,
+                "pixels_per_meter": ppm, **ppm_labeled(),
                 "a_y_band_edges_m_s2": a_y_band_edges, "horizontal_acceleration_m_s2": horizontal,
-                "reason": reason, "model": model}
+                "reason": reason, "gravity_fit_used": gravity_fit_used, "model": model}
 
     if len(pts) < min_points or len(pts) != len(fr):
         return package(NOMINAL_HFOV_DEG, "estimated",
                        f"Only {len(pts)} flight point(s); {min_points} are needed to calibrate the field of "
-                       f"view from gravity. Using the nominal {NOMINAL_HFOV_DEG:.0f}°.", None, None)
+                       f"view from gravity. Using the nominal {NOMINAL_HFOV_DEG:.0f}°.", None, None, False)
 
     t = (fr - fr[0]) / fps
     target = -GRAVITY_M_S2
 
-    def vertical_accel(hfov: float) -> float:
-        xy = solve_at(hfov).to_plane(pts)
+    def vertical_accel(hfov: float) -> float | None:
+        model = try_solve(hfov)
+        if model is None:
+            return None
+        xy = model.to_plane(pts)
         return float(2 * np.polyfit(t, xy[:, 1], 2)[0])
 
-    def horizontal_accel(hfov: float) -> float:
-        xy = solve_at(hfov).to_plane(pts)
+    def horizontal_accel(hfov: float) -> float | None:
+        model = try_solve(hfov)
+        if model is None:
+            return None
+        xy = model.to_plane(pts)
         return float(2 * np.polyfit(t, xy[:, 0], 2)[0])
 
     steps = max(2, int(round((hi - lo) / grid_deg)))
     grid = np.linspace(lo, hi, steps + 1)
-    accel = [vertical_accel(h) for h in grid]
-    a_y_band_edges = [accel[0], accel[-1]]
-    diffs = [a - target for a in accel]
+    scanned = [(float(h), vertical_accel(float(h))) for h in grid]
+    valid = [(h, a) for h, a in scanned if a is not None]
+    if len(valid) < MIN_VALID_HFOV_SAMPLES:
+        return package(NOMINAL_HFOV_DEG, "estimated",
+                       f"The board's pose could only be solved at {len(valid)} of {len(scanned)} field-of-view "
+                       f"values tried in the {lo:.0f}-{hi:.0f}° band ({MIN_VALID_HFOV_SAMPLES} are needed to "
+                       f"calibrate from gravity). Using the nominal {NOMINAL_HFOV_DEG:.0f}°.", None, None, False)
+    a_y_band_edges = [valid[0][1], valid[-1][1]]
+    diffs = [a - target for _, a in valid]
     bracket = None
-    for i in range(len(grid) - 1):
+    fa = None
+    for i in range(len(valid) - 1):
         if diffs[i] == 0:
-            bracket = (float(grid[i]), float(grid[i]))
+            bracket, fa = (valid[i][0], valid[i][0]), diffs[i]
             break
         if (diffs[i] > 0) != (diffs[i + 1] > 0):
-            bracket = (float(grid[i]), float(grid[i + 1]))
+            bracket, fa = (valid[i][0], valid[i + 1][0]), diffs[i]
             break
     if bracket is None:
-        hfov = lo if abs(diffs[0]) <= abs(diffs[-1]) else hi
-        reason = (f"The flight's vertical acceleration ({accel[0]:.2f} to {accel[-1]:.2f} m/s^2 across the "
+        hfov = valid[0][0] if abs(diffs[0]) <= abs(diffs[-1]) else valid[-1][0]
+        reason = (f"The flight's vertical acceleration ({valid[0][1]:.2f} to {valid[-1][1]:.2f} m/s^2 across the "
                  f"band) never matches gravity ({-target:.2f} m/s^2) in the {lo:.0f}-{hi:.0f}° HFOV band; "
-                 f"using the {'lower' if hfov == lo else 'upper'} edge. The scale is flagged.")
+                 f"using the {'lower' if hfov == valid[0][0] else 'upper'} edge. The scale is flagged.")
         horiz = horizontal_accel(hfov)
-        if not (math.isfinite(hfov) and math.isfinite(horiz)):
+        if horiz is None or not (math.isfinite(hfov) and math.isfinite(horiz)):
             return package(NOMINAL_HFOV_DEG, "estimated",
                            "The gravity fit did not converge to a finite result; using the nominal "
-                           f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None)
-        return package(hfov, "estimated", reason, a_y_band_edges, horiz)
+                           f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None, False)
+        return package(hfov, "estimated", reason, a_y_band_edges, horiz, True)
     a, b = bracket
-    fa = vertical_accel(a) - target
     for _ in range(40):
         if b - a < 1e-4:
             break
         mid = 0.5 * (a + b)
-        fm = vertical_accel(mid) - target
+        fm = vertical_accel(mid)
+        if fm is None:
+            continue          # a degenerate pose at this exact midpoint; try elsewhere in the bracket
+        fm -= target
         if fm == 0:
             a = b = mid
             break
@@ -230,11 +269,53 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
             b = mid
     hfov = 0.5 * (a + b)
     horiz = horizontal_accel(hfov)
-    if not (math.isfinite(hfov) and math.isfinite(horiz)):
+    if horiz is None or not (math.isfinite(hfov) and math.isfinite(horiz)):
         return package(NOMINAL_HFOV_DEG, "estimated",
                        "The gravity fit did not converge to a finite result; using the nominal "
-                       f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None)
-    return package(hfov, "measured", None, a_y_band_edges, horiz)
+                       f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None, False)
+    return package(hfov, "measured", None, a_y_band_edges, horiz, True)
+
+
+def pool_session_hfov(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pool one recording session's per-throw gravity HFOV calibrations into one session estimate.
+
+    A single throw's ~0.4 s free flight gives a noisy vertical-acceleration fit, so its
+    gravity-calibrated HFOV (`calibrate_hfov_from_flight`) can vary by ten-plus degrees between
+    throws filmed on the same phone from the same spot in one sitting; the true camera HFOV does
+    not change throw to throw. Pooling the session's own measured (gravity-fit) per-throw HFOVs
+    with a median removes most of that per-throw noise from every throw's metric scale.
+
+    `calibrations` is a list of `{"trial_id": ..., "hfov_deg": ..., "status": ...}` (or superset
+    dicts, e.g. a throw's persisted `results.json["scale"]` fields); only items with
+    `status == "measured"` count. Status "measured" requires at least `MIN_SESSION_THROWS`
+    measured throws whose HFOVs' IQR is at most `MAX_SESSION_IQR_DEG`; otherwise "estimated" with
+    a reason. No measured throw at all gives "unavailable".
+    """
+    measured = [c for c in calibrations if c.get("status") == "measured" and c.get("hfov_deg") is not None]
+    n = len(measured)
+    if n == 0:
+        return {"hfov_deg": None, "status": "unavailable", "n": 0, "iqr_deg": None, "spread_deg": None,
+                "members": [], "outliers": [],
+                "reason": "No throw in this session had a field of view measured from gravity.",
+                "source": SESSION_HFOV_SOURCE}
+    values = np.array([float(c["hfov_deg"]) for c in measured], float)
+    members = [c.get("trial_id") for c in measured]
+    median = float(np.median(values))
+    spread = float(values.max() - values.min())
+    iqr = float(np.percentile(values, 75) - np.percentile(values, 25)) if n >= 2 else None
+    outliers = [tid for tid, v in zip(members, values) if abs(v - median) > MAX_SESSION_DEVIATION_DEG]
+    base = {"hfov_deg": median, "n": n, "iqr_deg": iqr, "spread_deg": spread,
+            "members": members, "outliers": outliers, "source": SESSION_HFOV_SOURCE}
+    if n < MIN_SESSION_THROWS:
+        return {**base, "status": "estimated",
+                "reason": f"Only {n} throw(s) in this session had a field of view measured from gravity; at "
+                          f"least {MIN_SESSION_THROWS} are needed to pool a session estimate confidently."}
+    if iqr is not None and iqr > MAX_SESSION_IQR_DEG:
+        return {**base, "status": "estimated",
+                "reason": f"This session's {n} measured field-of-view calibrations spread over an IQR of "
+                          f"{iqr:.1f}° (> {MAX_SESSION_IQR_DEG:.1f}°); the per-throw values disagree too much "
+                          "to pool as one measured session field of view."}
+    return {**base, "status": "measured", "reason": None}
 
 
 def _red_and_rim(plate: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

@@ -76,22 +76,38 @@ def _scale_agreement(board_ppm: float | None, gravity_ppm: float | None,
             "board_ppm": board_ppm, "gravity_ppm": gravity_ppm, "stature_ppm": stature_ppm}
 
 
-def _board_scale(auto_flight: dict[str, Any] | None) -> dict[str, Any]:
+SESSION_CAMERA_FILENAME = "camera.json"
+
+
+def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None) -> dict[str, Any]:
     """Pixels-per-metre scale at the bag's release point, from the board's throw plane, with the
-    field of view calibrated to the accepted automatic flight's own vertical acceleration.
+    field of view calibrated from gravity.
 
     A still image alone cannot tell a wide lens close up from a narrow lens far away, so the
-    board's field of view (HFOV, 55-75 deg) is calibrated by requiring the accepted flight's own
-    vertical acceleration to match gravity (`board.calibrate_hfov_from_flight`); the scale is
-    then evaluated at the flight's first point (release), not the athlete's shoulder, since that
-    is the point downstream launch quantities actually need. Only `board["status"] == "found"`
-    counts as a board. `status == "measured"` only when a HFOV inside the band reproduces
-    gravity; otherwise "estimated" (edge of the band, or too few flight points), flagged via
-    `hfov_status`/`hfov_reason`.
+    board's field of view (HFOV, 55-75 deg) is calibrated by requiring a flight's own vertical
+    acceleration to match gravity (`board.calibrate_hfov_from_flight`); the scale is then
+    evaluated at the flight's first point (release), not the athlete's shoulder, since that is
+    the point downstream launch quantities actually need. Only `board["status"] == "found"`
+    counts as a board.
+
+    A single throw's ~0.4 s flight calibrates the HFOV noisily (Task 8b); when `output` (the
+    trial's analysis directory) holds a `camera.json` pooled from the recording session's other
+    throws (`board.pool_session_hfov`, written by `calibrate-session`), its HFOV is preferred and
+    `hfov_source` becomes `board.SESSION_HFOV_SOURCE`. This throw's own per-throw calibration is
+    still computed and reported (`per_throw_hfov_deg`, `per_throw_hfov_status`,
+    `per_throw_hfov_deviation_deg`) even then. The scale's `status` (and `hfov_status`) is
+    "measured" only when the HFOV actually used -- the session's when a usable camera.json
+    exists, otherwise this throw's own -- has status "measured"; without a usable camera.json,
+    behaviour is exactly the per-throw calibration. `hfov_gravity_used` is true only when that
+    chosen HFOV came from an actual gravity fit (this throw's own, or a session pooled from
+    other throws' gravity fits) rather than a nominal fallback.
     """
-    from .board import calibrate_hfov_from_flight
-    empty = {"status": "unavailable", "pixels_per_meter": None, "pixels_per_meter_band": None,
+    from .board import calibrate_hfov_from_flight, solve_board
+    empty = {"status": "unavailable", "pixels_per_meter": None,
+            "pixels_per_meter_at_55_deg": None, "pixels_per_meter_at_75_deg": None,
             "hfov_deg": None, "hfov_status": "unavailable", "hfov_reason": None,
+            "hfov_source": None, "hfov_gravity_used": False,
+            "per_throw_hfov_deg": None, "per_throw_hfov_status": None, "per_throw_hfov_deviation_deg": None,
             "apparent_gravity_m_s2_at_nominal_hfov": None, "horizontal_acceleration_m_s2": None,
             "a_y_band_edges_m_s2": None, "phi_deg": None, "reason": None}
     board = (auto_flight or {}).get("board") or {}
@@ -106,25 +122,107 @@ def _board_scale(auto_flight: dict[str, Any] | None) -> dict[str, Any]:
     frames = np.array([p["frame"] for p in stabilized], float)
     fps = float(auto_flight.get("fps") or 30.0)
     calib = calibrate_hfov_from_flight(corners, size, points, frames, fps)
-    ppm = calib.get("pixels_per_meter")
+    per_throw_hfov = calib.get("hfov_deg")
+    per_throw_status = calib.get("status")
+    release_px = (float(points[0, 0]), float(points[0, 1]))
+
+    session = _load_json(output / SESSION_CAMERA_FILENAME, None) if output is not None else None
+    use_session = bool(session) and session.get("status") in ("measured", "estimated") and session.get("hfov_deg") is not None
+    solve_failed = False
+    if use_session:
+        hfov_deg = float(session["hfov_deg"])
+        hfov_status = session["status"]
+        hfov_source = session.get("source", "session_median_gravity_fov")
+        hfov_reason = session.get("reason")
+        gravity_used = True
+        model = None
+        try:
+            model = solve_board(corners, size, hfov_deg=hfov_deg)
+        except ValueError:
+            solve_failed = True
+        ppm = model.pixels_per_meter_at(release_px) if model is not None else None
+        phi_deg = model.phi_deg if model is not None else None
+    else:
+        hfov_deg = per_throw_hfov
+        hfov_status = per_throw_status
+        hfov_source = "single_throw_gravity_fov"
+        hfov_reason = calib.get("reason")
+        gravity_used = bool(calib.get("gravity_fit_used"))
+        ppm = calib.get("pixels_per_meter")
+        phi_deg = calib.get("phi_deg")
+
+    deviation = (abs(hfov_deg - per_throw_hfov) if use_session and per_throw_hfov is not None and hfov_deg is not None
+                else None)
     if ppm is None or not math.isfinite(ppm):
-        return {**empty, "hfov_deg": calib.get("hfov_deg"), "hfov_status": calib.get("status"),
-                "hfov_reason": calib.get("reason"), "phi_deg": calib.get("phi_deg"),
-                "reason": calib.get("reason") or "Non-finite scale at the release point."}
+        reason = (f"The board's pose could not be solved at the session field of view ({hfov_deg:.1f}°)."
+                 if solve_failed else (hfov_reason or "Non-finite scale at the release point."))
+        return {**empty, "hfov_deg": hfov_deg, "hfov_status": hfov_status, "hfov_reason": hfov_reason,
+                "hfov_source": hfov_source, "hfov_gravity_used": gravity_used,
+                "per_throw_hfov_deg": per_throw_hfov, "per_throw_hfov_status": per_throw_status,
+                "per_throw_hfov_deviation_deg": deviation, "phi_deg": phi_deg, "reason": reason}
     fit_accel_px_s2 = (auto_flight.get("fit") or {}).get("vertical_acceleration_px_s2")
     apparent_g_nominal = None
     if fit_accel_px_s2 is not None:
-        from .board import NOMINAL_HFOV_DEG, solve_board
-        nominal_ppm = solve_board(corners, size, hfov_deg=NOMINAL_HFOV_DEG).pixels_per_meter_at(
-            (float(points[0, 0]), float(points[0, 1])))
+        from .board import NOMINAL_HFOV_DEG
+        nominal_ppm = solve_board(corners, size, hfov_deg=NOMINAL_HFOV_DEG).pixels_per_meter_at(release_px)
         if nominal_ppm and math.isfinite(nominal_ppm):
             apparent_g_nominal = abs(fit_accel_px_s2) / nominal_ppm
-    return {"status": calib["status"], "pixels_per_meter": ppm, "pixels_per_meter_band": calib.get("pixels_per_meter_band"),
-            "hfov_deg": calib.get("hfov_deg"), "hfov_status": calib.get("status"), "hfov_reason": calib.get("reason"),
+    return {"status": hfov_status, "pixels_per_meter": ppm,
+            "pixels_per_meter_at_55_deg": calib.get("pixels_per_meter_at_55_deg"),
+            "pixels_per_meter_at_75_deg": calib.get("pixels_per_meter_at_75_deg"),
+            "hfov_deg": hfov_deg, "hfov_status": hfov_status, "hfov_reason": hfov_reason,
+            "hfov_source": hfov_source, "hfov_gravity_used": gravity_used,
+            "per_throw_hfov_deg": per_throw_hfov, "per_throw_hfov_status": per_throw_status,
+            "per_throw_hfov_deviation_deg": deviation,
             "apparent_gravity_m_s2_at_nominal_hfov": apparent_g_nominal,
             "horizontal_acceleration_m_s2": calib.get("horizontal_acceleration_m_s2"),
             "a_y_band_edges_m_s2": calib.get("a_y_band_edges_m_s2"),
-            "phi_deg": calib.get("phi_deg"), "reason": calib.get("reason")}
+            "phi_deg": phi_deg, "reason": hfov_reason}
+
+
+def session_grouping_key(trial_context: dict[str, Any]) -> str:
+    """Group throws shot from the same camera setup: same athlete, same source clip's folder.
+
+    Used to pool a recording session's per-throw board HFOV calibrations (Task 8b): throws from
+    the same phone, tripod position and sitting typically live in one folder of source clips.
+    """
+    video = trial_context.get("source_video")
+    parent = str(Path(video).expanduser().resolve().parent) if video else None
+    return f"{trial_context.get('athlete_id')}::{parent}"
+
+
+def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, Any]]:
+    """Group `analysis_dirs` into recording sessions (`session_grouping_key`, from each
+    directory's manifest.json), pool each session's own throws' per-throw board HFOV
+    calibrations (`board.pool_session_hfov`, from their own results.json["scale"]), and write the
+    pooled result as `camera.json` into every member directory (Task 8b). Returns the pooled dict
+    keyed by session.
+
+    Callers reanalyse every listed throw once before calling this (so results.json["scale"] holds
+    this session's own per-throw calibrations, not values already pooled from a previous camera.json)
+    and once after (so the written camera.json takes effect; see `_board_scale`).
+    """
+    from .board import pool_session_hfov
+    sessions: dict[str, list[Path]] = {}
+    for directory in analysis_dirs:
+        manifest = _load_json(Path(directory) / "manifest.json", {})
+        key = session_grouping_key(manifest.get("trial_context") or {})
+        sessions.setdefault(key, []).append(Path(directory))
+    pooled: dict[str, dict[str, Any]] = {}
+    for key, members in sessions.items():
+        calibrations = []
+        for directory in members:
+            manifest = _load_json(directory / "manifest.json", {})
+            results = _load_json(directory / "results.json", {})
+            scale = results.get("scale") or {}
+            trial_id = (manifest.get("trial_context") or {}).get("trial_id") or directory.name
+            calibrations.append({"trial_id": trial_id, "hfov_deg": scale.get("per_throw_hfov_deg"),
+                                 "status": scale.get("per_throw_hfov_status")})
+        camera = {**pool_session_hfov(calibrations), "session_key": key}
+        for directory in members:
+            write_json(directory / "camera.json", camera)
+        pooled[key] = camera
+    return pooled
 
 
 def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
@@ -604,7 +702,7 @@ def analyze_trial(
     summaries.update(arm_motion["summaries"])
 
     calibration = SpatialCalibration.load(calibration_path)
-    board_scale = _board_scale(auto_flight if auto_accepted else None)
+    board_scale = _board_scale(auto_flight if auto_accepted else None, output)
     if calibration is None and board_scale["status"] == "measured":
         calibration = SpatialCalibration(board_scale["pixels_per_meter"], "board_throw_plane", True,
                                          "regulation_board_pnp")
@@ -663,10 +761,13 @@ def analyze_trial(
     # one used for HFOV calibration, and `gravity_scale.pixels_per_meter` is only non-None in
     # that reviewed case (see gravity_scale_from_flight). The comparison below still runs, but
     # `gravity_used_for_fov` records that it is not independent when no reviewed value exists.
+    # It is true only when the HFOV actually used came from a real gravity fit -- this throw's
+    # own (not a nominal fallback), or a session camera.json pooled from other throws' gravity
+    # fits (Task 8b) -- via `board_scale["hfov_gravity_used"]`.
     scale_check = _scale_agreement(board_scale.get("pixels_per_meter"),
                                    gravity_scale.get("pixels_per_meter"), None)
     board_hfov_deg_known = board_scale.get("hfov_deg") is not None
-    scale_check["gravity_used_for_fov"] = board_hfov_deg_known
+    scale_check["gravity_used_for_fov"] = bool(board_scale.get("hfov_gravity_used"))
     horizontal_accel = board_scale.get("horizontal_acceleration_m_s2")
     hfov_not_measured = board_hfov_deg_known and board_scale.get("hfov_status") != "measured"
     horizontal_accel_high = horizontal_accel is not None and abs(horizontal_accel) > 2.0
@@ -1095,6 +1196,9 @@ def analyze_trial(
             "calibration": None if calibration is None else canonical_hash(asdict(calibration)),
             "config": config,
             "flight_review": flight_review,
+            # A session camera.json changes the board scale (Task 8b) without changing any input
+            # above; its content must invalidate a cached analysis_id like every other dependency.
+            "session_camera": canonical_hash(_load_json(output / SESSION_CAMERA_FILENAME, None)),
         }),
         "created_at": utc_now(),
         "app_version": app_version,
