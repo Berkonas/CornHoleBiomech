@@ -242,21 +242,34 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
 
 def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
                       output: Path) -> dict[str, Any]:
-    """Run automatic flight detection with the body scale and wrist from this clip's pose."""
+    """Run automatic flight detection with the body scale and wrist from this clip's pose.
+
+    The cached `auto_flight.json` is reused while its revision, video, clicked board corners
+    match. A cache computed without person masks (`scene.masks_status` not "measured") while the
+    scene-vision helper was missing is stale once the helper is found, so a later-installed helper
+    is used; `scene_helper_present` records whether the helper existed when the cache was written
+    (so a mask failure with the helper present is not retried on every reanalysis).
+    """
     from .auto_bag import auto_track_bag
     from .geometry import robust_segment_length
+    from .scene import find_binary
     cached = _load_json(output / "auto_flight.json", None)
     corners = _load_json(output / "board_corners.json", None)
+    scene = (cached or {}).get("scene")
+    masks_retry = (isinstance(scene, dict) and scene.get("masks_status") != "measured"
+                   and not cached.get("scene_helper_present") and find_binary() is not None)
     if (cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256
-            and cached.get("board_corners") == corners):
+            and cached.get("board_corners") == corners and not masks_retry):
         return cached
     lookup = {name: index for index, name in enumerate(landmarks)}
     side = context.throwing_side
     shoulder, elbow, wrist = (filtered[:, lookup[f"{side}_{j}"], :] for j in ("shoulder", "elbow", "wrist"))
     arm = robust_segment_length(shoulder, elbow) + robust_segment_length(elbow, wrist)
+    helper_present = find_binary() is not None
     result = auto_track_bag(video.path, wrist, arm if np.isfinite(arm) else None, context.target_direction,
                             cache_dir=output, board_corners_px=None if corners is None else corners["corners_px"],
                             board_corners_frame=None if corners is None else corners.get("reference_frame"))
+    result["scene_helper_present"] = helper_present
     result["video_sha256"] = video.sha256
     result["board_corners"] = corners
     write_json(output / "auto_flight.json", result)
@@ -693,28 +706,46 @@ def analyze_trial(
         bag_track = None
         if automatic_review:
             review_file.unlink()
-    if bag_track is None and bool(config["bag_tracking"].get("automatic", True)):
+    # An automatic track of the current revision is re-derived through `_automatic_flight` on
+    # reanalysis: it returns the cached flight while its key (revision, video, clicked board
+    # corners, scene helper) still matches, and recomputes it otherwise -- e.g. after
+    # `set-board-corners`, so clicked corners take effect (spec §8's clicked-corner fallback).
+    reuse_automatic = bag_track is not None and bag_track.effective_method == AUTO_BAG_REVISION
+    if (bag_track is None or reuse_automatic) and bool(config["bag_tracking"].get("automatic", True)):
+        previous_points = ((_load_json(output / "auto_flight.json", None) or {}).get("points")
+                           if reuse_automatic else None)
         progress("tracking_bag", 0.50, "Finding the bag's flight automatically")
         auto_flight = _automatic_flight(video, filtered, landmarks, context, output)
         if auto_flight.get("status") == "accepted":
-            bag_track = _bag_track_from_auto_flight(auto_flight, video)
-            bag_track.save(bag_raw_path)
-            bag_key = canonical_hash({"method": AUTO_BAG_REVISION, "video": video.sha256,
-                                      "release": auto_flight["release_frame"]})
-            write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
-            if not review_file.exists():
-                BagCorrectionSet(
-                    reviewed_through_frame=int(auto_flight["last_tracked_frame"]), reviewed_at=utc_now(),
-                    review_note=f"Automatic physics verification ({AUTO_BAG_REVISION}): "
-                                f"{auto_flight['fit']['inliers']} detections on one projectile path, "
-                                f"{auto_flight['fit']['rms_residual_px']:.1f} px RMS.").save(review_file)
+            if not reuse_automatic or json_ready(auto_flight.get("points")) != json_ready(previous_points):
+                bag_track_replaced = reuse_automatic and not automatic_review and bag_raw_path.exists()
+                bag_track = _bag_track_from_auto_flight(auto_flight, video)
+                bag_track.save(bag_raw_path)
+                bag_key = canonical_hash({"method": AUTO_BAG_REVISION, "video": video.sha256,
+                                          "release": auto_flight["release_frame"]})
+                write_json(bag_cache_path, {"bag_key": bag_key, "created_at": utc_now()})
+                if not review_file.exists() or (reuse_automatic and automatic_review):
+                    BagCorrectionSet(
+                        reviewed_through_frame=int(auto_flight["last_tracked_frame"]), reviewed_at=utc_now(),
+                        review_note=f"Automatic physics verification ({AUTO_BAG_REVISION}): "
+                                    f"{auto_flight['fit']['inliers']} detections on one projectile path, "
+                                    f"{auto_flight['fit']['rms_residual_px']:.1f} px RMS.").save(review_file)
         else:
+            if reuse_automatic and not existing_review.corrections:
+                # The recomputed flight is no longer accepted: its old automatic track must not stand in
+                # for it (a track carrying manual corrections is kept; manual work is never discarded).
+                bag_track = None
             reasons = " ".join(auto_flight.get("reasons") or [])
             bag_warnings.append(f"Automatic bag tracking needs help: {reasons} Select the bag near release to track it manually.")
-    elif bag_track is not None and bag_track.effective_method == AUTO_BAG_REVISION:
+    elif reuse_automatic:
         auto_flight = _load_json(output / "auto_flight.json", None)
     auto_accepted = bool(auto_flight and auto_flight.get("status") == "accepted"
                          and bag_track is not None and bag_track.effective_method == AUTO_BAG_REVISION)
+    scene_info = (auto_flight or {}).get("scene")
+    if isinstance(scene_info, dict) and scene_info.get("masks_status") != "measured":
+        bag_warnings.append("Person masks were not used for automatic bag tracking ("
+                            + (scene_info.get("masks_reason") or f"status {scene_info.get('masks_status')}").rstrip(".")
+                            + "); a bag passing in front of a person may be missed or confused with the body.")
 
     if bag_track is None:
         bag_warnings.append("Body analysis completed; bag tracking has not started. Select the bag near release in the video, track it, and review its path to obtain release and flight measurements.")
