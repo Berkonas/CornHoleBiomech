@@ -25,6 +25,8 @@ MIN_SESSION_THROWS = 3              # fewer measured per-throw HFOVs cannot pool
 MAX_SESSION_IQR_DEG = 6.0           # wider per-throw HFOV spread cannot pool a "measured" session estimate
 MAX_SESSION_DEVIATION_DEG = 8.0     # a member farther than this from the session median is reported as an outlier
 SESSION_HFOV_SOURCE = "session_median_gravity_fov"
+MIDPOINT_PROBE_FRACTIONS = (0.05, -0.05, 0.1, -0.1, 0.2, -0.2)   # of the current bracket span, tried in order
+HFOV_ACCEL_TOLERANCE_M_S2 = 0.5     # |a_y - (-g)| at most this close still counts as "measured" when bisection stalls
 MAX_PHI_DEG = 20.0
 MIN_DECK_AREA_FRACTION = 0.0015     # red deck + dark rim, of the image; a lone bag is ~0.0002
 MIN_RED_AREA_FRACTION = 0.0004      # red part alone (pilot decks: 0.0006–0.0012; white stripe covers the rest)
@@ -155,11 +157,18 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
 
     `solve_board`'s PnP can fail at some HFOVs even when it succeeds at others (a degenerate pose
     for that particular assumed focal length); every candidate HFOV is solved defensively, a
-    failure just drops that one grid point or bisection step, and fewer than
-    `MIN_VALID_HFOV_SAMPLES` solvable points in the whole band falls back to the nominal HFOV
-    (status "estimated") rather than raising. `gravity_fit_used` in the result is true only when
-    the returned HFOV came from comparing the flight's own acceleration against gravity (the
-    "measured" case and the real "never crosses -g" edge case); it is false for every nominal
+    failure just drops that one grid point, and fewer than `MIN_VALID_HFOV_SAMPLES` solvable
+    points in the whole band falls back to the nominal HFOV (status "estimated") rather than
+    raising. A failure exactly at a bisection midpoint is not simply skipped (that would recompute
+    the same failing point every remaining iteration): nearby points are probed
+    (`MIDPOINT_PROBE_FRACTIONS` of the current bracket span, alternating sides) and the first one
+    that solves takes the midpoint's place in the bisection; if none of them solve either,
+    bisection stops and falls back to whichever already-solved bracket endpoint is nearer, with
+    status "measured" only if its own vertical acceleration is within `HFOV_ACCEL_TOLERANCE_M_S2`
+    of gravity, otherwise "estimated". `gravity_fit_used` in the result is true only when the
+    returned HFOV came from comparing the flight's own acceleration against gravity (the
+    "measured" case, the real "never crosses -g" edge case, and the stalled-bisection fallback,
+    all of which use an actually-solved point's own acceleration); it is false only for a nominal
     fallback (too few flight points, too few solvable HFOVs, or a non-finite fit).
     """
     from .bag import GRAVITY_M_S2
@@ -220,6 +229,18 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
         xy = model.to_plane(pts)
         return float(2 * np.polyfit(t, xy[:, 0], 2)[0])
 
+    def probe_near(mid: float, span: float, lo_bound: float, hi_bound: float) -> tuple[float, float] | None:
+        """A bisection midpoint failed to solve (a degenerate pose there): try nearby points
+        within the current bracket, and return the first (hfov, vertical_accel) that solves."""
+        for frac in MIDPOINT_PROBE_FRACTIONS:
+            candidate = mid + frac * span
+            if not (lo_bound < candidate < hi_bound):
+                continue
+            value = vertical_accel(candidate)
+            if value is not None:
+                return candidate, value
+        return None
+
     steps = max(2, int(round((hi - lo) / grid_deg)))
     grid = np.linspace(lo, hi, steps + 1)
     scanned = [(float(h), vertical_accel(float(h))) for h in grid]
@@ -232,13 +253,13 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     a_y_band_edges = [valid[0][1], valid[-1][1]]
     diffs = [a - target for _, a in valid]
     bracket = None
-    fa = None
+    fa = fb = None
     for i in range(len(valid) - 1):
         if diffs[i] == 0:
-            bracket, fa = (valid[i][0], valid[i][0]), diffs[i]
+            bracket, fa, fb = (valid[i][0], valid[i][0]), diffs[i], diffs[i]
             break
         if (diffs[i] > 0) != (diffs[i + 1] > 0):
-            bracket, fa = (valid[i][0], valid[i + 1][0]), diffs[i]
+            bracket, fa, fb = (valid[i][0], valid[i + 1][0]), diffs[i], diffs[i + 1]
             break
     if bracket is None:
         hfov = valid[0][0] if abs(diffs[0]) <= abs(diffs[-1]) else valid[-1][0]
@@ -252,21 +273,45 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
                            f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None, False)
         return package(hfov, "estimated", reason, a_y_band_edges, horiz, True)
     a, b = bracket
+    mid = 0.5 * (a + b)
+    stalled = False
     for _ in range(40):
         if b - a < 1e-4:
             break
+        span = b - a
         mid = 0.5 * (a + b)
         fm = vertical_accel(mid)
+        used = mid
         if fm is None:
-            continue          # a degenerate pose at this exact midpoint; try elsewhere in the bracket
+            probe = probe_near(mid, span, a, b)
+            if probe is None:
+                stalled = True     # neither the midpoint nor nearby probes solve: stop bisecting
+                break
+            used, fm = probe
         fm -= target
         if fm == 0:
-            a = b = mid
+            a, fa, b, fb = used, fm, used, fm
             break
         if (fm > 0) == (fa > 0):
-            a, fa = mid, fm
+            a, fa = used, fm
         else:
-            b = mid
+            b, fb = used, fm
+    if stalled:
+        # Both bracket endpoints are already-solved points by construction (from the grid scan,
+        # or from an earlier successful bisection/probe step): use whichever is nearer to where
+        # the search stalled, rather than discarding it for the nominal HFOV.
+        hfov, residual = (a, fa) if abs(mid - a) <= abs(mid - b) else (b, fb)
+        status = "measured" if abs(residual) <= HFOV_ACCEL_TOLERANCE_M_S2 else "estimated"
+        reason = None if status == "measured" else (
+            f"Bisection could not refine the field of view near {mid:.2f}° (the board's pose could "
+            f"not be solved there or nearby); using the closer already-solved {hfov:.2f}°, whose "
+            f"vertical acceleration is {residual + target:.2f} m/s^2 (target {-target:.2f} m/s^2).")
+        horiz = horizontal_accel(hfov)
+        if horiz is None or not (math.isfinite(hfov) and math.isfinite(horiz)):
+            return package(NOMINAL_HFOV_DEG, "estimated",
+                           "The gravity fit did not converge to a finite result; using the nominal "
+                           f"{NOMINAL_HFOV_DEG:.0f}°.", a_y_band_edges, None, False)
+        return package(hfov, status, reason, a_y_band_edges, horiz, True)
     hfov = 0.5 * (a + b)
     horiz = horizontal_accel(hfov)
     if horiz is None or not (math.isfinite(hfov) and math.isfinite(horiz)):

@@ -161,6 +161,63 @@ def test_calibrate_hfov_from_flight_falls_back_when_almost_no_hfov_solves(monkey
     assert result["status"] == "estimated"
     assert result["hfov_deg"] == NOMINAL_HFOV_DEG
     assert result["gravity_fit_used"] is False
+
+
+def test_calibrate_hfov_from_flight_recovers_a_root_hidden_at_the_bisection_midpoint(monkeypatch):
+    """Fix round 1: a PnP failure exactly at a bisection midpoint must not just discard that
+    midpoint forever (recomputing the identical failing point on every remaining iteration and
+    falling through to the nominal HFOV) when the true root is recoverable a fraction of a degree
+    away. The failing band here (58.9-59.1 deg) is narrow enough that the true root (59.0 deg,
+    the first bisection midpoint of the (58, 60) grid bracket) is unsolvable, but nearby points
+    are not."""
+    true_hfov = 59.0
+    corners, points_px, frames, fps = _known_hfov_flight(true_hfov=true_hfov)
+    import cornhole_biomech.board as board_module
+    real_solve_board = board_module.solve_board
+    calls = {"n": 0}
+
+    def narrowly_flaky_solve_board(corners_px, image_size, board=Board(), hfov_deg=NOMINAL_HFOV_DEG):
+        calls["n"] += 1
+        if 58.9 < hfov_deg < 59.1:
+            raise ValueError("synthetic PnP failure exactly at the bisection midpoint")
+        return real_solve_board(corners_px, image_size, board, hfov_deg=hfov_deg)
+
+    monkeypatch.setattr(board_module, "solve_board", narrowly_flaky_solve_board)
+    # hfov_range=(58, 62), grid_deg=2.0: grid points 58/60/62 all solve (bracket is (58, 60)), so
+    # only the bisection midpoint (59.0, in the failing band) is affected -- exactly the case the
+    # naive "continue" used to discard.
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, fps, B,
+                                         hfov_range=(58.0, 62.0), grid_deg=2.0)
+    assert result["status"] == "measured"
+    assert abs(result["hfov_deg"] - true_hfov) < 1.0
+    assert result["gravity_fit_used"] is True
+    assert calls["n"] < 150
+
+
+def test_calibrate_hfov_from_flight_stalled_bisection_falls_back_to_a_bracket_endpoint(monkeypatch):
+    """When neither a bisection midpoint nor any nearby probe solves anywhere in the bracket's
+    interior, bisection must stop (not loop through all 40 iterations recomputing the same
+    unsolvable points) and report one of the two already-solved bracket endpoints, never the
+    unrelated nominal HFOV."""
+    true_hfov = 59.0
+    corners, points_px, frames, fps = _known_hfov_flight(true_hfov=true_hfov)
+    import cornhole_biomech.board as board_module
+    real_solve_board = board_module.solve_board
+    calls = {"n": 0}
+
+    def interior_broken_solve_board(corners_px, image_size, board=Board(), hfov_deg=NOMINAL_HFOV_DEG):
+        calls["n"] += 1
+        if 58.0001 < hfov_deg < 59.9999:      # only the bracket's own endpoints (58, 60) solve
+            raise ValueError("synthetic PnP failure")
+        return real_solve_board(corners_px, image_size, board, hfov_deg=hfov_deg)
+
+    monkeypatch.setattr(board_module, "solve_board", interior_broken_solve_board)
+    result = calibrate_hfov_from_flight(corners, (W, H), points_px, frames, fps, B,
+                                         hfov_range=(58.0, 62.0), grid_deg=2.0)
+    assert result["hfov_deg"] in (pytest.approx(58.0), pytest.approx(60.0))
+    assert result["gravity_fit_used"] is True
+    assert result["status"] in ("measured", "estimated")
+    assert calls["n"] < 150
     assert result["pixels_per_meter"] is not None
 
 
