@@ -94,6 +94,24 @@ def test_coordination_variability_zero_for_identical_curves():
     assert set(out["rms_from_mean_deg"]) == set(ids)
 
 
+def test_outcome_links_excludes_non_finite_values_from_group_arrays():
+    # 5 scored + 5 miss with clean values, plus a NaN and an infinite value labeled with a
+    # score_category that would otherwise put them in a group. Before the fix, `r.get(key) is
+    # not None` let NaN/inf into the Cliff's-delta arrays even though every other analysis in
+    # this module filters with `_finite`.
+    speed = [8.0, 8.1, 8.2, 8.3, 8.4, 6.0, 6.1, 6.2, 6.3, 6.4]
+    score = [3] * 5 + [0] * 5   # group_label: 1 or 3 -> "scored", 0 -> "miss"
+    rows = rows_from(speed, [30.0] * 10, [0.9] * 10, score=score)
+    rows.append({"trial_id": "nan-scored", "score_category": 3,
+                "chain_release_speed_m_s": float("nan")})
+    rows.append({"trial_id": "inf-miss", "score_category": 0,
+                "chain_release_speed_m_s": float("inf")})
+    out = ca.outcome_links(rows, seed=0)
+    link = next(l for l in out if l["variable"] == "chain_release_speed_m_s")
+    assert link["n_scored"] == 5 and link["n_miss"] == 5
+    assert math.isfinite(link["cliffs_delta"])
+
+
 def test_coordination_variability_drops_high_nan_curves():
     curve = np.column_stack([np.linspace(0, 40, 101), np.linspace(150, 170, 101)])
     bad = curve.copy()

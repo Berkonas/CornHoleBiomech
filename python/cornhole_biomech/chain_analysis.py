@@ -200,8 +200,8 @@ def outcome_links(rows, seed: int = 0) -> list[dict[str, Any]]:
     alpha = 0.05 / len(OUTCOME_VARIABLES)   # Bonferroni across the pre-specified outcome variables
     out = []
     for key in OUTCOME_VARIABLES:
-        scored = np.array([r[key] for r in rows if r.get(key) is not None and group_label(r.get("score_category")) == "scored"], float)
-        miss = np.array([r[key] for r in rows if r.get(key) is not None and group_label(r.get("score_category")) == "miss"], float)
+        scored = np.array([r[key] for r in rows if _finite(r.get(key)) and group_label(r.get("score_category")) == "scored"], float)
+        miss = np.array([r[key] for r in rows if _finite(r.get(key)) and group_label(r.get("score_category")) == "miss"], float)
         err_x, err_y = _pairs(rows, key, "chain_measured_along_error_in")
         item: dict[str, Any] = {"variable": key, "label": LABELS[key], "n_scored": len(scored), "n_miss": len(miss),
                                 "delta_orientation": "scored_minus_miss"}

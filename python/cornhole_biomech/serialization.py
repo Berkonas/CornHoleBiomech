@@ -21,6 +21,8 @@ def json_ready(value: Any) -> Any:
         return [json_ready(v) for v in value]
     if isinstance(value, np.ndarray):
         return json_ready(value.tolist())
+    if isinstance(value, np.bool_):
+        return bool(value)
     if isinstance(value, (np.integer,)):
         return int(value)
     if isinstance(value, (np.floating, float)):

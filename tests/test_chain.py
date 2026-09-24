@@ -232,8 +232,8 @@ def test_throw_chain_end_to_end_on_a_rendered_scene():
     fit_points = filtered[:, 2, :].copy()        # bag at the wrist in this toy scene
     scale = {"status": "estimated", "reason": "HFOV at band edge", "hfov_deg": 62.0, "pixels_per_meter": 150.0,
              "pixels_per_meter_at_55_deg": 170.0, "pixels_per_meter_at_75_deg": 120.0}
-    summaries = {"bag_release_speed_m_s": 8.0, "bag_release_angle_deg": 0.0,     # hand moves horizontally here "bag_release_speed_se_m_s": 0.1,
-                 "bag_release_angle_se_deg": 1.0, "landing_along_error_m": 0.1}
+    summaries = {"bag_release_speed_m_s": 8.0, "bag_release_angle_deg": 0.0,   # hand moves horizontally here
+                 "bag_release_speed_se_m_s": 0.1, "bag_release_angle_se_deg": 1.0, "landing_along_error_m": 0.1}
     chain = _throw_chain(auto_flight=auto_flight, board_scale=scale, filtered=filtered, landmarks=landmarks,
                          side="right", camera_to_release=auto_flight["camera_to_release"],
                          angles={"arm_to_trunk_deg": np.linspace(0, 60, n), "elbow_angle_deg": np.full(n, 170.0)},
