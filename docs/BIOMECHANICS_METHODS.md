@@ -281,7 +281,7 @@ Every analysis exposes pose/tracker identity and version/hash where possible, fp
 
 Model confidence is not percent accuracy. Tracking quality, reference similarity, personal consistency, and performance association are separate constructs. Display sensible precision—typically one decimal degree and no more time precision than the frame interval supports. Unit tests verify equations; task-specific validation is governed by [VALIDATION_PLAN.md](VALIDATION_PLAN.md).
 
-## 18. Scene, throw plane and body-to-outcome chain (METHOD_VERSION 2026.09.24-scene)
+## 18. Scene, throw plane and body-to-outcome chain (METHOD_VERSION 2026.09.24-scene-b)
 
 **Stage 2 measurement contract.** Everything in this section runs on top of Stage 1 (§1–17): the
 same filtered pose, the same effective bag track. It adds a scene model (board, floor, athlete
@@ -314,8 +314,10 @@ plate, the board corners and the athlete masks are all expressed in.
 A Swift/Apple Vision helper (`scene_vision`, `VNGeneratePersonSegmentationRequest`, quality
 `.accurate`, every 2nd frame) writes per-frame person masks to a per-trial cache keyed by video
 hash and `SCENE_REVISION`. Failure (helper missing, timeout, crash, unreadable cache) is
-`status: "unavailable"` with a reason; the pipeline falls back to unmasked motion-based tracking
-and flags it — masking is never required for a result, only for suppressing bystanders and the
+`status: "unavailable"` with a reason (including a cache whose mask or frame size is zero or
+invalid); the pipeline falls back to unmasked motion-based tracking and flags it with a bag
+warning ("Person masks were not used for automatic bag tracking (reason)"). An `auto_flight.json`
+cached without masks while the helper was missing is recomputed once the helper is found — masking is never required for a result, only for suppressing bystanders and the
 athlete's swinging arm from the background/bag-candidate steps.
 
 The background plate (`background.py`) is the per-pixel median of stabilized frames with masked
@@ -374,16 +376,27 @@ downstream quantities can express a scale relative-SD from the disagreement betw
 
 A single throw's ~0.4 s flight gives a noisy per-throw HFOV (spread of 10+° between throws filmed
 from the same fixed camera position). `pool_session_camera_files` groups a library's throws into
-recording sessions (same athlete, same source-clip folder) and pools each session's own *measured*
+recording sessions (same athlete, same recording date: a `recording_date` stated in the manifest's
+trial context, else the source clip's file modification date — the video container's creation
+time is not read) and pools each session's own *measured*
 per-throw HFOVs with a median; the pool is `status: "measured"` only with ≥ `MIN_SESSION_THROWS`
 (3) measured throws and an IQR ≤ `MAX_SESSION_IQR_DEG` (6°), otherwise `"estimated"` with a reason.
+A session whose recording date is unknown (or whose members span more than one date) is capped at
+`"estimated"` with that reason, since the throws cannot be confirmed to share one camera setup.
 A session with fewer than 3 measured throws falls back to the median of every measured throw across
 the whole library run (`source: "library_median_gravity_fov"`), which assumes the same camera and
-zoom in every session — the reason states this assumption explicitly. `regression_check.py` runs
+zoom in every session. That assumption is not verified, so this fallback is at most `"estimated"`
+(spec §8), with the assumption as the reason; `pool_status` keeps the pool's own median/n/IQR
+verdict. `regression_check.py` runs
 this as an explicit two-pass flow: pass 1 analyses every throw (so each throw's own `results.json`
 carries its own per-throw calibration), pooling writes a `camera.json` into every session member,
 and pass 2 re-analyses every throw so `_board_scale` (`pipeline.py`) picks up the pooled field of
 view.
+
+The board's throw-plane scale becomes the pipeline's legacy spatial calibration (Stage 1
+`bag_release_speed_m_s`, `physical_units`) only when the scale is `"measured"` **and** the throw
+line's out-of-plane angle is measured (`phi_status == "measured"`, φ ≤ `MAX_PHI_DEG`); otherwise a
+warning states why and those values are not labelled measured from the board.
 
 Every metre-based chain quantity is at most `"estimated"` when this scale is not `"measured"`; the
 scale's relative-SD (used for the chain's Monte Carlo, §18.9) is the larger of a fixed floor
@@ -425,7 +438,11 @@ surface contact is still counted as a **measured** contact at the last tracked f
 observed point read "0.14 m above the floor" in the throw plane (a few centimetres outside the 6 cm
 floor tolerance, because an off-centreline landing maps to a slightly wrong plane height), while
 the predicted contact — extending the same fitted parabola one more frame — landed on the floor
-immediately after. Requiring the parabola to actually reach a surface within 2 frames, on a track
+immediately after. The contact **frame** is the observed last tracked frame, but the landing
+**position** is the point where the fitted parabola meets the surface (`contact.surface_point_px`;
+`landing.position_basis: "predicted_surface_point"`), because the last tracked point is still up to
+2 frames in the air (`AUTO_BAG_REVISION` `auto_motion_parabola_v13_near_contact_surface_point`).
+Requiring the parabola to actually reach a surface within 2 frames, on a track
 that is still descending, distinguishes "the tracker stopped one frame early on a real landing"
 from "the bag genuinely left the frame or the detector lost it in the air".
 
@@ -547,7 +564,8 @@ model with respect to release speed, angle, height and along-board position, dot
 point's own rate of change of those quantities at release (`chain.timing_sensitivity_in_per_10ms`).
 It requires the hand path's velocity direction at release to be within `MAX_HAND_BAG_ANGLE_DIFF_DEG`
 (10°) of the bag's own fitted release angle — otherwise the hand point cannot stand in for the
-bag's rate of change and the quantity is withheld with that reason.
+bag's rate of change and the quantity is withheld with that reason. A non-finite hand direction or
+rate (a stationary or missing hand path) makes it `unavailable` before that gate is applied.
 
 **Why it is unavailable on all 21 accepted pilot throws.** The release-onset audit (§18.8) measured
 the hand-point direction against the bag's fitted release angle at the visually judged release
@@ -571,7 +589,9 @@ causal ("§16" of this document already sets that convention for Stage 1). Varia
 pre-specified (fixed lists in `chain_analysis.py`, not chosen after seeing the data), correlation
 claims need ≥ 8 throws (`MIN_THROWS`) with both variables varying, and group comparisons need ≥ 5
 throws per group (`MIN_PER_GROUP`); every analysis reports `status` so the UI never displays a
-finding without enough throws.
+finding without enough throws. Every block also reports `value_states`: how many of the values it
+used were `measured`, `estimated` or of `unknown` state (a throw analysed before states were
+recorded), from each throw's chain states (`chain_states` on the athlete rows).
 
 1. **Release → landing error budget** (`error_budget_analysis`). Central-difference Jacobian
    ∂(landing)/∂(speed, angle, height) at the athlete's mean release condition, giving `σ_R² ≈
@@ -584,7 +604,8 @@ finding without enough throws.
    negatively to the variance). `predicted_sd_in` is the SD, across throws, of each throw's own
    release condition run through the (nonlinear) drag-free model directly — the headline number,
    with no independence or linearisation assumption — reported next to the measured landing
-   spread. (Venkadesan & Mahadevan, 2017; Müller & Sternad, 2004 for the tolerance–noise–covariation
+   spread. Like every other claim it needs ≥ `MIN_THROWS` throws with a predicted landing
+   (`predicted_status: "insufficient_data"` otherwise); `predicted_n` is always shown. (Venkadesan & Mahadevan, 2017; Müller & Sternad, 2004 for the tolerance–noise–covariation
    framing.)
 2. **Predicted vs. measured landing** (`predicted_vs_measured`). Pearson r² between the drag-free
    prediction and the measured landing error; the unexplained remainder is attributed, without
@@ -609,6 +630,26 @@ finding without enough throws.
    the stacked, time-normalised shoulder–elbow angle–angle curves across throws (curves with > 20%
    missing samples dropped), plus each kept throw's RMS deviation from the athlete's own mean
    curve.
+
+### 18.13a Release confirmation, flight review and reanalysis (METHOD_VERSION 2026.09.24-scene-b)
+
+- **Unconfirmed release.** When the release frame is an automatic candidate (not confirmed by a
+  person), every release-dependent chain quantity is capped at `"estimated"` with the reason
+  "Release is an automatic candidate; confirm visible separation…", and its flattened `chain_*`
+  summary (plus `release_to_board_front_m`) is nulled with the legacy release-dependent summaries,
+  so it never enters athlete analyses. Only the observed landing error
+  (`measured_along_error_in`) is release-independent.
+- **Flight & scale review over an accepted automatic flight.** An explicit blank first contact
+  records `contact_state: "manual_unseen"` (no contact frame; the automatic contact is not used,
+  with a warning) — never `"measured"` with a null frame. An unchecked fixed-camera box does not
+  discard an accepted automatic flight whose camera motion was removed (per-frame
+  `camera_to_release` transforms and stabilized points): its board scale and fits are kept,
+  `manual_fixed_camera: false` is recorded, and a warning says why.
+- **Reanalysis.** An accepted automatic flight of the current revision is re-derived through the
+  same path as a first analysis, so clicked board corners (`board_corners.json` with its reference
+  frame) take effect on reanalysis.
+- **Nominal-FOV diagnostic.** `apparent_gravity_m_s2_at_nominal_hfov` is omitted (None) when the
+  board pose cannot be solved at the nominal 65°, instead of failing the analysis.
 
 ### 18.14 Force-direction 15° rule
 

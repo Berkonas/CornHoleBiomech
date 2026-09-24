@@ -399,3 +399,25 @@ def test_clicked_corners_from_a_frame_outside_the_clip_are_dropped(monkeypatch):
     out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked,
                             board_corners_frame=250)
     assert "frame 250" in out["board"]["clicked_corners_ignored"]
+
+
+def test_near_contact_landing_uses_the_predicted_surface_point(monkeypatch):
+    import cornhole_biomech.auto_bag as ab
+    from cornhole_biomech.auto_bag import AUTO_BAG_REVISION, NEAR_CONTACT_FRAMES
+    assert AUTO_BAG_REVISION == "auto_motion_parabola_v13_near_contact_surface_point"
+    decided = _near_contact(monkeypatch, [0, 0, 500.0], 80 + NEAR_CONTACT_FRAMES)
+    assert decided["contact"]["surface_point_px"] == [1.0, 2.0]
+    assert decided["contact"]["surface_frame"] == 80 + NEAR_CONTACT_FRAMES
+    seen = []
+    monkeypatch.setattr(ab, "landing_summary", lambda p, m: seen.append(tuple(p)) or {"along_error_m": 0.1})
+    refined = {80: {"x": 500.0, "y": 300.0}}                       # the last tracked point, still in the air
+    landing = ab._landing(decided, True, 80, refined, {80: np.eye(3)}, _StubModel())
+    assert seen == [(1.0, 2.0)] and decided["first_contact_frame"] == 80
+    assert landing["state"] == "measured" and landing["position_basis"] == "predicted_surface_point"
+    assert f"frame {80 + NEAR_CONTACT_FRAMES}" in landing["reason"]
+    # A contact seen on the surface itself still uses the tracked point.
+    seen.clear()
+    observed = {"first_contact_frame": 80, "predicted_contact": None,
+                "contact": {"kind": "deck", "state": "measured", "plane_xy_m": [0.5, 0.2], "reason": None}}
+    landing = ab._landing(observed, True, 80, refined, {80: np.eye(3)}, _StubModel())
+    assert seen == [(500.0, 300.0)] and landing["position_basis"] == "observed_contact_point"

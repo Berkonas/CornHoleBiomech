@@ -40,7 +40,7 @@ from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v12b_release_onset_status"
+AUTO_BAG_REVISION = "auto_motion_parabola_v13_near_contact_surface_point"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -811,13 +811,43 @@ def _contact_from_board(board, end_point_ref, fit, fps, last_frame, frame_count,
     descending = fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last > 0          # image y grows downward
     if predicted is not None and descending and predicted["frame"] - last_frame <= NEAR_CONTACT_FRAMES:
         gap = predicted["frame"] - last_frame
+        # The contact FRAME is the observed end of the track; the last tracked point is still
+        # up to NEAR_CONTACT_FRAMES above the surface, so the landing POSITION is where the
+        # fitted flight meets the surface (`surface_point_px`, release-frame pixels).
         return {"first_contact_frame": last_frame, "predicted_contact": None,
                 "contact": {"kind": predicted["kind"], "state": "measured", "plane_xy_m": end["plane_xy_m"],
+                            "surface_point_px": [float(predicted["x_px"]), float(predicted["y_px"])],
+                            "surface_frame": int(predicted["frame"]),
                             "reason": f"Descending track ended within {gap} frame(s) of the predicted "
                                       f"{predicted['kind']} contact."}}
     return {"first_contact_frame": None, "predicted_contact": predicted,
             "contact": {"kind": "lost_in_flight", "state": "unavailable", "plane_xy_m": end["plane_xy_m"],
                         "reason": "The bag was lost while still in the air; first contact was not observed."}}
+
+
+def _landing(decided: dict[str, Any], contact_known: bool, contact: int, refined: dict[int, dict[str, Any]],
+             chain: dict[int, np.ndarray], model) -> dict[str, Any] | None:
+    """Landing position on the board model (release-frame pixels), labelled by its basis.
+
+    A near-contact track (`contact.surface_point_px`, `_contact_from_board`) keeps its observed
+    contact frame but takes the position where the fitted flight meets the surface: the last
+    tracked point is still in the air. An observed contact uses the tracked point at that frame;
+    a bag lost in flight uses the predicted contact, "estimated".
+    """
+    surface = (decided.get("contact") or {}).get("surface_point_px")
+    if contact_known and surface is not None:
+        return {**landing_summary(tuple(surface), model), "state": "measured",
+                "position_basis": "predicted_surface_point",
+                "reason": f"The track ended just above the {decided['contact']['kind']}; the landing position is "
+                          f"where the fitted flight meets it (frame {decided['contact']['surface_frame']})."}
+    if contact_known and contact in refined:
+        p = chain[contact] @ np.array([refined[contact]["x"], refined[contact]["y"], 1.0])
+        return {**landing_summary(p[:2], model), "state": "measured", "position_basis": "observed_contact_point"}
+    if decided.get("predicted_contact") is not None:
+        pc = decided["predicted_contact"]
+        return {**landing_summary((pc["x_px"], pc["y_px"]), model), "state": "estimated",
+                "position_basis": "predicted_contact", "reason": pc["reason"]}
+    return None
 
 
 def _no_board_fallback(decided, fit, fps, last, contact, width, height) -> tuple[bool, str | None]:
@@ -1012,13 +1042,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     landing = suggested = None
     if board.get("model") is not None:
         model = board["model"]
-        if contact_known and contact in refined:
-            p = chain[contact] @ np.array([refined[contact]["x"], refined[contact]["y"], 1.0])
-            landing = {**landing_summary(p[:2], model), "state": "measured"}
-        elif decided["predicted_contact"] is not None:
-            pc = decided["predicted_contact"]
-            landing = {**landing_summary((pc["x_px"], pc["y_px"]), model), "state": "estimated",
-                       "reason": pc["reason"]}
+        landing = _landing(decided, contact_known, contact, refined, chain, model)
         suggested = _mark_predicted_basis(suggest_outcome(after_contact, model), after_contact_from_predicted)
     board_payload = {k: v for k, v in board.items() if k != "model"}
     if board.get("model") is not None:
