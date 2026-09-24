@@ -37,7 +37,7 @@ from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v11_scene"
+AUTO_BAG_REVISION = "auto_motion_parabola_v11b_predicted_rest"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -726,6 +726,48 @@ def _no_board_fallback(decided, fit, fps, last, contact, width, height) -> tuple
                   "located, so it is unverified against the deck or floor. Confirm it in Flight & scale.")
 
 
+def _after_contact(decided: dict[str, Any], contact: int, contact_known: bool, refined: dict[int, dict[str, Any]],
+                   chain: dict[int, np.ndarray], frames: Sequence[np.ndarray], release: int, fps: float,
+                   typical_area: float | None) -> tuple[dict[str, Any] | None, bool]:
+    """Seed post-contact tracking from the observed contact, or — when the bag was lost in
+    flight but a landing was still predicted — from that PREDICTED contact instead.
+
+    A throw whose bag was lost in the air never has an observed contact, so without this a
+    real pilot throw that rests on the deck would get no suggested outcome at all. The
+    predicted contact's position is stored in release-frame pixels (contact.predict_contact
+    works in that plane); `track_after_contact` needs raw pixels of the seed frame, so it is
+    converted back with the inverse of that frame's chain transform. `v0` always comes from
+    the last REAL tracked velocity (the frames just before the track was lost), never from
+    the synthetic predicted position, since there is no real motion sampled near it.
+
+    Returns (after_contact, from_predicted); `from_predicted` marks the suggested outcome's
+    basis so a person reviewing it knows the post-contact track did not start from a
+    confirmed touchdown.
+    """
+    if contact_known and contact in refined:
+        start_frame, start_point, from_predicted = contact, (refined[contact]["x"], refined[contact]["y"]), False
+    elif decided.get("predicted_contact") is not None and contact in refined:
+        predicted = decided["predicted_contact"]
+        start_frame = int(predicted["frame"])
+        raw = np.linalg.inv(chain[start_frame]) @ np.array([predicted["x_px"], predicted["y_px"], 1.0])
+        start_point, from_predicted = (float(raw[0]), float(raw[1])), True
+    else:
+        return None, False
+    before = [f for f in sorted(refined) if f < contact][-3:]
+    v0 = ((refined[contact]["x"] - refined[before[0]]["x"]) / (contact - before[0]),
+          (refined[contact]["y"] - refined[before[0]]["y"]) / (contact - before[0])) if before else (0.0, 0.0)
+    after_contact = track_after_contact(frames, chain, start_frame, start_point, release, fps, typical_area, v0,
+                                        flight={f: (r["x"], r["y"]) for f, r in refined.items()})
+    return after_contact, from_predicted
+
+
+def _mark_predicted_basis(suggested: dict[str, Any] | None, from_predicted: bool) -> dict[str, Any] | None:
+    """Append a marker to a suggested outcome's basis when it was seeded from a predicted contact."""
+    if not from_predicted or suggested is None:
+        return suggested
+    return {**suggested, "basis": suggested["basis"] + " (from predicted contact)"}
+
+
 def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
                    target_direction: str, preferred_release: int | None = None,
                    cache_dir: Path | None = None, board_corners_px: list | None = None) -> dict[str, Any]:
@@ -794,14 +836,8 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     camera_to_release = {str(f): np.round(chain[f][:2], 6).tolist() for f in range(len(frames))}
     areas = [r["area_px"] for r in refined.values() if r.get("area_px")]
     typical_area = float(np.median(areas)) if areas else None
-    after_contact = None
-    if contact_known and contact in refined:
-        before = [f for f in sorted(refined) if f < contact][-3:]
-        v0 = ((refined[contact]["x"] - refined[before[0]]["x"]) / (contact - before[0]),
-              (refined[contact]["y"] - refined[before[0]]["y"]) / (contact - before[0])) if before else (0.0, 0.0)
-        after_contact = track_after_contact(frames, chain, contact, (refined[contact]["x"], refined[contact]["y"]),
-                                            release, fps, typical_area, v0,
-                                            flight={f: (r["x"], r["y"]) for f, r in refined.items()})
+    after_contact, after_contact_from_predicted = _after_contact(decided, contact, contact_known, refined, chain,
+                                                                  frames, release, fps, typical_area)
     # Second, independent release cue: where the flight traced backwards meets the
     # wrist (geometry of bag path vs hand), versus the first free-flight detection.
     release_check = None
@@ -839,7 +875,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
             pc = decided["predicted_contact"]
             landing = {**landing_summary((pc["x_px"], pc["y_px"]), model), "state": "estimated",
                        "reason": pc["reason"]}
-        suggested = suggest_outcome(after_contact, model)
+        suggested = _mark_predicted_basis(suggest_outcome(after_contact, model), after_contact_from_predicted)
     board_payload = {k: v for k, v in board.items() if k != "model"}
     if board.get("model") is not None:
         board_payload.update(board["model"].as_dict())

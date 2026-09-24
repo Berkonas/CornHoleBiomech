@@ -237,6 +237,74 @@ def test_track_ending_well_before_predicted_contact_stays_lost(monkeypatch):
     assert out["first_contact_frame"] is None and out["contact"]["state"] == "unavailable"
 
 
+def test_after_contact_seeds_from_predicted_contact_when_lost_in_flight(monkeypatch):
+    # A bag lost mid-air with a predicted (estimated) contact must still get an
+    # after-contact track, seeded from the PREDICTED frame/position converted back
+    # to that frame's raw pixels, not from the (nonexistent) observed contact frame.
+    import cornhole_biomech.auto_bag as ab
+    chain = {f: np.eye(3) for f in range(200)}
+    decided = {"predicted_contact": {"frame": 85, "x_px": 12.0, "y_px": 34.0, "kind": "floor",
+                                     "state": "estimated", "reason": "predicted"},
+              "contact": {"kind": "lost_in_flight", "state": "unavailable"}}
+    refined = {f: {"x": 100.0 + f, "y": 200.0 + f} for f in range(75, 81)}
+    calls = {}
+
+    def fake_track_after_contact(frames, chains, contact, start, release, fps, typical_area, v0, **kw):
+        calls["contact"] = contact
+        calls["start"] = start
+        calls["v0"] = v0
+        return {"status": "rest_found", "path": [], "rest": {"x_release_frame": 5.0, "y_release_frame": 5.0}}
+
+    monkeypatch.setattr(ab, "track_after_contact", fake_track_after_contact)
+    after_contact, from_predicted = ab._after_contact(decided, 80, False, refined, chain,
+                                                       frames=[None] * 200, release=0, fps=FPS, typical_area=100.0)
+    assert from_predicted is True
+    assert calls["contact"] == 85
+    assert calls["start"] == pytest.approx((12.0, 34.0))
+    assert after_contact["status"] == "rest_found"
+
+
+def test_after_contact_seeds_from_observed_contact_when_known(monkeypatch):
+    import cornhole_biomech.auto_bag as ab
+    chain = {f: np.eye(3) for f in range(200)}
+    decided = {"predicted_contact": None, "contact": {"kind": "deck", "state": "measured"}}
+    refined = {f: {"x": 100.0 + f, "y": 200.0} for f in range(75, 81)}
+    calls = {}
+
+    def fake_track_after_contact(frames, chains, contact, start, release, fps, typical_area, v0, **kw):
+        calls["contact"] = contact
+        calls["start"] = start
+        return {"status": "rest_found", "path": [], "rest": None}
+
+    monkeypatch.setattr(ab, "track_after_contact", fake_track_after_contact)
+    after_contact, from_predicted = ab._after_contact(decided, 80, True, refined, chain,
+                                                       frames=[None] * 200, release=70, fps=FPS, typical_area=None)
+    assert from_predicted is False
+    assert calls["contact"] == 80
+    assert calls["start"] == pytest.approx((180.0, 200.0))
+    assert after_contact["status"] == "rest_found"
+
+
+def test_after_contact_none_without_observed_or_predicted_contact():
+    import cornhole_biomech.auto_bag as ab
+    chain = {f: np.eye(3) for f in range(200)}
+    decided = {"predicted_contact": None, "contact": {"kind": "lost_in_flight", "state": "unavailable"}}
+    refined = {f: {"x": 100.0 + f, "y": 200.0} for f in range(75, 81)}
+    after_contact, from_predicted = ab._after_contact(decided, 80, False, refined, chain,
+                                                       frames=[None] * 200, release=0, fps=FPS, typical_area=100.0)
+    assert after_contact is None and from_predicted is False
+
+
+def test_mark_predicted_basis_appends_marker_only_when_predicted():
+    import cornhole_biomech.auto_bag as ab
+    suggested = {"needs_confirmation": True, "score": 1, "basis": "Bag came to rest on the deck."}
+    marked = ab._mark_predicted_basis(suggested, True)
+    assert marked["basis"] == "Bag came to rest on the deck. (from predicted contact)"
+    unmarked = ab._mark_predicted_basis(suggested, False)
+    assert unmarked is suggested
+    assert ab._mark_predicted_basis(None, True) is None
+
+
 def test_no_board_fallback_contact_is_unverified_and_said_so():
     import cornhole_biomech.auto_bag as ab
     decided = ab._contact_from_board({"status": "not_found", "model": None}, (0, 0), {}, FPS, 80, 200, {})
