@@ -56,6 +56,11 @@ def analyze_scratch(analysis: Path, scratch: Path) -> int:
     return code
 
 
+def _auto_flight(analysis_dir: Path) -> dict:
+    path = analysis_dir / "auto_flight.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def compare(analysis: Path, scratch: Path, code: int) -> dict:
     target = scratch / analysis.name
     context = json.loads((analysis / "manifest.json").read_text())["trial_context"]
@@ -69,6 +74,40 @@ def compare(analysis: Path, scratch: Path, code: int) -> dict:
         row["release_new"] = new["events"]["release"]["effective_frame"]
         row["grades"] = {k: v["grade"] for k, v in new["quality"]["grades"].items() if k != "rules"}
         row["scale"] = new.get("scale")
+
+        # Scene-engine fields (Task 11): board detection, contact classification, release onset,
+        # suggested outcome and the key chain quantities, read from this run's (and the library's
+        # stored) auto_flight.json / results.json rather than recomputed here.
+        auto = _auto_flight(target)
+        old_auto = _auto_flight(analysis)
+        board = auto.get("board") or {}
+        contact = auto.get("contact") or {}
+        scale = new.get("scale") or {}
+        chain_q = (new.get("chain") or {}).get("quantities") or {}
+        auto_release_old, auto_release_new = old_auto.get("release_frame"), auto.get("release_frame")
+        row.update({
+            "board_status": board.get("status"),
+            "board_confidence": board.get("confidence"),
+            "board_reference_frame": board.get("reference_frame"),
+            "contact_kind": contact.get("kind"),
+            "contact_state": contact.get("state"),
+            "old_contact_frame": old_auto.get("first_contact_frame"),
+            "new_contact_frame": auto.get("first_contact_frame"),
+            "auto_release_old": auto_release_old,
+            "auto_release_new": auto_release_new,
+            "release_delta_frames": (None if auto_release_new is None or auto_release_old is None
+                                     else auto_release_new - auto_release_old),
+            "release_onset_status": (auto.get("release_onset") or {}).get("status"),
+            "suggested_score": (auto.get("suggested_outcome") or {}).get("score"),
+            "suggested_basis": (auto.get("suggested_outcome") or {}).get("basis"),
+            "masks_status": (auto.get("scene") or {}).get("masks_status"),
+            "scale_source": scale.get("hfov_source"),
+            "scale_hfov_deg": scale.get("hfov_deg"),
+            "scale_status": scale.get("status"),
+            "chain_release_speed_m_s": chain_q.get("release_speed_m_s"),
+            "chain_kinetic_energy_j": chain_q.get("kinetic_energy_j"),
+            "chain_peak_net_force_on_bag_n": chain_q.get("peak_net_force_on_bag_n"),
+        })
     return row
 
 

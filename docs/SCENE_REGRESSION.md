@@ -318,3 +318,142 @@ Before → after, per accepted throw.
   - At the true release, the hand path is 27–47° steeper than the bag on every throw, so the existing 10° gate withholds the value.
   - This is finding (b). The rigid hand point cannot provide the bag's release-rate derivatives, and this has not been fixed here. Using the bag's own post-release path would give ballistic rates, not the rates of a later release.
   - Timing sensitivity therefore needs a direct measure of the hand/bag path in the last frames of contact, for example a hand keypoint model or bag tracking while in hand.
+
+## Task 11 — final pilot regression (METHOD_VERSION 2026.09.24-scene)
+
+Full two-pass regression on all 26 pilot clips, after every prior task (through Task 10's
+within-athlete analyses and the Task 11 code cleanups: NumPy-bool serialization,
+`outcome_links`'s `_finite` filter, the `test_chain.py` fixture fix). `regression_check.py` now
+also reports, per throw: board status/confidence/reference frame, contact kind/state, the old
+(library-cached) vs. new automatic release frame and their difference, `release_onset.status`,
+the suggested outcome score and basis, athlete-mask status, the scale source/HFOV/status, and the
+chain's release-speed/kinetic-energy/peak-hand-force states.
+
+Reproduce:
+
+    MPLCONFIGDIR=$TMPDIR/mpl PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
+        --library "~/Documents/Cornhole Pilot Library" --scratch "$TMPDIR/scene-regression11" \
+        --output "$TMPDIR/scene-regression11.json"
+
+Result: 26/26 throws re-analysed with exit code 0 (no crashes). Runtime ≈ 17 minutes (two full
+passes over 26 throws plus session pooling).
+
+### Acceptance 1 — board found automatically on ≥ 22/26 clips
+
+**26/26 found**, confidence 0.83–0.91 (all ≥ the 0.75 `MIN_CONFIDENCE` gate). Unchanged from the
+Task 8c "after" table — the pale-deck relaxed pass (§18.3 of
+[BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md)) still finds every board, including the 10 that
+needed it. **Pass.**
+
+### Acceptance 2 — release frames unchanged or within ±1 frame of the current engine
+
+Per the task instructions, this compares the automatic release frame against the **visual**
+judgements in `docs/release_audit_visual.json` (Task 9b), not only against whatever happens to be
+cached in the library — the library's own cached `release_old`/`auto_release_old` values are a mix
+of automatic and coach-corrected frames from different points in the project's history (e.g.
+`Throw-F0E77C58`'s stored effective release is 171, a manually reviewed frame, versus this run's
+automatic 178; `Throw-14A6C444`, a `needs_review` throw, similarly has a stale stored value), so a
+raw old-vs-new diff on its own is not a meaningful regression signal. The `release_delta_frames`
+column below (this run's automatic release − the library's cached automatic release) is kept as a
+diagnostic; large values on `needs_review`/uncalibrated throws (`EFFA8D86`: +56; `14A6C444`: +12)
+reflect stale library caches predating the Task 9b release-onset fix, not a code change in this
+task — no bag-tracking or release logic changed between Task 9b's fix-round commit and this one.
+
+Against the visual audit (21 accepted flights, each judged as a 2-frame range by eye):
+
+**21/21 within ±1 frame of the visual range** (19 exact), mean error **+0.10 frame**, SD **0.30
+frame** — this reproduces Task 9b's post-fix numbers exactly (`docs/SCENE_REGRESSION.md`,
+"Release onset audit" above), confirming the release-onset rule is unaffected by every task since.
+**Pass.**
+
+### Acceptance 3 — no observed first contact in mid-air
+
+19 of 26 throws have `contact.state == "measured"` (deck or floor); the other 7 are
+`lost_in_flight` with either a predicted contact or (one throw) no predictable contact within the
+clip. **Every one of the 19 measured-contact frames was extracted from the source video and looked
+at** (crops centred on the tracked point, `$TMPDIR/contact-qa/*.png`, ephemeral scratch outside the
+repo):
+
+- All 19 show the bag at the deck or the floor, matching the reported `kind`. Two needed a closer
+  look because a compact crop made the bag hard to see against its background:
+  - `Throw-44CA1279` (deck): the bag is a dark-red blur that blends into the deck's own red/white
+    stripe pattern; a 3× zoom shows it clearly sitting on the deck surface at the marked point.
+  - `Throw-5B5C77D7` (floor, contact at frame 702, 70 frames/1.17 s after release — a lofted, long
+    throw): a small crop centred on the tracked point showed empty floor with no board in view,
+    which was concerning until a wider frame showed the board 700+ px away (its own natural
+    position — the throw was a long air-time toss, not a tracking error) and a 3× zoom on the
+    tracked point showed the bag resting on the glossy floor with its own reflection stretched
+    below it. Confirmed floor contact, not mid-air.
+  - `Throw-D7FAAA60` (floor): the bag appears to touch the board's raised back edge in the flat 2D
+    crop; this is 2D projection overlap (the back of the deck is 12 in off the floor, so a bag on
+    the floor just behind it can appear to overlap the deck edge from this camera angle) rather
+    than a plane-classification error — `board.py`'s classifier uses the solved 3D board pose, not
+    2D overlap, and this throw's floor/measured classification is unchanged from the Task 8c/9b
+    tables.
+- No throw shows the bag clearly airborne above either surface at its reported contact frame.
+
+**Lost-in-flight throws and their predicted contact** (never counted as measured, excluded from
+landing statistics):
+
+| throw | flight status | predicted contact |
+|---|---|---|
+| 3D93058B | needs_review | frame 63, deck |
+| 6BD2EE8F | accepted | frame 203, deck |
+| 8D96BCAF | accepted | frame 154, floor |
+| A21B263C | accepted | frame 148, floor |
+| BE2292C2 | needs_review | frame 96, floor |
+| DB5A8186 | accepted | frame 168, floor |
+| EFFA8D86 | needs_review | **unavailable** — no surface reached within 1.5 s of the last tracked frame (short, `capped_min_inliers` flight) |
+
+All 7 match the contact kind/state already recorded in the Task 8c/9b tables above — no throw's
+contact classification changed. **Pass.**
+
+### Acceptance 4 — every chain quantity has a state; spot-check 3 throws
+
+Spot-checked `results.json["chain"]["quantities"]` for `Throw-19A9640F` (fully measured throw),
+`Throw-3D93058B` (needs_review, SI units withheld — every quantity correctly `unavailable`), and
+`Throw-5B5C77D7` (the long lofted throw from Acceptance 3): all 29 names in `chain.QUANTITY_UNITS`
+are present with a `state` on all three. States seen: `measured` (body angles, release
+speed/angle/height, energies, peak/mean hand force), `estimated` (hand tangential
+acceleration/rotation rate and force direction below the 25%/15° certainty bar on some throws,
+energy match, speed margin, predicted landing — always estimated by design), and `unavailable`
+(elbow/peak-sequence quantities landing on the search-window edge; every quantity on the
+SI-unit-withheld `3D93058B`; timing sensitivity on every throw, per §18.12 of
+[BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md)). **Pass.**
+
+### Full per-throw table
+
+`release Δ(auto)` = this run's automatic release − the library's cached automatic release
+(diagnostic only, see Acceptance 2). `vs visual` = this run's automatic release − the nearest end
+of the visual judgement range (0 = inside the range); `—` where the throw has no visual judgement
+(not one of the 21 accepted-in-Task-8c flights). `speed/KE/Fpeak state` = chain states for release
+speed, kinetic energy, peak net force on the bag, in that order.
+
+| throw | board conf | contact kind/state | new contact frame | release_onset | release Δ(auto) | vs visual | suggested score | scale source/HFOV | speed/KE/Fpeak state |
+|---|---|---|---|---|---|---|---|---|---|
+| 08541449 | 0.89 | deck/measured | 107 | no_in_hand_points | 0 | +1 | None | session_median_gravity_fov/56.9° | measured/measured/measured |
+| 105B9972 | 0.91 | floor/measured | 217 | no_in_hand_points | 6 | +0 | None | session_median_gravity_fov/62.6° | measured/measured/measured |
+| 126CCAD1 | 0.91 | floor/measured | 200 | applied | 0 | +0 | None | session_median_gravity_fov/62.6° | measured/measured/measured |
+| 14A6C444 | 0.90 | floor/measured | 247 | no_in_hand_points | 12 | — | None | —/— | unavailable/unavailable/unavailable |
+| 1500778E | 0.83 | floor/measured | 294 | no_in_hand_points | 2 | +1 | 0 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 19A9640F | 0.89 | deck/measured | 293 | no_in_hand_points | 0 | +0 | 0 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 3B1EF3CA | 0.89 | deck/measured | 254 | applied | 3 | +0 | 1 | session_median_gravity_fov/56.9° | measured/measured/measured |
+| 3B3DC0EC | 0.90 | deck/measured | 266 | no_in_hand_points | 0 | +0 | 1 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 3D93058B | 0.89 | lost_in_flight/unavailable | None | applied | 3 | — | None | —/— | unavailable/unavailable/unavailable |
+| 41A04DAC | 0.89 | deck/measured | 223 | no_in_hand_points | 0 | +0 | 1 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 44CA1279 | 0.88 | deck/measured | 240 | no_in_hand_points | 0 | +0 | 1 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 5B5C77D7 | 0.90 | floor/measured | 702 | applied | 4 | +0 | 0 | session_median_gravity_fov/62.6° | measured/measured/measured |
+| 62AA318D | 0.85 | floor/measured | 170 | no_in_hand_points | 0 | +0 | 0 | session_median_gravity_fov/56.9° | measured/measured/measured |
+| 6BD2EE8F | 0.90 | lost_in_flight/unavailable | None | no_in_hand_points | -1 | +0 | None | session_median_gravity_fov/56.9° | measured/measured/measured |
+| 80823323 | 0.90 | deck/measured | 273 | no_in_hand_points | 0 | +0 | 1 | session_median_gravity_fov/58.8° | measured/measured/measured |
+| 8D96BCAF | 0.85 | lost_in_flight/unavailable | None | no_in_hand_points | 2 | +0 | 0 | session_median_gravity_fov/56.9° | measured/measured/measured |
+| A21B263C | 0.87 | lost_in_flight/unavailable | None | applied | 5 | +0 | 0 | session_median_gravity_fov/56.9° | measured/measured/measured |
+| AA7AC4A3 | 0.91 | deck/measured | 98 | no_in_hand_points | 0 | +0 | 0 | session_median_gravity_fov/56.9° | measured/measured/measured |
+| BE2292C2 | 0.84 | lost_in_flight/unavailable | None | capped_min_inliers | 2 | — | None | —/— | unavailable/unavailable/unavailable |
+| D4FF5A49 | 0.89 | floor/measured | 272 | applied | 4 | +0 | 0 | session_median_gravity_fov/62.6° | measured/measured/measured |
+| D7FAAA60 | 0.90 | floor/measured | 356 | no_in_hand_points | 0 | — | None | —/— | unavailable/unavailable/unavailable |
+| DB5A8186 | 0.90 | lost_in_flight/unavailable | None | applied | -5 | +0 | 0 | session_median_gravity_fov/62.6° | measured/measured/measured |
+| DE7F5B7D | 0.83 | floor/measured | 298 | applied | 2 | +0 | None | session_median_gravity_fov/56.9° | measured/measured/measured |
+| E0D8F3B9 | 0.85 | deck/measured | 76 | no_in_hand_points | 0 | +0 | None | session_median_gravity_fov/56.9° | measured/measured/measured |
+| EFFA8D86 | 0.91 | lost_in_flight/unavailable | None | capped_min_inliers | 56 | — | None | —/— | unavailable/unavailable/unavailable |
+| F0E77C58 | 0.86 | floor/measured | 271 | no_in_hand_points | -9 | +0 | 0 | session_median_gravity_fov/58.8° | measured/measured/measured |

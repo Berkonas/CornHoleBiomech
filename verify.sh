@@ -13,16 +13,19 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   exit 2
 fi
 
-print "[1/4] Python and scientific tests"
+print "[1/5] Python and scientific tests"
 MPLCONFIGDIR="$MATPLOTLIB_CACHE" PYTHONPATH="$PROJECT_DIR/python" "$PYTHON_BIN" -m pytest "$PROJECT_DIR/tests"
 
-print "[2/4] Swift model, persistence, and migration tests"
+print "[2/5] Swift model, persistence, and migration tests"
 CLANG_MODULE_CACHE_PATH="$SWIFT_MODULE_CACHE" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFT_MODULE_CACHE" DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift test --disable-sandbox --package-path "$SWIFT_PACKAGE"
 
-print "[3/4] Data-schema fixtures"
+print "[3/5] Build the SceneVision product (scene_vision Swift/Apple Vision helper)"
+CLANG_MODULE_CACHE_PATH="$SWIFT_MODULE_CACHE" SWIFTPM_MODULECACHE_OVERRIDE="$SWIFT_MODULE_CACHE" DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" swift build --disable-sandbox --package-path "$SWIFT_PACKAGE" --product SceneVision
+
+print "[4/5] Data-schema fixtures"
 PYTHONPATH="$PROJECT_DIR/python" "$PYTHON_BIN" "$PROJECT_DIR/scripts/validate_data_schema.py" --root "$PROJECT_DIR"
 
-print "[4/4] Signed release build"
+print "[5/5] Signed release build (CornholeBiomechanics + SceneVision)"
 DEVELOPER_DIR="$XCODE_DEVELOPER_DIR" "$PROJECT_DIR/scripts/build_app.sh"
 
 print "Verification complete. See docs/VERIFICATION.md for scope and limitations."
