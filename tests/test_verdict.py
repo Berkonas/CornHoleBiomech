@@ -1,0 +1,62 @@
+from cornhole_biomech.verdict import throw_verdict, personal_flags, physics_check
+from cornhole_biomech.zones import ZoneSettings, speed_to_hole
+
+
+def metric(value, status="reliable", noise=0.1, label="m", unit=""):
+    return {"value": value, "status": status, "noise_floor": noise, "label": label, "unit": unit}
+
+
+def release(speed, angle=40.0, height=0.9, status="reliable"):
+    return {"bag_release_speed_m_s": metric(speed, status, 0.15, "Release speed", "m/s"),
+            "bag_release_angle_deg": metric(angle, "reliable", 3.0, "Release angle", "°"),
+            "bag_release_height_m": metric(height, status, 0.03, "Release height", "m")}
+
+
+def test_physics_uses_measured_distance_and_required_speed():
+    settings = ZoneSettings()
+    p = physics_check(release(7.0), 6.0, settings)
+    assert p["distance_source"] == "measured" and p["distance_m"] == 6.0
+    need = speed_to_hole(40.0, 0.9, ZoneSettings(release_to_board_m=6.0))
+    assert abs(p["required_speed_m_s"] - need) < 1e-6
+    assert abs(p["delta_speed_m_s"] - (7.0 - need)) < 1e-6
+    assert p["sensitivity_m_per_m_s"] > 0
+
+
+def test_physics_falls_back_to_assumed_distance():
+    p = physics_check(release(8.0), None, ZoneSettings())
+    assert p["distance_source"] == "assumed" and p["distance_m"] == 7.7
+
+
+def test_no_scale_skips_physics():
+    v = throw_verdict(release(7.0, status="unreliable"), [], {}, 6.0, ZoneSettings())
+    assert v["physics"] is None
+    assert "m/s" not in v["headline"]
+
+
+def test_unreachable_hole():
+    p = physics_check(release(2.0, angle=5.0, height=0.3), 6.0, ZoneSettings())
+    assert p["required_speed_m_s"] is None or p["landing"] in ("short", "front")
+    v = throw_verdict(release(2.0, angle=5.0, height=0.3), [], {}, 6.0, ZoneSettings())
+    assert v["headline"]
+
+
+def test_few_throws_no_personal_flags():
+    others = [{"elbow_angle_deg_at_release": metric(150.0, noise=10.0)} for _ in range(4)]
+    assert personal_flags({"elbow_angle_deg_at_release": metric(190.0, noise=10.0)}, others) == []
+
+
+def test_personal_flag_needs_noise_and_spread():
+    others = [{"elbow_angle_deg_at_release": metric(v, noise=10.0)} for v in (148, 150, 151, 152, 150, 149)]
+    flags = personal_flags({"elbow_angle_deg_at_release": metric(175.0, noise=10.0)}, others)
+    assert flags and flags[0]["key"] == "elbow_angle_deg_at_release" and flags[0]["direction"] == "high"
+    assert personal_flags({"elbow_angle_deg_at_release": metric(156.0, noise=10.0)}, others) == []
+
+
+def test_fix_item_names_speed_when_speed_is_off():
+    settings = ZoneSettings()
+    need = speed_to_hole(40.0, 0.9, ZoneSettings(release_to_board_m=6.0))
+    v = throw_verdict(release(need + 0.8), [], {"calibration": "WARNING"}, 6.0, settings)
+    fixes = [i for i in v["items"] if i["kind"] == "fix"]
+    assert fixes and fixes[0]["metric_key"] == "bag_release_speed_m_s"
+    assert any(i["kind"] == "note" for i in v["items"])      # WARNING grade becomes a data note
+    assert "long" in v["headline"] or "past" in v["headline"]

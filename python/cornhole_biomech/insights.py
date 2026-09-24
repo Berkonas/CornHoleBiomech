@@ -235,9 +235,16 @@ def generate_insights(project_path, trial_id, export_report=True):
     performance["summary"]=performance_summary(rows,trial_labels)
     from .zones import ZoneSettings, sports_stats, zone_report
     settings=project.get('analysisSettings',{})
-    zone_settings=ZoneSettings(release_to_board_m=float(settings.get('releaseToBoardMeters') or 7.7))
+    measured=[x for x in ((read(d/'results.json',{}).get('summaries') or {}).get('release_to_board_front_m') for d in eligible_dirs) if isinstance(x,(int,float))]
+    default_distance=float(settings.get('releaseToBoardMeters') or 7.7)
+    zone_settings=ZoneSettings(release_to_board_m=float(np.median(measured)) if len(measured)>=3 else default_distance)
     performance["sports"]=sports_stats([o.get('score_category') for o in outcomes.values()])
     performance["zones"]=zone_report(rows,zone_settings)
+    performance["zones"]["settings"]["distance_source"]="measured_median" if len(measured)>=3 else "assumed"
+    from .verdict import throw_verdict
+    other_metrics=[read(d/'results.json',{}).get('coach_metrics') or {} for d in eligible_dirs if d!=directory]
+    grades={k:v.get('grade') for k,v in (results.get('quality',{}).get('grades') or {}).items() if isinstance(v,dict)}
+    verdict=throw_verdict(results.get('coach_metrics') or {},other_metrics,grades,(results.get('summaries') or {}).get('release_to_board_front_m'),zone_settings)
     performance["summary"]["feedback"]["physics"]=physics_sentence(performance["zones"],rows)
     from .coaching import athlete_dashboard
     grade_rows,coach_rows=[],[]
@@ -263,7 +270,7 @@ def generate_insights(project_path, trial_id, export_report=True):
              'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
              'outcome':outcome,'comparison_available':comparison is not None,
              'differences':diffs,'coach_summary':payload_summary,'consistency':consistency,
-             'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,
+             'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,'verdict':verdict,
              'provenance':{'backend':manifest.get('pose_backend','unknown'),'model':manifest.get('pose_model','unknown'),
                            'sports2d_version':manifest.get('pose_backend_metadata',{}).get('sports2d_version'),
                            'configuration':manifest.get('analysis_configuration',{}),'analysis_id':manifest.get('analysis_id'),

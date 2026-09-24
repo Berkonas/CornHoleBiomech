@@ -1,0 +1,147 @@
+"""Per-throw coaching verdict: what happened, what went well, what to work on.
+
+Two independent checks, both stated in plain words and both reproducible:
+
+1. Physics (drag-free point mass, zones.landing): with this throw's measured release speed v,
+   angle θ and height h, and the measured release-to-board distance d (regulation 7.7 m when the
+   board was not measured), where would the bag first land? The speed that reaches the hole
+   centre at the same θ and h is v*; Δv = v − v*. ∂x/∂v (central difference, ±0.05 m/s) converts
+   a speed error into metres of landing error.
+2. Personal (within-athlete): the throw's value against the athlete's other throws, flagged only
+   when |value − median| > max(noise floor, 1.5 · IQR/1.349) and at least 5 other throws exist.
+
+Associations only; the text never claims a body variable caused the landing.
+"""
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Any
+
+import numpy as np
+
+from .zones import ZoneSettings, landing, predicted_zone, speed_to_hole
+
+MINIMUM_OTHERS = 5
+RELEASE = ("bag_release_speed_m_s", "bag_release_angle_deg", "bag_release_height_m")
+BODY_WORDS = {  # key: (word when higher than usual, word when lower)
+    "elbow_angle_deg_at_release": ("straighter elbow", "more bent elbow"),
+    "trunk_inclination_deg_at_release": ("more forward trunk lean", "more upright trunk"),
+    "wrist_peak_speed_arm_lengths_s": ("faster peak hand speed", "slower peak hand speed"),
+    "swing_backswing_angle_deg": ("shorter backswing", "bigger backswing"),
+    "swing_forward_duration_s": ("slower forward swing", "quicker forward swing"),
+    "swing_tempo_ratio": ("longer backswing relative to the forward swing", "shorter backswing relative to the forward swing"),
+    "wrist_direction_at_release_deg": ("hand moving more upward at release", "hand moving flatter at release"),
+    "wrist_peak_speed_time_rel_release_ms": ("peak hand speed closer to release", "peak hand speed earlier before release"),
+    "bag_release_angle_deg": ("higher release angle", "lower release angle"),
+    "bag_release_speed_m_s": ("faster release", "slower release"),
+    "bag_release_height_m": ("higher release point", "lower release point"),
+}
+
+
+def _usable(metrics: dict, key: str) -> float | None:
+    row = metrics.get(key) or {}
+    value = row.get("value")
+    if value is None or row.get("status") in ("unreliable", "unavailable", None) or not np.isfinite(value):
+        return None
+    return float(value)
+
+
+def physics_check(metrics: dict, release_to_board_m: float | None, settings: ZoneSettings) -> dict[str, Any] | None:
+    v, a, h = (_usable(metrics, k) for k in RELEASE)
+    if v is None or a is None or h is None:
+        return None
+    measured = release_to_board_m is not None and np.isfinite(release_to_board_m) and release_to_board_m > 0
+    s = replace(settings, release_to_board_m=float(release_to_board_m)) if measured else settings
+    hit = predicted_zone(v, a, h, s)
+    need = speed_to_hole(a, h, s)
+    dv = 0.05
+    x_hi = landing(v + dv, a, h, s.release_to_board_m, s.board)["horizontal_m"]
+    x_lo = landing(v - dv, a, h, s.release_to_board_m, s.board)["horizontal_m"]
+    hole_x = s.release_to_board_m + s.board.hole_along * np.cos(s.board.angle)
+    return {"distance_m": s.release_to_board_m, "distance_source": "measured" if measured else "assumed",
+            "speed_m_s": v, "angle_deg": a, "height_m": h,
+            "landing": hit["kind"], "zone": hit["zone"], "from_hole_m": hit["from_hole_m"],
+            "landing_x_m": hit["horizontal_m"], "hole_x_m": float(hole_x),
+            "required_speed_m_s": need, "delta_speed_m_s": None if need is None else v - need,
+            "sensitivity_m_per_m_s": (x_hi - x_lo) / (2 * dv)}
+
+
+def personal_flags(metrics: dict, others: list[dict]) -> list[dict[str, Any]]:
+    flags = []
+    for key, row in metrics.items():
+        value = _usable(metrics, key)
+        history = [x for x in (_usable(o, key) for o in others) if x is not None]
+        if value is None or len(history) < MINIMUM_OTHERS:
+            continue
+        median = float(np.median(history))
+        q25, q75 = np.percentile(history, [25, 75])
+        threshold = max(float(row.get("noise_floor") or 0.0), 1.5 * (q75 - q25) / 1.349)
+        if abs(value - median) > threshold and threshold > 0:
+            flags.append({"key": key, "label": row.get("label", key), "unit": row.get("unit", ""), "value": value,
+                          "median": median, "q25": float(q25), "q75": float(q75),
+                          "direction": "high" if value > median else "low",
+                          "size": abs(value - median) / threshold})
+    return sorted(flags, key=lambda f: -f["size"])
+
+
+def _fmt(value: float, unit: str) -> str:
+    digits = 0 if unit in ("°", "ms", "°/s") else 2 if unit in ("m", "s") else 1
+    return f"{value:.{digits}f}{'' if unit == '°' else ' '}{unit}".strip()
+
+
+def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_board_m: float | None,
+                  settings: ZoneSettings) -> dict[str, Any]:
+    physics = physics_check(metrics, release_to_board_m, settings)
+    flags = personal_flags(metrics, others)
+    approx = "≈" if grades.get("calibration") != "GOOD" else ""
+    items: list[dict[str, Any]] = []
+    if physics:
+        where = {"short": "short of the board", "front": "into the front of the board", "long": "past the board"}
+        if physics["landing"] == "board":
+            off = physics["from_hole_m"]
+            place = "at the hole" if abs(off) < 0.08 else f"{approx}{abs(off):.2f} m {'past' if off > 0 else 'short of'} the hole"
+            headline = f"Released at {physics['angle_deg']:.0f}° and {approx}{physics['speed_m_s']:.1f} m/s: the flight model puts first contact on the board, {place}."
+        else:
+            headline = f"Released at {physics['angle_deg']:.0f}° and {approx}{physics['speed_m_s']:.1f} m/s: the flight model puts first contact {where[physics['landing']]}."
+        need = physics["required_speed_m_s"]
+        if need is None:
+            items.append({"kind": "fix", "metric_key": "bag_release_angle_deg",
+                          "text": f"No release speed reaches the hole from {physics['height_m']:.2f} m at {physics['angle_deg']:.0f}°; the release angle is the limit."})
+        elif abs(physics["delta_speed_m_s"]) * abs(physics["sensitivity_m_per_m_s"]) > 0.15:
+            more = "less" if physics["delta_speed_m_s"] > 0 else "more"
+            items.append({"kind": "fix", "metric_key": "bag_release_speed_m_s",
+                          "text": f"Release speed: {approx}{need:.1f} m/s reaches the hole at this angle and height; this throw was {approx}{abs(physics['delta_speed_m_s']):.1f} m/s {'faster' if more == 'less' else 'slower'}. "
+                                  f"Each 0.1 m/s moves first contact about {abs(physics['sensitivity_m_per_m_s']) * 0.1:.2f} m."})
+        else:
+            items.append({"kind": "good", "metric_key": "bag_release_speed_m_s",
+                          "text": f"Release speed matched the hole ({approx}{physics['speed_m_s']:.1f} m/s vs {approx}{need:.1f} m/s needed)."})
+    elif flags:
+        headline = f"This throw differed from the athlete's usual pattern in {len(flags)} measured variable{'s' if len(flags) != 1 else ''}."
+    elif len(others) < MINIMUM_OTHERS:
+        headline = f"Measured. {MINIMUM_OTHERS - len(others)} more analysed throw{'s' if MINIMUM_OTHERS - len(others) != 1 else ''} are needed to compare it with this athlete's usual pattern."
+    else:
+        headline = "Every reliable measurement was within this athlete's usual range."
+    for flag in flags[:2]:
+        words = BODY_WORDS.get(flag["key"])
+        if not words:
+            continue
+        word = words[0] if flag["direction"] == "high" else words[1]
+        items.append({"kind": "fix" if physics is None or flag["key"] not in RELEASE else "note", "metric_key": flag["key"],
+                      "text": f"Unusual for this athlete: {word} ({_fmt(flag['value'], flag['unit'])}; usual {_fmt(flag['q25'], flag['unit'])}–{_fmt(flag['q75'], flag['unit'])})."})
+    steady = [k for k in ("elbow_angle_deg_at_release", "trunk_inclination_deg_at_release", "wrist_peak_speed_arm_lengths_s")
+              if _usable(metrics, k) is not None and k not in {f["key"] for f in flags}
+              and sum(_usable(o, k) is not None for o in others) >= MINIMUM_OTHERS]
+    if steady:
+        labels = [str((metrics[k] or {}).get("label", k)).lower() for k in steady]
+        items.append({"kind": "good", "metric_key": steady[0], "text": f"Within the usual range: {', '.join(labels)}."})
+    for stage, name in (("pose", "Body tracking"), ("bag", "Bag tracking"), ("release", "Release timing"), ("calibration", "Scale")):
+        grade = grades.get(stage)
+        if grade in ("WARNING", "POOR"):
+            text = ("Scale comes from the bag's fall under gravity only; metres are approximate." if stage == "calibration" and grade == "WARNING"
+                    else f"{name} quality is {grade.lower()}; treat related numbers with care.")
+            items.append({"kind": "note", "metric_key": None, "text": text})
+    order = {"fix": 0, "good": 1, "note": 2}
+    items.sort(key=lambda i: order[i["kind"]])
+    return {"headline": headline, "items": items[:5], "physics": physics, "personal": flags,
+            "method": "Drag-free point-mass flight to first contact (zones.landing); personal flags when "
+                      "|value − median| > max(noise floor, 1.5·IQR/1.349) with ≥ 5 other throws."}
