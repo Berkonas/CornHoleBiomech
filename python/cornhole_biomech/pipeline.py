@@ -61,6 +61,43 @@ from .video import file_sha256, read_video_metadata
 Progress = Callable[[str, float, str], None]
 
 
+def _scale_agreement(board_ppm: float | None, gravity_ppm: float | None,
+                     stature_ppm: float | None) -> dict[str, Any]:
+    """Largest pairwise disagreement between the available pixels-per-metre scales.
+
+    Stature scale (athlete standing height / 1.70 m) is a coarse check only, since
+    the athlete's actual height is unknown; it still counts toward `flag` when present.
+    """
+    values = [v for v in (board_ppm, gravity_ppm, stature_ppm) if v]
+    if len(values) < 2:
+        return {"max_disagreement": None, "flag": False, "sources": len(values)}
+    worst = max(abs(a - b) / min(a, b) for i, a in enumerate(values) for b in values[i + 1:])
+    return {"max_disagreement": float(worst), "flag": bool(worst > 0.10), "sources": len(values),
+            "board_ppm": board_ppm, "gravity_ppm": gravity_ppm, "stature_ppm": stature_ppm}
+
+
+def _board_scale(auto_flight: dict[str, Any] | None, point_px) -> dict[str, Any]:
+    """Pixels-per-metre scale in the athlete/bag plane from the detected board's throw plane.
+
+    Only `board["status"] == "found"` counts as a board; `phi_status == "measured"`
+    (out-of-plane angle within tolerance) is required for the scale to be trusted as
+    "measured" rather than merely "estimated". The 55-75 deg field-of-view range is
+    re-solved at `point_px` to give the scale's uncertainty (`hfov_range_ppm`).
+    """
+    from .board import HFOV_RANGE_DEG, NOMINAL_HFOV_DEG, solve_board
+    board = (auto_flight or {}).get("board") or {}
+    if board.get("status") != "found" or not board.get("corners_px"):
+        return {"status": "unavailable", "pixels_per_meter": None, "hfov_range_ppm": None, "phi_deg": None,
+                "reason": "Board not located; " + "; ".join(board.get("reasons") or ["no board result"])}
+    corners = np.asarray(board["corners_px"], float)
+    size = (int(auto_flight.get("width") or 1920), int(auto_flight.get("height") or 1080))
+    ppm = [solve_board(corners, size, hfov_deg=h).pixels_per_meter_at(point_px)
+           for h in (*HFOV_RANGE_DEG, NOMINAL_HFOV_DEG)]
+    status = "measured" if board.get("phi_status") == "measured" else "estimated"
+    return {"status": status, "pixels_per_meter": ppm[2], "hfov_range_ppm": sorted(ppm[:2]),
+            "phi_deg": board.get("phi_deg"), "reason": board.get("phi_reason")}
+
+
 def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
                       output: Path) -> dict[str, Any]:
     """Run automatic flight detection with the body scale and wrist from this clip's pose."""
@@ -538,6 +575,12 @@ def analyze_trial(
     summaries.update(arm_motion["summaries"])
 
     calibration = SpatialCalibration.load(calibration_path)
+    board_scale_point = (filtered[release_frame, lookup[f"{context.throwing_side}_shoulder"]]
+                         if release_frame is not None else (960.0, 540.0))
+    board_scale = _board_scale(auto_flight if auto_accepted else None, board_scale_point)
+    if calibration is None and board_scale["status"] == "measured":
+        calibration = SpatialCalibration(board_scale["pixels_per_meter"], "board_throw_plane", True,
+                                         "regulation_board_pnp")
     flight_review = _load_json(output / "flight_review.json", {})
     if auto_accepted:
         flight_review, contact_warnings = _merge_automatic_flight_review(auto_flight, flight_review)
@@ -586,6 +629,11 @@ def analyze_trial(
         # No measured scale: the flight's own gravity sets the bag-plane scale.
         calibration = SpatialCalibration(gravity_scale["pixels_per_meter"], "bag_flight_plane_gravity",
                                          True, "reviewed_flight_gravity_fit")
+    scale_check = _scale_agreement(board_scale.get("pixels_per_meter"),
+                                   gravity_scale.get("pixels_per_meter"), None)
+    if scale_check["flag"]:
+        bag_warnings.append(f"Board and flight-gravity scales disagree by {100 * scale_check['max_disagreement']:.0f}% "
+                            "(> 10%); metre values are flagged.")
 
     from .bag_filter import filtered_to_raw, smooth_flight
     from .trajectory_model import ballistic_model_check
@@ -905,6 +953,17 @@ def analyze_trial(
         "event_frames": event_frames,
         "wrist_speed_arm_lengths_s": wrist_speed_series,
     }
+    if auto_flight:
+        results["board"] = auto_flight.get("board")
+        results["contact"] = auto_flight.get("contact")
+        results["predicted_contact"] = auto_flight.get("predicted_contact")
+        results["landing"] = auto_flight.get("landing")
+        results["suggested_outcome"] = auto_flight.get("suggested_outcome")
+        results["scene"] = auto_flight.get("scene")
+    results["scale_check"] = scale_check
+    landing = (auto_flight or {}).get("landing") or {}
+    summaries["landing_along_error_m"] = landing.get("along_error_m") if landing.get("state") == "measured" else None
+    summaries["board_phi_deg"] = board_scale.get("phi_deg")
     after_contact = (auto_flight or {}).get("after_contact") if auto_accepted else None
     flight["after_contact"] = None if after_contact is None else {
         k: v for k, v in after_contact.items() if k not in ("path", "background_frames")}

@@ -15,7 +15,7 @@ from .bag import BagSeed, BagTrack, bag_tracking_qa, track_bag_from_seed
 from .models import BoardPoint, TrialContext, TrialOutcome
 from .outcomes import outcome_summary
 from .pipeline import analyze_relationships, analyze_trial, compare_trial
-from .serialization import json_ready
+from .serialization import json_ready, write_json
 from .video import read_video_metadata
 
 
@@ -168,6 +168,12 @@ def parser() -> argparse.ArgumentParser:
     pair.add_argument("--a", required=True, help="Trial ID of the first throw")
     pair.add_argument("--b", required=True, help="Trial ID of the second throw")
     pair.set_defaults(handler=handle_compare_throws)
+
+    corners = commands.add_parser("set-board-corners", help="Store four clicked deck corners for a trial (and others)")
+    corners.add_argument("--trial-dir", required=True)
+    corners.add_argument("--corners", required=True, help="x1,y1,x2,y2,x3,y3,x4,y4 in the release frame's pixels")
+    corners.add_argument("--apply-to", nargs="*", default=[])
+    corners.set_defaults(handler=handle_set_board_corners)
     return root
 
 
@@ -479,6 +485,30 @@ def handle_outcome(args: argparse.Namespace) -> dict[str, Any]:
         final_resting_point=_point(value.get("final_resting_point")),
     )
     return outcome_summary(outcome)
+
+
+def handle_set_board_corners(args: argparse.Namespace) -> dict[str, Any]:
+    """Store clicked deck corners for a trial, and transfer them to other trials shot from the same position."""
+    import cv2
+    from .board import transfer_corners
+    values = [float(v) for v in args.corners.split(",")]
+    if len(values) != 8:
+        raise ValueError("Give exactly four corners: x1,y1,x2,y2,x3,y3,x4,y4.")
+    source = Path(args.trial_dir)
+    write_json(source / "board_corners.json", {"corners_px": [values[i:i + 2] for i in range(0, 8, 2)],
+                                               "source": "clicked"})
+    applied, failed = [], []
+    src_plate = cv2.imread(str(source / "plate.jpg"))
+    for other in args.apply_to:
+        dst_plate = cv2.imread(str(Path(other) / "plate.jpg"))
+        moved = None if src_plate is None or dst_plate is None else transfer_corners(src_plate, dst_plate, values)
+        if moved is None:
+            failed.append(other)
+            continue
+        write_json(Path(other) / "board_corners.json",
+                  {"corners_px": moved.tolist(), "source": f"transferred:{source.name}"})
+        applied.append(other)
+    return {"written": str(source / "board_corners.json"), "applied": applied, "failed": failed}
 
 
 def main(argv: list[str] | None = None) -> int:

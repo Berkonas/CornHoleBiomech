@@ -29,7 +29,7 @@ GRAVITY_M_S2 = 9.80665  # standard gravity; local variation (<0.3 %) is below vi
 # Planes in which a pixels-per-meter scale may convert bag motion to SI units:
 # a measured object in the athlete's release plane, or the scale implied by the
 # reviewed bag flight's own vertical acceleration (see flight.gravity_scale_from_flight).
-PHYSICAL_SCALE_PLANES = frozenset({"athlete_release_motion_plane", "bag_flight_plane_gravity"})
+PHYSICAL_SCALE_PLANES = frozenset({"athlete_release_motion_plane", "bag_flight_plane_gravity", "board_throw_plane"})
 
 
 @dataclass(frozen=True)
