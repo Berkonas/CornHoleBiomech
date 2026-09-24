@@ -165,7 +165,7 @@ def _noise_state(value: float, interval: list[float] | None, unit: str) -> tuple
                          f"{100 * MAX_RELATIVE_HALF_WIDTH:.0f} % of the value (differentiation amplifies landmark noise).")
 
 
-def _window(forward_swing: int | None, release: int, fps: float) -> tuple[int, str]:
+def forward_swing_window(forward_swing: int | None, release: int, fps: float) -> tuple[int, str]:
     """Start of the forward-swing window and a note saying where it came from.
 
     A forward-swing event more than `MAX_FORWARD_SWING_S` before release is not a forward swing
@@ -218,7 +218,7 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
     (any unit; only its timing is used) adds the wrist to the peak order.
     """
     out: dict[str, Any] = {}
-    start, start_note = _window(forward_swing, release, fps)
+    start, start_note = forward_swing_window(forward_swing, release, fps)
     stop = release + int(round(PEAK_WINDOW_AFTER_RELEASE_S * fps))
     ms = lambda f: 1000.0 * (f - release) / fps
     window_note = f"Searched up to 0.1 s after release; resolution 1 frame. {start_note}"
@@ -333,7 +333,7 @@ def hand_chain(shoulder_m: np.ndarray, elbow_m: np.ndarray, wrist_m: np.ndarray,
     force = net_force_on_bag(acceleration, mass_kg)
     power = power_on_bag(force, velocity)
     rate = energy_rate(velocity, point, mass_kg, fps)
-    start, start_note = _window(forward_swing, release, fps)
+    start, start_note = forward_swing_window(forward_swing, release, fps)
     window = slice(start, min(n, release + 1))
     magnitude = np.linalg.norm(force[window], axis=1)
     has_release = 0 <= release < n and np.isfinite(velocity[release]).all() and np.isfinite(acceleration[release]).all()

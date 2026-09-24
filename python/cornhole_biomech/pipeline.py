@@ -1298,9 +1298,9 @@ def analyze_trial(
     }
     if release_frame is not None:
         # Same forward-swing guard chain.py uses: a forward-swing event more than 1 s before
-        # release, or missing, falls back to a 0.6 s window before release (chain._window).
-        from .chain import _window as _chain_forward_swing_window
-        swing_start, _ = _chain_forward_swing_window(events["forward_swing"].effective_frame, release_frame, video.fps)
+        # release, or missing, falls back to a 0.6 s window before release.
+        from .chain import forward_swing_window
+        swing_start, _ = forward_swing_window(events["forward_swing"].effective_frame, release_frame, video.fps)
         if release_frame - swing_start > 2:
             grid = np.linspace(swing_start, release_frame, 101)
             frames_idx = np.arange(len(kinematics.values["elbow_angle_deg"]))
@@ -1535,6 +1535,7 @@ def analyze_relationships(
             comparison_by_trial[comparison["test_trial_id"]] = comparison
     rows: list[dict[str, Any]] = []
     curves: list[np.ndarray] = []
+    curve_ids: list[str] = []
     normalized_by_trial: dict[str, dict[str, Any]] = {}
     athlete_ids: set[str] = set()
     for directory in analysis_dirs:
@@ -1574,6 +1575,7 @@ def analyze_relationships(
         swing_curve = result.get("swing_curve_deg")
         if swing_curve:
             curves.append(np.asarray(swing_curve, float))
+            curve_ids.append(result["trial_id"])
         normalized = _load_json(Path(directory) / "normalized.json", None)
         if normalized is not None:
             normalized_by_trial[result["trial_id"]] = normalized
@@ -1677,6 +1679,6 @@ def analyze_relationships(
         "claim_scope": "within_athlete_observational_association_not_causation",
     }
     from .chain_analysis import summarize as chain_summarize
-    result["chain_analysis"] = chain_summarize(rows, curves)
+    result["chain_analysis"] = chain_summarize(rows, curves, curve_ids)
     write_json(output_path, result)
     return result
