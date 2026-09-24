@@ -649,23 +649,54 @@ def camera_motion_px(to_prev: list[np.ndarray], first: int, last: int, point: tu
     return worst
 
 
-def _scene_and_board(frames, chain, target_direction, masks, board_corners_px=None, cache_dir=None):
-    """Background plate + board in release-frame pixels (the reference of `chain`).
+def corners_in_reference(corners_px, corners_frame: int | None, chain: dict[int, np.ndarray],
+                         reference: int) -> tuple[list | None, str | None]:
+    """Clicked corners, stored in the pixels of the plate they were clicked on (reference frame
+    `corners_frame`), re-mapped into the current plate's reference frame `reference`.
+
+    `chain[f]` maps frame f's pixels into the reference frame (the same camera-motion chain the
+    plate is built from), so corners from frame `corners_frame` move by `chain[corners_frame]`;
+    equal frames need no change. Corners with an unknown frame, or a frame outside this clip,
+    are dropped with a reason rather than used in the wrong frame.
+    """
+    if corners_frame is None:
+        return None, ("Clicked board corners were ignored: they do not say which plate frame they were "
+                      "clicked on (re-click them with set-board-corners).")
+    corners_frame = int(corners_frame)
+    if corners_frame == reference:
+        return [list(map(float, c)) for c in corners_px], None
+    if corners_frame not in chain:
+        return None, (f"Clicked board corners were ignored: they were clicked on a plate in frame {corners_frame}, "
+                      f"which this clip ({len(chain)} frames) does not have.")
+    pts = np.c_[np.asarray(corners_px, float).reshape(4, 2), np.ones(4)]
+    moved = (chain[corners_frame] @ pts.T).T
+    return (moved[:, :2] / moved[:, 2:]).tolist(), None
+
+
+def _scene_and_board(frames, chain, target_direction, masks, board_corners_px=None, cache_dir=None,
+                     board_corners_frame=None, reference=None):
+    """Background plate + board in the pixels of `reference` (the reference frame of `chain`).
 
     Returns (scene_info, board) where board carries `model` (BoardModel) only when
     the board was found (or corners were clicked); `not_found` may still carry
-    best-guess corners, which are never used.
+    best-guess corners, which are never used. Clicked corners (`board_corners_px`, clicked on a
+    plate in frame `board_corners_frame`) are re-mapped into `reference` first
+    (`corners_in_reference`); if they cannot be, automatic detection runs and the reason is kept.
     """
     plate = build_plate(frames, chain, person_masks=masks or None)
     if cache_dir is not None:   # kept for `set-board-corners --apply-to` (plate-to-plate corner transfer)
         cv2.imwrite(str(Path(cache_dir) / "plate.jpg"), plate["plate"])
     height, width = frames[0].shape[:2]
     scene_info = {"plate_samples": plate["samples"]}
-    if board_corners_px is not None:
-        found = {"status": "found", "corners_px": board_corners_px, "confidence": 1.0, "hole_offset_in": None,
-                 "reasons": ["clicked corners"]}
+    clicked, dropped_reason = (None, None) if board_corners_px is None else corners_in_reference(
+        board_corners_px, board_corners_frame, chain, reference)
+    if clicked is not None:
+        found = {"status": "found", "corners_px": clicked, "confidence": 1.0, "hole_offset_in": None,
+                 "reasons": ["clicked corners"], "clicked_in_frame": int(board_corners_frame)}
     else:
         found = detect_board(plate["plate"], target_direction)
+        if dropped_reason:
+            found = {**found, "clicked_corners_ignored": dropped_reason}
     if found["status"] != "found":
         return scene_info, {**found, "model": None}
     try:
@@ -770,7 +801,8 @@ def _mark_predicted_basis(suggested: dict[str, Any] | None, from_predicted: bool
 
 def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
                    target_direction: str, preferred_release: int | None = None,
-                   cache_dir: Path | None = None, board_corners_px: list | None = None) -> dict[str, Any]:
+                   cache_dir: Path | None = None, board_corners_px: list | None = None,
+                   board_corners_frame: int | None = None) -> dict[str, Any]:
     """Detect every flight in a clip and pick the one for this trial.
 
     `points` are raw video pixels, the same system as the pose landmarks, manual
@@ -783,7 +815,9 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
 
     With `cache_dir`, person masks are computed/cached there (scene.py) and the
     background plate is written as `plate.jpg`. `board_corners_px` (clicked deck
-    corners in the plate's reference-frame pixels) bypass board detection. `board`, `landing`
+    corners, in the pixels of the plate they were clicked on, whose reference frame is
+    `board_corners_frame`) bypass board detection after being re-mapped into this plate's
+    reference frame; without a known frame they are ignored with a reason. `board`, `landing`
     and `predicted_contact` are in release-frame pixels; `board["reference_frame"]` names the
     frame the corners are in (the release frame, or the middle frame when no flight was found,
     in which case the board is still detected and reported).
@@ -808,7 +842,8 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         # session pooling, clicked-corner transfer): use the clip's middle frame as the reference.
         reference = len(frames) // 2
         _, board = _scene_and_board(frames, reference_chain(to_prev, reference), target_direction,
-                                    masks_info["masks"], board_corners_px, cache_dir)
+                                    masks_info["masks"], board_corners_px, cache_dir,
+                                    board_corners_frame, reference)
         board_payload = {k: v for k, v in board.items() if k != "model"}
         if board.get("model") is not None:
             board_payload.update(board["model"].as_dict())
@@ -830,7 +865,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     last = next(p for p in chosen["points"] if p["frame"] == contact)
     chain = reference_chain(to_prev, release)
     scene_info, board = _scene_and_board(frames, chain, target_direction, masks_info["masks"], board_corners_px,
-                                         cache_dir)
+                                         cache_dir, board_corners_frame, release)
     end_ref = (chain[contact] @ np.array([last["x"], last["y"], 1.0]))[:2]
     decided = _contact_from_board(board, end_ref, fit, fps, contact, len(frames), chain)
     fallback_warning = None

@@ -176,7 +176,7 @@ def parser() -> argparse.ArgumentParser:
     corners.add_argument("--trial-dir", required=True,
         help="The trial's analysis output folder (has manifest.json and plate.jpg)")
     corners.add_argument("--corners", required=True,
-        help="Four deck corners, in any order, as x1,y1,x2,y2,x3,y3,x4,y4 release-frame pixels")
+        help="Four deck corners, in any order, as x1,y1,x2,y2,x3,y3,x4,y4 pixels of the trial's plate.jpg")
     corners.add_argument("--apply-to", nargs="*", default=[],
         help="Other trials' analysis output folders shot from the same camera position")
     corners.set_defaults(handler=handle_set_board_corners)
@@ -521,19 +521,37 @@ def handle_set_board_corners(args: argparse.Namespace) -> dict[str, Any]:
     if target_direction not in ("left_to_right", "right_to_left"):
         raise ValueError(f"{manifest_path} has no target_direction; analyze this trial first.")
     ordered = order_corners(np.asarray(values, float).reshape(4, 2), target_direction)
-    write_json(source / "board_corners.json", {"corners_px": ordered.tolist(), "source": "clicked"})
+    source_frame = _plate_reference_frame(source)
+    if source_frame is None:
+        raise ValueError(f"{source / 'auto_flight.json'} does not say which frame plate.jpg was built in; "
+                         "analyze this trial first.")
+    write_json(source / "board_corners.json",
+               {"corners_px": ordered.tolist(), "source": "clicked", "reference_frame": source_frame})
     applied, failed = [], []
     src_plate = cv2.imread(str(source / "plate.jpg"))
     for other in args.apply_to:
+        # plate-to-plate transfer lands in the target's own plate pixels, i.e. its reference frame
         dst_plate = cv2.imread(str(Path(other) / "plate.jpg"))
-        moved = None if src_plate is None or dst_plate is None else transfer_corners(src_plate, dst_plate, ordered)
+        target_frame = _plate_reference_frame(Path(other))
+        moved = (None if src_plate is None or dst_plate is None or target_frame is None
+                 else transfer_corners(src_plate, dst_plate, ordered))
         if moved is None:
             failed.append(other)
             continue
         write_json(Path(other) / "board_corners.json",
-                  {"corners_px": moved.tolist(), "source": f"transferred:{source.name}"})
+                  {"corners_px": moved.tolist(), "source": f"transferred:{source.name}",
+                   "reference_frame": target_frame})
         applied.append(other)
     return {"written": str(source / "board_corners.json"), "applied": applied, "failed": failed}
+
+
+def _plate_reference_frame(trial_dir: Path) -> int | None:
+    """The frame `plate.jpg` in this analysis folder was built in (the plate the user clicked on):
+    auto_flight.json's board `reference_frame`, else its release frame (pre-8c caches)."""
+    path = trial_dir / "auto_flight.json"
+    auto = (load_json(str(path), {}) if path.exists() else {}) or {}
+    frame = (auto.get("board") or {}).get("reference_frame", auto.get("release_frame"))
+    return None if frame is None else int(frame)
 
 
 def handle_calibrate_session(args: argparse.Namespace) -> dict[str, Any]:
@@ -541,7 +559,8 @@ def handle_calibrate_session(args: argparse.Namespace) -> dict[str, Any]:
     `per_throw_hfov_deg`/`per_throw_hfov_status`, written by `analyze`) into one session estimate
     (`board.pool_session_hfov`), and write it as `camera.json` into every listed folder. Analyzing
     (or reanalyzing) those throws afterward prefers this pooled field of view over each throw's own
-    noisy single-flight one (`pipeline._board_scale`).
+    noisy single-flight one (`pipeline._board_scale`). It pools only the listed folders: it has no
+    library-wide fallback for a session with too few measured throws (the two-pass scripts do).
     """
     from .board import pool_session_hfov
     dirs = [Path(d) for d in args.analyses]

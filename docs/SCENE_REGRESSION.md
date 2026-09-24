@@ -39,8 +39,37 @@ the floor near the board, never on the deck. Measured over the red-hue pixels in
 At `RED_MIN_SAT = 40` the red on these decks breaks up. The apron path's "red above the band" and
 far-edge fit then fail, so no candidate passes the regulation-PnP gate.
 
-Missed: F0E77C58 (8), D7FAAA60 (9), 08541449 (19), DE7F5B7D (20), AA7AC4A3 (21), A21B263C (22),
-E0D8F3B9 (23), BE2292C2 (24), 8D96BCAF (25), 62AA318D (26).
+Per throw, before. "no candidate passed PnP" stands for "No red deck with a dark rim or apron large
+enough to be a regulation board was found."
+
+| trial | athlete | clip | flight | release | board | conf | hole (in) | board reasons | phi (°) | contact kind/state | per-throw HFOV (°) | miss class |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 19A9640F | P1 | testsep17 - 1.mov | accepted | 227 | found | 0.89 | 0.9 | — | 2.4 | deck/measured | 55.0 estimated | — |
+| 44CA1279 | P1 | testsep17 - 2.mov | accepted | 168 | found | 0.88 | 1.1 | — | 3.2 | deck/measured | 61.7 measured | — |
+| 80823323 | P1 | testsep17 - 3.mov | accepted | 206 | found | 0.90 | 0.8 | — | 2.0 | deck/measured | 58.7 measured | — |
+| 3B3DC0EC | P1 | testsep17 - 4.mov | accepted | 200 | found | 0.90 | 1.3 | — | 3.5 | deck/measured | 56.6 measured | — |
+| 3D93058B | P1 | testsep17 - 5.mov | needs_review | 13 | found | 0.89 | 1.0 | — | 3.1 | lost_in_flight/unavailable | — | — |
+| 41A04DAC | P1 | testsep17 - 6.mov | accepted | 156 | found | 0.89 | 0.8 | — | 3.3 | deck/measured | 58.8 measured | — |
+| 1500778E | P1 | testsep17 - 7.mov | accepted | 205 | found | 0.83 | 1.5 | — | 6.2 | floor/measured | 55.0 estimated | — |
+| F0E77C58 | P1 | testsep17 - 8.mov | accepted | 178 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| D7FAAA60 | P1 | testsep17 - 9.mov | needs_review | 294 | not_found | 0.31 | 6.2 | conf 0.31 < 0.75 | — | unknown/unverified | — | pale deck (threshold) |
+| D4FF5A49 | P2 | testsep17 - 10.mov | accepted | 194 | found | 0.89 | 1.4 | — | 2.0 | floor/measured | 69.2 measured | — |
+| 126CCAD1 | P2 | testsep17 - 11.mov | accepted | 118 | found | 0.91 | 1.8 | — | 2.8 | floor/measured | 62.3 measured | — |
+| 105B9972 | P2 | testsep17 - 12.mov | accepted | 159 | found | 0.91 | 1.5 | — | 1.7 | floor/measured | 55.5 measured | — |
+| DB5A8186 | P2 | testsep17 - 13.mov | accepted | 106 | found | 0.90 | 1.5 | — | 0.6 | lost_in_flight/unavailable | 59.8 measured | — |
+| EFFA8D86 | P2 | testsep17 - 14.mov | needs_review | 83 | found | 0.91 | 1.6 | — | 0.8 | lost_in_flight/unavailable | — | — |
+| 5B5C77D7 | P2 | testsep17 - 15.mov | accepted | 628 | found | 0.91 | 1.9 | — | 1.0 | floor/measured | 60.3 measured | — |
+| 6BD2EE8F | P3 | testsep17 - 16.mov | accepted | 133 | found | 0.90 | 1.1 | — | 5.1 | lost_in_flight/unavailable | 55.3 measured | — |
+| 14A6C444 | P3 | testsep17 - 17.mov | needs_review | 192 | found | 0.90 | 2.5 | — | 4.4 | floor/measured | — | — |
+| 3B1EF3CA | P3 | testsep17 - 18.mov | accepted | 190 | found | 0.90 | 2.4 | — | 5.8 | deck/measured | 55.0 estimated | — |
+| 08541449 | P3 | testsep17 - 19.mov | accepted | 50 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| DE7F5B7D | P3 | testsep17 - 20.mov | accepted | 246 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| AA7AC4A3 | P3 | testsep17 - 21.mov | accepted | 39 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| A21B263C | P3 | testsep17 - 22.mov | accepted | 93 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| E0D8F3B9 | P3 | testsep17 - 23.mov | accepted | 40 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| BE2292C2 | P3 | testsep17 - 24.mov | needs_review | 28 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unavailable | — | pale deck (threshold) |
+| 8D96BCAF | P3 | testsep17 - 25.mov | accepted | 83 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
+| 62AA318D | P3 | testsep17 - 26.mov | accepted | 103 | not_found | 0.00 | — | no candidate passed PnP | — | unknown/unverified | — | pale deck (threshold) |
 
 ### Threshold sweep (evidence for the fix)
 
@@ -50,8 +79,9 @@ E0D8F3B9 (23), BE2292C2 (24), 8D96BCAF (25), 62AA318D (26).
   - The missed boards appear at S ≥ 30 or 25.
   - At **S ≥ 20 a rim candidate on a pink TV-screen banner** scored 1.0 and beat the real board on
     3D93058B, giving a wrong "found" 810 px away. S ≥ 15 did the same on D7FAAA60.
-- With the apron path only, no wrong "found" appeared on any plate down to S ≥ 10. Every found
-  quad stayed within 7 px of the same board's quad at other thresholds.
+- With the apron path only, no wrong "found" appeared on any plate down to S ≥ 10. At the cascade's
+  thresholds (S ≥ 30, 25) every found quad lay within 5 px of the same board's quad at S ≥ 40 (within
+  7 px down to S ≥ 10).
 - The result is not monotonic in S. For example, BE2292C2 is found at 30, rejected at 25 by the
   hole/PnP gates and found again at 20. This is why the fix is a cascade and not one lower
   threshold.
@@ -72,36 +102,37 @@ the result reports `red_min_sat`.
 | scale status "measured" (pass 2): P1 / P2 / P3 | 6 / 5 / 0 | 7 / 5 / 9 |
 
 Every final quad was checked by eye and lies on the deck. The QA montage is
-`/private/tmp/claude-501/board-qa/8c/after_all26.png`, outside the repo.
+`/private/tmp/claude-501/board-qa/8c/after_all26.png` (ephemeral scratch outside the repo; it may
+no longer exist).
 
-| trial | athlete | clip | flight | release | board | min S | conf | hole (in) | phi (°) | contact kind/state | per-throw HFOV (°) | HFOV used (°), scale |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 19A9640F | P1 | testsep17 - 1.mov | accepted | 227 | found | 40 | 0.89 | 0.9 | 2.4 | deck/measured | 55.0 estimated | 58.8 measured |
-| 44CA1279 | P1 | testsep17 - 2.mov | accepted | 168 | found | 40 | 0.88 | 1.1 | 3.2 | deck/measured | 61.7 measured | 58.8 measured |
-| 80823323 | P1 | testsep17 - 3.mov | accepted | 206 | found | 40 | 0.90 | 0.8 | 2.0 | deck/measured | 58.7 measured | 58.8 measured |
-| 3B3DC0EC | P1 | testsep17 - 4.mov | accepted | 200 | found | 40 | 0.90 | 1.3 | 3.5 | deck/measured | 56.6 measured | 58.8 measured |
-| 3D93058B | P1 | testsep17 - 5.mov | needs_review | 13 | found | 40 | 0.89 | 1.0 | 3.1 | lost_in_flight/unavailable | —  | — unavailable |
-| 41A04DAC | P1 | testsep17 - 6.mov | accepted | 156 | found | 40 | 0.89 | 0.8 | 3.3 | deck/measured | 58.8 measured | 58.8 measured |
-| 1500778E | P1 | testsep17 - 7.mov | accepted | 205 | found | 40 | 0.83 | 1.5 | 6.2 | floor/measured | 55.0 estimated | 58.8 measured |
-| F0E77C58 | P1 | testsep17 - 8.mov | accepted | 178 | found | 30 | 0.86 | 1.6 | 3.4 | floor/measured | 55.0 estimated | 58.8 measured |
-| D7FAAA60 | P1 | testsep17 - 9.mov | needs_review | 294 | found | 30 | 0.90 | 1.8 | 0.8 | floor/measured | —  | — unavailable |
-| D4FF5A49 | P2 | testsep17 - 10.mov | accepted | 194 | found | 40 | 0.89 | 1.4 | 2.0 | floor/measured | 69.2 measured | 60.3 measured |
-| 126CCAD1 | P2 | testsep17 - 11.mov | accepted | 118 | found | 40 | 0.91 | 1.8 | 2.8 | floor/measured | 62.3 measured | 60.3 measured |
-| 105B9972 | P2 | testsep17 - 12.mov | accepted | 159 | found | 40 | 0.91 | 1.5 | 1.7 | floor/measured | 55.5 measured | 60.3 measured |
-| DB5A8186 | P2 | testsep17 - 13.mov | accepted | 106 | found | 40 | 0.90 | 1.5 | 0.6 | lost_in_flight/unavailable | 59.8 measured | 60.3 measured |
-| EFFA8D86 | P2 | testsep17 - 14.mov | needs_review | 83 | found | 40 | 0.91 | 1.6 | 0.8 | lost_in_flight/unavailable | —  | — unavailable |
-| 5B5C77D7 | P2 | testsep17 - 15.mov | accepted | 628 | found | 40 | 0.91 | 1.9 | 1.0 | floor/measured | 60.3 measured | 60.3 measured |
-| 6BD2EE8F | P3 | testsep17 - 16.mov | accepted | 133 | found | 40 | 0.90 | 1.1 | 5.1 | lost_in_flight/unavailable | 55.3 measured | 56.6 measured |
-| 14A6C444 | P3 | testsep17 - 17.mov | needs_review | 192 | found | 40 | 0.90 | 2.5 | 4.4 | floor/measured | —  | — unavailable |
-| 3B1EF3CA | P3 | testsep17 - 18.mov | accepted | 190 | found | 40 | 0.90 | 2.4 | 5.8 | deck/measured | 55.0 estimated | 56.6 measured |
-| 08541449 | P3 | testsep17 - 19.mov | accepted | 50 | found | 25 | 0.89 | 1.5 | 6.0 | deck/measured | 56.6 measured | 56.6 measured |
-| DE7F5B7D | P3 | testsep17 - 20.mov | accepted | 246 | found | 30 | 0.82 | 2.3 | 6.1 | floor/measured | 55.0 estimated | 56.6 measured |
-| AA7AC4A3 | P3 | testsep17 - 21.mov | accepted | 39 | found | 25 | 0.91 | 1.2 | 6.8 | deck/measured | 57.6 measured | 56.6 measured |
-| A21B263C | P3 | testsep17 - 22.mov | accepted | 93 | found | 30 | 0.87 | 1.5 | 7.4 | lost_in_flight/unavailable | 55.1 measured | 56.6 measured |
-| E0D8F3B9 | P3 | testsep17 - 23.mov | accepted | 40 | found | 30 | 0.85 | 1.9 | 5.7 | deck/measured | 55.0 estimated | 56.6 measured |
-| BE2292C2 | P3 | testsep17 - 24.mov | needs_review | 28 | found | 30 | 0.84 | 1.9 | 7.9 | lost_in_flight/unavailable | —  | — unavailable |
-| 8D96BCAF | P3 | testsep17 - 25.mov | accepted | 83 | found | 30 | 0.85 | 2.5 | 6.0 | lost_in_flight/unavailable | 55.0 estimated | 56.6 measured |
-| 62AA318D | P3 | testsep17 - 26.mov | accepted | 103 | found | 30 | 0.85 | 2.1 | 6.1 | floor/measured | 57.2 measured | 56.6 measured |
+| trial | athlete | clip | flight | release | board | min S | conf | hole (in) | board reasons | phi (°) | contact kind/state | per-throw HFOV (°) | HFOV used (°), scale |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 19A9640F | P1 | testsep17 - 1.mov | accepted | 227 | found | 40 | 0.89 | 0.9 | — | 2.4 | deck/measured | 55.0 estimated | 58.8 measured |
+| 44CA1279 | P1 | testsep17 - 2.mov | accepted | 168 | found | 40 | 0.88 | 1.1 | — | 3.2 | deck/measured | 61.7 measured | 58.8 measured |
+| 80823323 | P1 | testsep17 - 3.mov | accepted | 206 | found | 40 | 0.90 | 0.8 | — | 2.0 | deck/measured | 58.7 measured | 58.8 measured |
+| 3B3DC0EC | P1 | testsep17 - 4.mov | accepted | 200 | found | 40 | 0.90 | 1.3 | — | 3.5 | deck/measured | 56.6 measured | 58.8 measured |
+| 3D93058B | P1 | testsep17 - 5.mov | needs_review | 13 | found | 40 | 0.89 | 1.0 | — | 3.1 | lost_in_flight/unavailable | —  | — unavailable |
+| 41A04DAC | P1 | testsep17 - 6.mov | accepted | 156 | found | 40 | 0.89 | 0.8 | — | 3.3 | deck/measured | 58.8 measured | 58.8 measured |
+| 1500778E | P1 | testsep17 - 7.mov | accepted | 205 | found | 40 | 0.83 | 1.5 | — | 6.2 | floor/measured | 55.0 estimated | 58.8 measured |
+| F0E77C58 | P1 | testsep17 - 8.mov | accepted | 178 | found | 30 | 0.86 | 1.6 | — | 3.4 | floor/measured | 55.0 estimated | 58.8 measured |
+| D7FAAA60 | P1 | testsep17 - 9.mov | needs_review | 294 | found | 30 | 0.90 | 1.8 | — | 0.8 | floor/measured | —  | — unavailable |
+| D4FF5A49 | P2 | testsep17 - 10.mov | accepted | 194 | found | 40 | 0.89 | 1.4 | — | 2.0 | floor/measured | 69.2 measured | 60.3 measured |
+| 126CCAD1 | P2 | testsep17 - 11.mov | accepted | 118 | found | 40 | 0.91 | 1.8 | — | 2.8 | floor/measured | 62.3 measured | 60.3 measured |
+| 105B9972 | P2 | testsep17 - 12.mov | accepted | 159 | found | 40 | 0.91 | 1.5 | — | 1.7 | floor/measured | 55.5 measured | 60.3 measured |
+| DB5A8186 | P2 | testsep17 - 13.mov | accepted | 106 | found | 40 | 0.90 | 1.5 | — | 0.6 | lost_in_flight/unavailable | 59.8 measured | 60.3 measured |
+| EFFA8D86 | P2 | testsep17 - 14.mov | needs_review | 83 | found | 40 | 0.91 | 1.6 | — | 0.8 | lost_in_flight/unavailable | —  | — unavailable |
+| 5B5C77D7 | P2 | testsep17 - 15.mov | accepted | 628 | found | 40 | 0.91 | 1.9 | — | 1.0 | floor/measured | 60.3 measured | 60.3 measured |
+| 6BD2EE8F | P3 | testsep17 - 16.mov | accepted | 133 | found | 40 | 0.90 | 1.1 | — | 5.1 | lost_in_flight/unavailable | 55.3 measured | 56.6 measured |
+| 14A6C444 | P3 | testsep17 - 17.mov | needs_review | 192 | found | 40 | 0.90 | 2.5 | — | 4.4 | floor/measured | —  | — unavailable |
+| 3B1EF3CA | P3 | testsep17 - 18.mov | accepted | 190 | found | 40 | 0.90 | 2.4 | — | 5.8 | deck/measured | 55.0 estimated | 56.6 measured |
+| 08541449 | P3 | testsep17 - 19.mov | accepted | 50 | found | 25 | 0.89 | 1.5 | — | 6.0 | deck/measured | 56.6 measured | 56.6 measured |
+| DE7F5B7D | P3 | testsep17 - 20.mov | accepted | 246 | found | 30 | 0.82 | 2.3 | — | 6.1 | floor/measured | 55.0 estimated | 56.6 measured |
+| AA7AC4A3 | P3 | testsep17 - 21.mov | accepted | 39 | found | 25 | 0.91 | 1.2 | — | 6.8 | deck/measured | 57.6 measured | 56.6 measured |
+| A21B263C | P3 | testsep17 - 22.mov | accepted | 93 | found | 30 | 0.87 | 1.5 | — | 7.4 | lost_in_flight/unavailable | 55.1 measured | 56.6 measured |
+| E0D8F3B9 | P3 | testsep17 - 23.mov | accepted | 40 | found | 30 | 0.85 | 1.9 | — | 5.7 | deck/measured | 55.0 estimated | 56.6 measured |
+| BE2292C2 | P3 | testsep17 - 24.mov | needs_review | 28 | found | 30 | 0.84 | 1.9 | — | 7.9 | lost_in_flight/unavailable | —  | — unavailable |
+| 8D96BCAF | P3 | testsep17 - 25.mov | accepted | 83 | found | 30 | 0.85 | 2.5 | — | 6.0 | lost_in_flight/unavailable | 55.0 estimated | 56.6 measured |
+| 62AA318D | P3 | testsep17 - 26.mov | accepted | 103 | found | 30 | 0.85 | 2.1 | — | 6.1 | floor/measured | 57.2 measured | 56.6 measured |
 
 The 16 boards found before are unchanged: the standard pass still returns them, within 2 px of
 their earlier quads.

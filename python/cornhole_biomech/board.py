@@ -38,10 +38,12 @@ RED_MIN_SAT = 40                    # pilot decks: median S 55–84, 10th percen
 # Retried in order, apron path only, when the standard pass finds no board. Task 8c: 10 of 26
 # pilot plates (8 of 11 for Player 3) show a paler, smaller deck — median S 26–34 and only
 # 680–1 764 deck px with S >= 40, against 1 425–3 282 on the 16 found — so no quad survived at
-# 40. At 30 eight of them are found, at 25 the other two; every relaxed "found" quad lies within
-# 5 px of the same board's quad at other thresholds. Rim candidates stay at the standard
-# threshold: at S >= 20 a rim candidate on a pink TV-screen banner scored 1.0 and beat the real
-# board, whereas apron-only detection gave no wrong "found" on any pilot plate down to S >= 10.
+# 40. With this cascade all 10 are found, some at 30 and some at 25; which of the two wins can
+# differ between the in-memory plate and its JPEG copy. Apron-only quads at S >= 30 or 25 lie
+# within 5 px of the same board's quad at S >= 40 (within 7 px all the way down to S >= 10).
+# Rim candidates stay at the standard threshold: at S >= 20 a rim candidate on a pink TV-screen
+# banner scored 1.0 and beat the real board, whereas apron-only detection gave no wrong "found"
+# on any pilot plate down to S >= 10.
 RELAXED_RED_MIN_SATS = (30, 25)
 RED_MIN_VAL = 50
 DARK_MAX_VAL = 70

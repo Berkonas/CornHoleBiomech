@@ -347,11 +347,55 @@ def test_board_is_detected_on_a_middle_frame_plate_when_no_flight_is_found(monke
     assert "phi_deg" in board and "model" not in board        # the pose is reported, the model object is not
 
 
-def test_clicked_corners_are_used_when_no_flight_is_found(monkeypatch):
+def test_clicked_corners_in_the_current_plate_frame_are_used_as_is(monkeypatch):
     ab = _no_flight_clip(monkeypatch)
     from test_board import pilot_like_corners
     from cornhole_biomech.board import order_corners
     clicked = order_corners(pilot_like_corners(), "left_to_right").tolist()
-    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked)
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked,
+                            board_corners_frame=4)          # the middle frame, this plate's reference
     assert out["board"]["status"] == "found" and out["board"]["reasons"] == ["clicked corners"]
-    assert out["board"]["corners_px"] == clicked
+    assert out["board"]["corners_px"] == clicked and out["board"]["clicked_in_frame"] == 4
+
+
+def test_clicked_corners_from_another_plate_frame_are_remapped(monkeypatch):
+    # the scene drifts +3 px in x per frame: to_prev[t] (frame t → t−1) is x − 3, so a static
+    # point at x in frame 1's pixels is at x + 9 in frame 4's (the middle-frame plate).
+    ab = _no_flight_clip(monkeypatch)
+    step = np.array([[1.0, 0.0, -3.0], [0.0, 1.0, 0.0]])
+    monkeypatch.setattr(ab, "detect_moving_blobs_in_frames",
+                        lambda frames: ([], [np.eye(3)[:2]] + [step] * (len(frames) - 1)))
+    clicked = [[700.0, 500.0], [720.0, 540.0], [1300.0, 520.0], [1290.0, 480.0]]
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked,
+                            board_corners_frame=1)
+    assert out["board"]["reference_frame"] == 4 and out["board"]["clicked_in_frame"] == 1
+    expected = (np.array(clicked) + [9.0, 0.0])
+    assert np.allclose(out["board"]["corners_px"], expected)
+
+
+def test_corners_in_reference_maps_through_the_chain_both_ways():
+    from cornhole_biomech.auto_bag import corners_in_reference, reference_chain
+    step = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, -2.0]])     # frame t is 2 px lower than t−1
+    chain = reference_chain([np.eye(3)[:2]] + [step] * 5, 3)
+    corners = [[10.0, 10.0], [20.0, 12.0], [30.0, 14.0], [40.0, 16.0]]
+    later, _ = corners_in_reference(corners, 5, chain, 3)
+    earlier, _ = corners_in_reference(corners, 1, chain, 3)
+    assert np.allclose(np.array(later) - corners, [0.0, -4.0])
+    assert np.allclose(np.array(earlier) - corners, [0.0, 4.0])
+
+
+def test_clicked_corners_without_a_frame_are_dropped_with_a_reason(monkeypatch):
+    ab = _no_flight_clip(monkeypatch)
+    clicked = [[700.0, 500.0], [720.0, 540.0], [1300.0, 520.0], [1290.0, 480.0]]
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked)
+    assert out["board"]["reasons"] != ["clicked corners"]            # automatic detection ran instead
+    assert "which plate frame" in out["board"]["clicked_corners_ignored"]
+    assert out["board"]["corners_px"] != clicked
+
+
+def test_clicked_corners_from_a_frame_outside_the_clip_are_dropped(monkeypatch):
+    ab = _no_flight_clip(monkeypatch)
+    clicked = [[700.0, 500.0], [720.0, 540.0], [1300.0, 520.0], [1290.0, 480.0]]
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked,
+                            board_corners_frame=250)
+    assert "frame 250" in out["board"]["clicked_corners_ignored"]

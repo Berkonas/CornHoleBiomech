@@ -428,3 +428,38 @@ def test_pale_board_without_hole_is_still_not_found():
     corners = pilot_like_corners()
     out = detect_board(render_pilot_board(corners, deck_bgr=PALE_DECK_BGR, hole=False), "left_to_right", B)
     assert out["status"] == "not_found"
+
+
+def render_pale_decoy(far_l, far_r, near_l, near_r, band=24, face=True):
+    """No board: a pale pink/red quad of non-regulation proportions over a long dark band (and,
+    with `face`, a dark end face so the front-far corner counts as observed), with a dark blob
+    where (12, 39) in maps if the quad is taken as a 24 × 48 in deck."""
+    img = np.full((H, W, 3), 150, np.uint8)
+    quad = np.array([far_l, near_l, near_r, far_r], float)     # front-far, front-near, back-near, back-far
+    cv2.fillConvexPoly(img, np.array([near_l, near_r, [near_r[0], near_r[1] + band],
+                                      [near_l[0], near_l[1] + band]], np.int32), (25, 25, 25))
+    if face:
+        cv2.fillConvexPoly(img, np.array([far_l, near_l, [near_l[0], near_l[1] + band],
+                                          [far_l[0], far_l[1] + band]], np.int32), (25, 25, 25))
+    cv2.fillConvexPoly(img, quad.astype(np.int32), PALE_DECK_BGR)
+    a = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+    cv2.fillConvexPoly(img, _deck_to_px(quad)(np.stack([12 + 3 * np.cos(a), 39 + 3 * np.sin(a)], 1)).astype(np.int32),
+                       (18, 18, 110))
+    return img
+
+
+@pytest.mark.parametrize("far_l, far_r, near_l, near_r, face", [
+    ([660, 500], [1260, 500], [700, 540], [1300, 540], True),    # 15:1 slab: PnP residual 32 px > 19 px limit
+    ([660, 500], [1320, 480], [700, 540], [1300, 540], True),    # far edge longer than near: residual 26 px
+    ([660, 440], [960, 440], [700, 540], [1000, 540], True),     # square: passes PnP, hole check fails
+    ([700, 500], [1300, 500], [700, 540], [1300, 540], False),   # no end face: front-far corner only inferred
+])
+def test_pale_non_regulation_decoy_is_not_found_through_the_full_cascade(far_l, far_r, near_l, near_r, face):
+    from cornhole_biomech.board import RELAXED_RED_MIN_SATS, _apron_candidates, _red_and_rim
+    img = render_pale_decoy(far_l, far_r, near_l, near_r, face=face)
+    # the decoy does reach the relaxed pass's gates as an apron candidate ...
+    red, dark = _red_and_rim(img, min(RELAXED_RED_MIN_SATS))
+    assert _apron_candidates(red, dark, "left_to_right", B)
+    # ... and every pass rejects it
+    out = detect_board(img, "left_to_right", B)
+    assert out["status"] == "not_found" and out["reasons"]

@@ -82,9 +82,13 @@ def row_for(directory: Path, reference_plates: bool) -> dict:
         "hfov_deg": scale.get("hfov_deg"),
         "hfov_source": scale.get("hfov_source"),
     }
-    if reference_plates and auto.get("status") != "accepted" and context.get("source_video"):
-        row["reference_plate_board"] = reference_plate_board(context["source_video"], context["target_direction"],
-                                                             directory)
+    if reference_plates and auto.get("status") != "accepted":
+        direction = context.get("target_direction")
+        if not context.get("source_video") or direction not in ("left_to_right", "right_to_left"):
+            row["reference_plate_board"] = {"status": "skipped",
+                                            "reasons": ["manifest has no source_video or target_direction"]}
+        else:
+            row["reference_plate_board"] = reference_plate_board(context["source_video"], direction, directory)
     return row
 
 
