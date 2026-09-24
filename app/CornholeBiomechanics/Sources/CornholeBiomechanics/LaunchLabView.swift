@@ -9,7 +9,10 @@ struct LaunchLabView: View {
 
     var body: some View {
         LaunchLabContent(measured: measured, athleteSelected: store.selectedAthleteID != nil)
-            .task(id: store.selectedAthleteID) { measured = MeasuredRelease.load(athleteID: store.selectedAthleteID, store: store) }
+            .task(id: store.selectedAthleteID) {
+                let releases = await MeasuredRelease.load(athleteID: store.selectedAthleteID, store: store)
+                if !Task.isCancelled { measured = releases }
+            }
     }
 }
 
@@ -56,7 +59,6 @@ struct LaunchLabContent: View {
                 sceneCard
                 controlsCard.frame(width: 300)
             }
-            .fixedSize(horizontal: false, vertical: true)   // both cards take the taller card's height
             Card("Success map", symbol: "square.grid.3x3.fill",
                  subtitle: "Predicted first contact for every speed and angle, at h = \(number(params.releaseHeight, digits: 2)) m and \(number(params.distanceToBoard, digits: 2)) m to the board. Click or drag to try a release.") {
                 SuccessMap(params: $params, throws: measured, onPick: throwNow)
@@ -131,7 +133,6 @@ struct LaunchLabContent: View {
                 ParameterRow(title: "Height", unit: "m", value: $params.releaseHeight, range: Self.heightRange, step: 0.01, digits: 2, commit: throwNow)
                 ParameterRow(title: "Distance to board", unit: "m", value: $params.distanceToBoard, range: Self.distanceRange, step: 0.05, digits: 2, commit: throwNow)
             }
-            Spacer(minLength: Space.s)
             Divider().padding(.vertical, Space.xs)
             Button("Solve speed for the hole", systemImage: "scope", action: solve)
                 .disabled(holeSpeed == nil)
@@ -206,17 +207,13 @@ struct LaunchLabContent: View {
             readout("Flight time", number(hit.time, digits: 2), "s", note: "to first contact")
             readout("Apex", number(apex, digits: 2), "m", note: "above the floor")
             readout("Speed for the hole", holeSpeed.map { number($0, digits: 2) } ?? "—", holeSpeed == nil ? "" : "m/s",
-                    note: holeSpeed.map { deltaNote($0 - params.speed) } ?? "not reachable")
+                    note: holeSpeed == nil ? "not reachable" : "at this angle & height")
         }
     }
 
     private func signedCentimetres(_ metres: Double) -> String {
         let cm = metres * 100
         return (cm > 0.5 ? "+" : "") + number(cm, digits: 0)
-    }
-
-    private func deltaNote(_ delta: Double) -> String {
-        abs(delta) < 0.005 ? "at this speed" : "\(delta > 0 ? "+" : "−")\(number(abs(delta), digits: 2)) from now"
     }
 
     private func readout(_ title: String, _ value: String, _ unit: String, note: String? = nil) -> some View {

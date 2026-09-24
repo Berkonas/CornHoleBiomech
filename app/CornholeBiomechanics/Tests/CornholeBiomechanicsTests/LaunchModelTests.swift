@@ -164,4 +164,21 @@ final class LaunchModelTests: XCTestCase {
         let p = LaunchParameters(speed: 7, angleDegrees: 35, releaseHeight: 0.9, distanceToBoard: 7.7)
         XCTAssertEqual(ThrowTimeline.total(p), LaunchModel(p).landing().time + 0.6, accuracy: 1e-12)
     }
+
+    func testSceneDrawsFinalStateWithReduceMotionOrStaleRun() {
+        let p = LaunchParameters(speed: 7, angleDegrees: 35, releaseHeight: 0.9, distanceToBoard: 7.7)
+        let start = Date(timeIntervalSinceReferenceDate: 1000)
+        let run = LaunchRun(params: p, start: start)
+        let now = start.addingTimeInterval(0.4)
+        // Live run: elapsed time × rate.
+        XCTAssertNotNil(LaunchScene.activeRun(run, params: p, reduceMotion: false, frozenTime: nil))
+        XCTAssertEqual(LaunchScene.sceneTime(run: run, params: p, reduceMotion: false, frozenTime: nil, rate: 0.25, now: now), 0.1, accuracy: 1e-9)
+        // Reduce Motion: no active run, final state (∞).
+        XCTAssertNil(LaunchScene.activeRun(run, params: p, reduceMotion: true, frozenTime: nil))
+        XCTAssertEqual(LaunchScene.sceneTime(run: run, params: p, reduceMotion: true, frozenTime: nil, rate: 1, now: now), .infinity)
+        // Parameters changed since the throw (slider drag): final state for the new parameters.
+        var moved = p; moved.speed += 0.5
+        XCTAssertEqual(LaunchScene.sceneTime(run: run, params: moved, reduceMotion: false, frozenTime: nil, rate: 1, now: now), .infinity)
+        XCTAssertEqual(LaunchScene.sceneTime(run: nil, params: p, reduceMotion: false, frozenTime: nil, rate: 1, now: now), .infinity)
+    }
 }

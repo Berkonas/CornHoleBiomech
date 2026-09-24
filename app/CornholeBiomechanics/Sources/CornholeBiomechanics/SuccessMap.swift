@@ -13,21 +13,53 @@ struct MeasuredRelease: Identifiable, Equatable {
 }
 
 extension MeasuredRelease {
-    /// The athlete's analysed throws whose release speed, angle and height are all measured and not unreliable.
-    @MainActor static func load(athleteID: UUID?, store: ProjectStore) -> [MeasuredRelease] {
+    /// What the file reads need from one trial, captured on the main actor.
+    struct Source: Sendable {
+        var id: UUID
+        var label: String
+        var score: ScoreCategory?
+        var results: URL
+    }
+
+    /// The athlete's analysed trials, oldest first (main actor: reads the store only, no file I/O).
+    @MainActor static func sources(athleteID: UUID?, store: ProjectStore) -> [Source] {
         guard let athleteID, let trials = store.project?.trials else { return [] }
         return trials.filter { $0.athleteID == athleteID }.sorted { $0.createdAt < $1.createdAt }.compactMap { trial in
-            guard let results = store.analysisURL(for: trial)?.appendingPathComponent("results.json"),
-                  let metrics = CoachMetricsDocument.load(results) else { return nil }
-            func value(_ key: String) -> Double? {
-                guard let row = metrics.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
-                return v
+            store.analysisURL(for: trial).map {
+                Source(id: trial.id, label: trial.displayName, score: trial.outcome?.scoreCategory,
+                       results: $0.appendingPathComponent("results.json"))
             }
-            guard let speed = value("bag_release_speed_m_s"), let angle = value("bag_release_angle_deg"),
-                  let height = value("bag_release_height_m") else { return nil }
-            return MeasuredRelease(id: trial.id, label: trial.displayName, speed: speed, angle: angle, height: height,
-                                   score: trial.outcome?.scoreCategory, distance: releaseToBoard(results))
         }
+    }
+
+    /// Reads results.json for each source off the main actor; keeps throws whose release speed, angle and
+    /// height are all measured and not unreliable. Cancellation stops between files.
+    static func read(_ sources: [Source]) async -> [MeasuredRelease] {
+        await Task.detached(priority: .userInitiated) {
+            var releases: [MeasuredRelease] = []
+            for source in sources {
+                if Task.isCancelled { return [] }
+                if let release = read(source) { releases.append(release) }
+            }
+            return releases
+        }.value
+    }
+
+    /// Selected athlete's measured releases: sources gathered on the main actor, files parsed in the background.
+    @MainActor static func load(athleteID: UUID?, store: ProjectStore) async -> [MeasuredRelease] {
+        await read(sources(athleteID: athleteID, store: store))
+    }
+
+    private static func read(_ source: Source) -> MeasuredRelease? {
+        guard let metrics = CoachMetricsDocument.load(source.results) else { return nil }
+        func value(_ key: String) -> Double? {
+            guard let row = metrics.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
+            return v
+        }
+        guard let speed = value("bag_release_speed_m_s"), let angle = value("bag_release_angle_deg"),
+              let height = value("bag_release_height_m") else { return nil }
+        return MeasuredRelease(id: source.id, label: source.label, speed: speed, angle: angle, height: height,
+                               score: source.score, distance: releaseToBoard(source.results))
     }
 
     /// `summaries.release_to_board_front_m` from results.json, when present.
@@ -38,6 +70,14 @@ extension MeasuredRelease {
               let value = summaries["release_to_board_front_m"] as? Double, value.isFinite, value > 0 else { return nil }
         return value
     }
+}
+
+// MARK: - Zone styling (UI side of `LandingZone`)
+
+extension LandingZone {
+    var label: String { ZoneStyle.label(styleKey) }
+    var color: Color { ZoneStyle.color(styleKey) }
+    var symbol: String { ZoneStyle.symbol(styleKey) }
 }
 
 // MARK: - Grid

@@ -111,17 +111,26 @@ struct LaunchScene: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var finished: Date?
 
-    /// Animate only a run that matches the parameters on screen; otherwise draw the final state.
-    private var activeRun: LaunchRun? {
+    /// Animate only a run that matches the parameters on screen, with Reduce Motion off; otherwise nil.
+    static func activeRun(_ run: LaunchRun?, params: LaunchParameters, reduceMotion: Bool, frozenTime: Double?) -> LaunchRun? {
         guard frozenTime == nil, !reduceMotion, let run, run.params == params else { return nil }
         return run
     }
+
+    /// Scene time to draw: the frozen time, the elapsed run time × rate, or ∞ (= final state) without an active run.
+    static func sceneTime(run: LaunchRun?, params: LaunchParameters, reduceMotion: Bool, frozenTime: Double?, rate: Double, now: Date) -> Double {
+        if let frozenTime { return frozenTime }
+        guard let active = activeRun(run, params: params, reduceMotion: reduceMotion, frozenTime: nil) else { return .infinity }
+        return now.timeIntervalSince(active.start) * rate
+    }
+
+    private var activeRun: LaunchRun? { Self.activeRun(run, params: params, reduceMotion: reduceMotion, frozenTime: frozenTime) }
 
     var body: some View {
         let run = activeRun
         TimelineView(.animation(minimumInterval: nil, paused: run == nil || finished == run?.start)) { timeline in
             Canvas { context, size in
-                let time = frozenTime ?? run.map { timeline.date.timeIntervalSince($0.start) * rate } ?? .infinity
+                let time = Self.sceneTime(run: run, params: params, reduceMotion: reduceMotion, frozenTime: frozenTime, rate: rate, now: timeline.date)
                 LaunchSceneRenderer(params: params, ghosts: ghosts, time: time, dark: colorScheme == .dark)
                     .draw(in: &context, size: size)
             }

@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// Regulation board side profile (ACL: 48 in deck, 12 in back height, 6 in hole
 /// centred 9 in from the back). Front height varies by board (2.5–4 in); 3 in default.
@@ -32,9 +32,6 @@ enum LandingZone: String, CaseIterable {
 
     /// Key into `ZoneStyle` (green / yellow / red).
     var styleKey: String { switch self { case .hole: "green"; case .board: "yellow"; case .off: "red" } }
-    var label: String { ZoneStyle.label(styleKey) }
-    var color: Color { ZoneStyle.color(styleKey) }
-    var symbol: String { ZoneStyle.symbol(styleKey) }
 }
 
 /// Drag-free 2D point-mass flight to first contact. A teaching model, not a
