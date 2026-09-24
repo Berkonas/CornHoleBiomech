@@ -423,18 +423,27 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
                  landmarks: tuple[str, ...], side: str, camera_to_release: dict[str, Any] | None,
                  angles: dict[str, np.ndarray], fps: float, forward_swing: int | None, release_frame: int,
                  fit_points: np.ndarray, summaries: dict[str, Any],
-                 wrist_speed: list[float | None] | None) -> dict[str, Any]:
-    """Task 9: the per-throw body → release → flight → outcome chain (chain.py), wired to this throw's scale."""
+                 wrist_speed: list[float | None] | None, calibration: SpatialCalibration | None = None,
+                 gravity_scale: dict[str, Any] | None = None, si_reason: str | None = None) -> dict[str, Any]:
+    """Task 9: the per-throw body → release → flight → outcome chain (chain.py), wired to this throw's scale.
+
+    Joints, hand/bag mechanics and the distance to the board use the board throw-plane scale
+    (`board_scale`). The release speed/height, momentum, energies and flight model use the
+    calibration that actually scaled `bag_release_speed_m_s` (`calibration`: the board plane, the
+    reviewed flight's own gravity, or a calibration file) — see `_release_scale`. `si_reason` is the
+    pipeline's physical-units gate (not a fixed side camera): every metre-based quantity is withheld.
+    """
     from .board import MAX_PHI_DEG, solve_board
     from .chain import LANDMARK_NOISE_PX, RELEASE_HEIGHT_SD_M, build_chain, scale_relative_sd
     joints_m, model, joints_reason = _throw_plane_joints(auto_flight, board_scale, filtered, landmarks, side,
                                                          camera_to_release)
     scale_state = board_scale.get("status") or "unavailable"
     scale_reason = board_scale.get("reason") or ("Board scale not measured." if scale_state != "measured" else None)
+    plane_reason = None
     if model is not None and model.phi_deg > MAX_PHI_DEG:
+        plane_reason = f"Throw line is {model.phi_deg:.0f}° out of the image plane (> {MAX_PHI_DEG:.0f}°)."
         scale_state = "estimated"
-        scale_reason = ((scale_reason + " ") if scale_reason else "") + (
-            f"Throw line is {model.phi_deg:.0f}° out of the image plane (> {MAX_PHI_DEG:.0f}°).")
+        scale_reason = ((scale_reason + " ") if scale_reason else "") + plane_reason
     notes: list[str] = []
     to_front = plane_height = None
     ppm = board_scale.get("pixels_per_meter")
@@ -451,8 +460,6 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
             release_px = bag
             x, y = model.to_plane(bag.reshape(1, 2))[0]
             to_front, plane_height = float(-x), float(y)
-            notes.append("Release height and distance to the board are the bag centroid in the board's throw plane "
-                         "(board floor line).")
     corners = np.asarray(((auto_flight or {}).get("board") or {}).get("corners_px") or np.zeros((0, 2)), float)
     size = (int((auto_flight or {}).get("width") or 1920), int((auto_flight or {}).get("height") or 1080))
 
@@ -465,8 +472,18 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
             return None
 
     scale_rel_sd, scale_basis = scale_relative_sd(board_scale, ppm_at)
-    height = plane_height if plane_height is not None else summaries.get("bag_release_height_m")
-    if plane_height is None and height is not None:
+    release_scale = _release_scale(calibration, gravity_scale, scale_state, scale_reason, scale_rel_sd, scale_basis)
+    if plane_reason and release_scale["state"] == "measured":
+        release_scale = {**release_scale, "state": "estimated", "reason": plane_reason}
+    board_release = release_scale["source"] == "board_throw_plane"
+    height = plane_height if (plane_height is not None and board_release) else summaries.get("bag_release_height_m")
+    if plane_height is not None and board_release:
+        notes.append("Release height and distance to the board are the bag centroid in the board's throw plane "
+                     "(board floor line).")
+    elif plane_height is not None:
+        notes.append("Release height is the foot-based estimate in the release calibration's scale; the distance "
+                     "to the board is from the board plane.")
+    elif plane_height is None and height is not None:
         notes.append("Release height is the foot-based estimate (flight.release_height), not the board plane.")
     chain = build_chain(
         angles=angles, fps=fps, forward_swing=forward_swing, release=release_frame, joints_m=joints_m,
@@ -478,12 +495,40 @@ def _throw_chain(*, auto_flight: dict[str, Any] | None, board_scale: dict[str, A
         to_front_m=to_front, measured_along_error_m=summaries.get("landing_along_error_m"),
         scale_rel_sd=scale_rel_sd, scale_state=scale_state, scale_reason=scale_reason, scale_basis=scale_basis,
         wrist_speed=None if wrist_speed is None else np.array([np.nan if v is None else v for v in wrist_speed], float),
-        landmark_noise_m=LANDMARK_NOISE_PX / ppm if ppm else None)
+        landmark_noise_m=LANDMARK_NOISE_PX / ppm if ppm else None, release_scale=release_scale,
+        plane_reason=plane_reason, si_reason=si_reason)
     chain["notes"].extend(notes)
-    chain["release_to_board_front_m"] = to_front
-    if joints_m is not None:
-        chain["joints_plane_m"] = {k: v.tolist() for k, v in joints_m.items()}
+    chain["release_to_board_front_m"] = None if si_reason else to_front
+    series = chain.get("series") or {}
+    if joints_m is not None and not si_reason and "start_frame" in series:
+        from .chain import _sig
+        lo, hi = series["start_frame"], series["start_frame"] + len(series["force_n"])
+        chain["joints_plane_m"] = {"start_frame": lo, **{k: _sig(v[lo:hi]) for k, v in joints_m.items()}}
     return chain
+
+
+def _release_scale(calibration: SpatialCalibration | None, gravity_scale: dict[str, Any] | None,
+                   board_state: str, board_reason: str | None, board_rel_sd: float,
+                   board_basis: str | None) -> dict[str, Any]:
+    """State/uncertainty of the calibration that actually scaled the bag's release speed and height."""
+    from .chain import DEFAULT_SCALE_REL_SD, MIN_SCALE_REL_SD
+    if calibration is None or calibration.plane == "board_throw_plane":
+        # No calibration means no release speed in m/s in the pipeline; the board scale is the only candidate.
+        return {"state": board_state, "reason": board_reason, "relative_sd": board_rel_sd, "basis": board_basis,
+                "source": "board_throw_plane"}
+    if calibration.plane == "bag_flight_plane_gravity":
+        se = (gravity_scale or {}).get("pixels_per_meter_se")
+        sd = max(MIN_SCALE_REL_SD, se / calibration.pixels_per_meter) if se else DEFAULT_SCALE_REL_SD
+        return {"state": "estimated",
+                "reason": "Release speed and height are scaled by the reviewed flight's own gravity fit, not a "
+                          "measured board scale.",
+                "relative_sd": sd, "basis": "gravity-fit scale standard error" if se else
+                "no gravity-fit scale SE; default 5 %", "source": "bag_flight_plane_gravity"}
+    return {"state": "measured" if calibration.valid else "estimated",
+            "reason": None if calibration.valid else "The calibration file is not marked valid.",
+            "relative_sd": DEFAULT_SCALE_REL_SD,
+            "basis": f"calibration file ({calibration.source}, plane {calibration.plane}); no uncertainty reported, "
+                     "default 5 %", "source": f"calibration_file:{calibration.plane}"}
 
 
 def analyze_trial(
@@ -1148,7 +1193,11 @@ def analyze_trial(
             angles={"arm_to_trunk_deg": kinematics.values["arm_to_trunk_deg"],
                     "elbow_angle_deg": kinematics.values["elbow_angle_deg"]},
             fps=video.fps, forward_swing=events["forward_swing"].effective_frame, release_frame=release_frame,
-            fit_points=fit_points, summaries=summaries, wrist_speed=wrist_speed_series)
+            fit_points=fit_points, summaries=summaries, wrist_speed=wrist_speed_series,
+            calibration=calibration if calibration and calibration.permits_physical_units else None,
+            gravity_scale=gravity_scale,
+            si_reason=None if (context.camera_view == "side" and flight_review.get("fixed_camera")) else
+            "Physical units withheld: confirm a fixed side camera and an in-plane scale.")
         summaries.update(flatten_for_summaries(chain))
         summaries["release_to_board_front_m"] = chain["release_to_board_front_m"]
     # Release window: the first free-flight detection and the backward-flight/wrist

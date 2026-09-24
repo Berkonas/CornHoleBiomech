@@ -36,8 +36,8 @@ import numpy as np
 
 from .bag import GRAVITY_M_S2
 from .filtering import derivative, lowpass_zero_phase
-from .mechanics import (BAG_ONLY_NOTE, G_VECTOR, along_error_m, energy_rate, minimum_speed, net_force_on_bag,
-                        power_on_bag, release_state, required_speed, timing_sensitivity)
+from .mechanics import (BAG_ONLY_NOTE, G_VECTOR, along_error_m, energy_rate, landing_jacobian, minimum_speed,
+                        net_force_on_bag, power_on_bag, release_state, required_speed)
 from .regulation import BAG_MASS_KG, BAG_MASS_RANGE_KG, INCH_M, Board
 
 HAND_OFFSET_ARM_LENGTHS = 0.34   # bag sits about one hand length beyond the wrist (auto_bag.py)
@@ -48,6 +48,9 @@ FALLBACK_WINDOW_BEFORE_RELEASE_S = 0.6
 MAX_FORWARD_SWING_S = 1.0        # a longer "forward swing" is an event error, not a swing
 MAX_RELATIVE_HALF_WIDTH = 0.25   # second-derivative quantities: "measured" only below this
 MAX_DIRECTION_HALF_WIDTH_DEG = 15.0   # force direction: "measured" only below this (and a measured peak force)
+MAX_HAND_BAG_ANGLE_DIFF_DEG = 10.0   # timing sensitivity needs the hand path to point where the bag went
+TIMING_STEP_S = 0.010
+SERIES_BEFORE_WINDOW_S = 0.2     # stored series: forward-swing start − 0.2 s … release + 0.1 s
 MAX_POWER_DISAGREEMENT = 0.10    # |F·v − dE/dt| relative to peak F·v
 DEFAULT_SCALE_REL_SD = 0.05      # used only when the scale block reports no uncertainty at all
 MIN_SCALE_REL_SD = 0.01
@@ -59,6 +62,8 @@ QUANTITY_UNITS: dict[str, str] = {
     "elbow_peak_extension_velocity_deg_s": "°/s", "elbow_peak_time_rel_release_ms": "ms",
     "wrist_peak_speed_time_rel_release_ms": "ms", "peak_sequence": "",
     "hand_speed_at_release_m_s": "m/s", "hand_acceleration_at_release_m_s2": "m/s²",
+    "hand_velocity_angle_at_release_deg": "°", "hand_tangential_acceleration_at_release_m_s2": "m/s²",
+    "hand_direction_rotation_rate_deg_s": "°/s",
     "peak_net_force_on_bag_n": "N", "mean_net_force_on_bag_n": "N", "force_direction_at_peak_deg": "°",
     "peak_power_on_bag_w": "W", "release_speed_m_s": "m/s", "release_angle_deg": "°", "release_height_m": "m",
     "momentum_kg_m_s": "kg·m/s", "kinetic_energy_j": "J", "potential_energy_j": "J", "mechanical_energy_j": "J",
@@ -67,11 +72,64 @@ QUANTITY_UNITS: dict[str, str] = {
     "measured_along_error_in": "in",
 }
 
+_POSE = "filtered pose landmarks"
+_HAND = ["filtered shoulder/elbow/wrist in the board throw plane", "hand offset 0.34 arm length", "fps"]
+_BAG = ["bag release speed (flight fit)", "bag release angle (flight fit)", "bag release height",
+        "release → board front distance", "regulation board geometry"]
+QUANTITY_INPUTS: dict[str, list[str]] = {
+    "shoulder_angle_at_release_deg": [_POSE, "release frame"],
+    "elbow_angle_at_release_deg": [_POSE, "release frame"],
+    "shoulder_peak_angular_velocity_deg_s": [_POSE, "forward-swing event", "release frame", "fps"],
+    "shoulder_peak_time_rel_release_ms": [_POSE, "forward-swing event", "release frame", "fps"],
+    "elbow_peak_extension_velocity_deg_s": [_POSE, "forward-swing event", "release frame", "fps"],
+    "elbow_peak_time_rel_release_ms": [_POSE, "forward-swing event", "release frame", "fps"],
+    "wrist_peak_speed_time_rel_release_ms": ["camera-steadied wrist speed (timing.py)", "release frame", "fps"],
+    "peak_sequence": ["shoulder/elbow/wrist peak frames", "release frame"],
+    "hand_speed_at_release_m_s": _HAND + ["release frame"],
+    "hand_acceleration_at_release_m_s2": _HAND + ["release frame"],
+    "hand_velocity_angle_at_release_deg": _HAND + ["release frame"],
+    "hand_tangential_acceleration_at_release_m_s2": _HAND + ["release frame"],
+    "hand_direction_rotation_rate_deg_s": _HAND + ["release frame"],
+    "peak_net_force_on_bag_n": _HAND + ["bag mass", "g", "forward-swing window"],
+    "mean_net_force_on_bag_n": _HAND + ["bag mass", "g", "forward-swing window"],
+    "force_direction_at_peak_deg": _HAND + ["bag mass", "g", "forward-swing window"],
+    "peak_power_on_bag_w": _HAND + ["bag mass", "g", "forward-swing window"],
+    "release_speed_m_s": ["bag flight fit", "metric scale"],
+    "release_angle_deg": ["bag flight fit"],
+    "release_height_m": ["bag release point", "floor line", "metric scale"],
+    "momentum_kg_m_s": ["release speed", "bag mass"],
+    "kinetic_energy_j": ["release speed", "bag mass"],
+    "potential_energy_j": ["release height", "bag mass", "g"],
+    "mechanical_energy_j": ["release speed", "release height", "bag mass", "g"],
+    "energy_match_percent": _BAG,
+    "speed_margin_over_minimum_percent": [b for b in _BAG if "angle" not in b],
+    "timing_sensitivity_in_per_10ms": _BAG + ["hand-path tangential acceleration, direction rotation rate and "
+                                              "velocity at release"],
+    "predicted_along_error_in": _BAG,
+    "measured_along_error_in": ["observed first contact (contact.py)", "board model"],
+}
+
 
 def quantity(value, unit: str, state: str, formula: str, *, reason: str | None = None,
-             interval: list[float] | None = None, assumptions: tuple[str, ...] | list[str] = ()) -> dict[str, Any]:
+             interval: list[float] | None = None, assumptions: tuple[str, ...] | list[str] = (),
+             inputs: tuple[str, ...] | list[str] = ()) -> dict[str, Any]:
     return {"value": value, "unit": unit, "state": state, "formula": formula, "reason": reason,
-            "interval": interval, "assumptions": list(assumptions)}
+            "interval": interval, "assumptions": list(assumptions), "inputs": list(inputs)}
+
+
+def _with_inputs(q: dict[str, Any]) -> dict[str, Any]:
+    """Fill each quantity's `inputs` (spec §5) from `QUANTITY_INPUTS` when the caller left it empty."""
+    for name, item in q.items():
+        if not item.get("inputs"):
+            item["inputs"] = list(QUANTITY_INPUTS.get(name, []))
+    return q
+
+
+def _sig(values, digits: int = 4):
+    """Round nested numbers to `digits` significant digits; non-finite → None (JSON-friendly)."""
+    a = np.asarray(values, float)
+    flat = [None if not math.isfinite(v) else float(f"{v:.{digits}g}") for v in a.ravel()]
+    return np.array(flat, dtype=object).reshape(a.shape).tolist()
 
 
 def _missing(unit: str, formula: str, reason: str) -> dict[str, Any]:
@@ -200,7 +258,7 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
         out["peak_sequence"] = seq
     else:
         out["peak_sequence"] = _missing("", "peak order", "Shoulder and elbow peaks are both needed.")
-    return out
+    return _with_inputs(out)
 
 
 # ---------------------------------------------------------------------------------------------- hand
@@ -236,13 +294,12 @@ def hand_chain(shoulder_m: np.ndarray, elbow_m: np.ndarray, wrist_m: np.ndarray,
                forward_swing: int | None, release: int, mass_kg: float = BAG_MASS_KG, *,
                landmark_noise_m: float | None = None, rel_scale_sd: float = 0.0,
                mass_range: tuple[float, float] = BAG_MASS_RANGE_KG, scale_state: str = "measured",
-               scale_reason: str | None = None, board: Board | None = None, draws: int = MC_DRAWS,
-               seed: int = 0) -> dict[str, Any]:
+               scale_reason: str | None = None, draws: int = MC_DRAWS, seed: int = 0) -> dict[str, Any]:
     """Bag-point kinematics and bag-only net force F = m (a − g⃗) and power F·v over the forward swing.
 
-    Joint positions are (N, 2) metres in a plane with y up. When `board` is given they are taken
-    to be the board's throw-plane coordinates (front edge at x = 0, y above the floor) and the
-    release-timing sensitivity is computed too. Monte Carlo: each draw adds 6 Hz-filtered white
+    Joint positions are (N, 2) metres in a plane with x toward the target and y up. Also reports the
+    hand path's velocity direction, tangential acceleration and direction rotation rate at release
+    (`release_rates`, nominal and per draw) for the timing sensitivity. Monte Carlo: each draw adds 6 Hz-filtered white
     landmark noise (`landmark_noise_m` per axis per frame, i.e. the part of pose noise that
     survives the pose filter), multiplies positions by a scale factor N(1, `rel_scale_sd`) and
     draws the bag mass uniformly in `mass_range`.
@@ -287,11 +344,7 @@ def hand_chain(shoulder_m: np.ndarray, elbow_m: np.ndarray, wrist_m: np.ndarray,
         if has_release:
             mc["speed"] = np.linalg.norm(v_mc[release], axis=-1)
             mc["accel"] = np.linalg.norm(a_mc[release], axis=-1)
-            if board is not None:
-                mc["timing"] = np.array([
-                    np.nan if (t := timing_sensitivity(p_mc[:, k], v_mc[:, k], release, fps,
-                                                       -float(p_mc[release, k, 0]), board)) is None else t
-                    for k in range(draws)]) / INCH_M
+            mc.update({f"rate_{k}": v for k, v in _release_rates(v_mc[release], a_mc[release]).items()})
     iv = lambda key: _interval(mc[key]) if key in mc else None
 
     assume = [BAG_ONLY_NOTE, "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along "
@@ -360,28 +413,77 @@ def hand_chain(shoulder_m: np.ndarray, elbow_m: np.ndarray, wrist_m: np.ndarray,
     else:
         for key in ("hand_speed_at_release_m_s", "hand_acceleration_at_release_m_s2"):
             q[key] = _missing(QUANTITY_UNITS[key], "derivative of the bag point", "Arm landmarks missing at release.")
-    if board is not None:
-        around = 1 <= release < n - 1 and all(np.isfinite(point[k]).all() and np.isfinite(velocity[k]).all()
-                                               for k in (release - 1, release, release + 1))
-        s_nom = timing_sensitivity(point, velocity, release, fps, -float(point[release, 0]), board) if around else None
-        if s_nom is None:
-            q["timing_sensitivity_in_per_10ms"] = _missing(
-                "in / 10 ms", "timing sensitivity",
-                "The hand path at release ± 1 frame does not reach the board (hand moving up or away from it), "
-                "so it cannot stand in for the bag's path." if around else "Hand path incomplete around release.")
-        else:
-            state, reason = _cap("estimated", "Hand path stands in for the bag path; drag-free flight.",
-                                 scale_state, scale_reason)
-            q["timing_sensitivity_in_per_10ms"] = quantity(
-                s_nom / INCH_M, "in / 10 ms", state,
-                "Δ landing along the throw line for releasing 10 ms later, from the hand path's position and "
-                "velocity at release ± 1 frame propagated through drag-free flight (Nasu et al. 2014)",
-                reason=reason, interval=iv("timing"),
-                assumptions=["Hand path used as the bag path around release.", "Drag-free flight."])
-    return {"quantities": q, "series": {"bag_point_m": point.tolist(), "velocity_m_s": velocity.tolist(),
-                                        "acceleration_m_s2": acceleration.tolist(), "force_n": force.tolist(),
-                                        "power_w": power.tolist(), "energy_rate_w": rate.tolist()},
+    rates = _release_rates(velocity[release], acceleration[release]) if has_release else None
+    if rates is not None:
+        cap = lambda st, rs: _cap(st, rs, scale_state, scale_reason)
+        q["hand_velocity_angle_at_release_deg"] = quantity(
+            float(rates["angle_deg"]), "°", "measured", "atan2(v_y, v_x) of the bag point at the release frame",
+            interval=iv("rate_angle_deg"), assumptions=assume[1:])
+        t_val = float(rates["tangential_m_s2"])
+        t_state, t_reason = cap(*_noise_state(t_val, iv("rate_tangential_m_s2"), "m/s²"))
+        q["hand_tangential_acceleration_at_release_m_s2"] = quantity(
+            t_val, "m/s²", t_state, "a · v̂ of the bag point at release (negative = slowing down)", reason=t_reason,
+            interval=iv("rate_tangential_m_s2"), assumptions=assume[1:])
+        w_val = float(rates["rotation_deg_s"])
+        w_state, w_reason = _noise_state(w_val, iv("rate_rotation_deg_s"), "°/s")
+        q["hand_direction_rotation_rate_deg_s"] = quantity(
+            w_val, "°/s", w_state, "dθ_v/dt = (v_x a_y − v_y a_x) / |v|² at release (positive = turning upward)",
+            reason=w_reason, interval=iv("rate_rotation_deg_s"),
+            assumptions=assume[1:] + ["Scale-free: a ratio of plane quantities."])
+    else:
+        for key in ("hand_velocity_angle_at_release_deg", "hand_tangential_acceleration_at_release_m_s2",
+                    "hand_direction_rotation_rate_deg_s"):
+            q[key] = _missing(QUANTITY_UNITS[key], "hand path at release", "Arm landmarks missing at release.")
+    lo = max(0, start - int(round(SERIES_BEFORE_WINDOW_S * fps)))
+    hi = min(n, release + int(round(PEAK_WINDOW_AFTER_RELEASE_S * fps)) + 1)
+    series = {"start_frame": lo, "mass_kg": mass_kg, "bag_point_m": _sig(point[lo:hi]),
+              "velocity_m_s": _sig(velocity[lo:hi]), "force_n": _sig(force[lo:hi]), "power_w": _sig(power[lo:hi]),
+              "energy_rate_w": _sig(rate[lo:hi]),
+              "note": "Frames start_frame … start_frame + len − 1; acceleration = force / mass_kg + g⃗."}
+    release_rates = None
+    if rates is not None:
+        release_rates = {"nominal": {k: float(v) for k, v in rates.items()},
+                         "draws": {k[5:]: v for k, v in mc.items() if k.startswith("rate_")} or None}
+    return {"quantities": _with_inputs(q), "series": series, "release_rates": release_rates,
             "arm_length_m": float(arm) if np.isfinite(arm) else None}
+
+
+def _release_rates(v: np.ndarray, a: np.ndarray) -> dict[str, np.ndarray]:
+    """Velocity direction (°), tangential acceleration (m/s²), direction rotation rate (°/s), v_x, v_y;
+    `v`/`a` are (..., 2)."""
+    v, a = np.asarray(v, float), np.asarray(a, float)
+    speed2 = np.sum(v * v, axis=-1)
+    speed = np.sqrt(speed2)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return {"angle_deg": np.degrees(np.arctan2(v[..., 1], v[..., 0])),
+                "tangential_m_s2": np.sum(a * v, axis=-1) / speed,
+                "rotation_deg_s": np.degrees((v[..., 0] * a[..., 1] - v[..., 1] * a[..., 0]) / speed2),
+                "vx": v[..., 0], "vy": v[..., 1]}
+
+
+def timing_sensitivity_from_rates(speed: float, angle_deg: float, height_m: float, to_front_m: float,
+                                  dv_dt: float, dtheta_dt_deg_s: float, dh_dt: float, dx_dt: float,
+                                  board: Board = Board()) -> dict[str, float] | None:
+    """Landing change (m) for releasing `TIMING_STEP_S` later (Nasu et al. 2014; Venkadesan & Mahadevan 2017).
+
+    S = (∂R/∂v · dv/dt + ∂R/∂θ · dθ/dt + ∂R/∂h · dh/dt + ∂R/∂x · dx/dt) × 10 ms, the Jacobian
+    (mechanics.landing_jacobian) taken at the BAG's fitted release and the rates from the hand
+    path at release. The last term is the release point moving toward the board (∂R/∂x = +1 for
+    an error measured from the fixed hole: the whole path shifts). Returns the total and the four
+    terms, or None when the Jacobian is undefined.
+    """
+    jac = landing_jacobian(speed, angle_deg, height_m, to_front_m, board)
+    th = math.radians(angle_deg)
+    step = 0.01
+    e = [along_error_m(speed * math.cos(th), speed * math.sin(th), height_m, to_front_m + d, board)
+         for d in (-step, step)]
+    if None in e or not all(math.isfinite(jac[k]) for k in ("d_speed", "d_angle", "d_height")):
+        return None
+    d_x = -(e[1] - e[0]) / (2 * step)        # moving the release point toward the board = shorter distance
+    terms = {"speed": jac["d_speed"] * dv_dt, "angle": jac["d_angle"] * dtheta_dt_deg_s,
+             "height": jac["d_height"] * dh_dt, "position": d_x * dx_dt}
+    terms = {k: v * TIMING_STEP_S for k, v in terms.items()}
+    return {"total": sum(terms.values()), **terms}
 
 
 # ------------------------------------------------------------------------------------------- release
@@ -389,12 +491,15 @@ def hand_chain(shoulder_m: np.ndarray, elbow_m: np.ndarray, wrist_m: np.ndarray,
 def release_chain(speed: float, angle_deg: float, height_m: float, to_front_m: float | None, se: dict[str, float],
                   mass_range: tuple[float, float] = BAG_MASS_RANGE_KG, rel_scale_sd: float = DEFAULT_SCALE_REL_SD,
                   draws: int = MC_DRAWS, seed: int = 0, board: Board = Board(), *, scale_state: str = "measured",
-                  scale_reason: str | None = None, scale_basis: str | None = None) -> dict[str, Any]:
+                  scale_reason: str | None = None, scale_basis: str | None = None, plane_reason: str | None = None,
+                  extra_assumptions: tuple[str, ...] | list[str] = ()) -> dict[str, Any]:
     """Release state (p, KE, PE, E) and the drag-free flight model from (v, θ, h, distance to the board).
 
     Monte Carlo over the fit's standard errors (`se`: speed m/s, angle °, height m), a common scale
     factor N(1, `rel_scale_sd`) on speed, height and distance, and a uniform bag mass in `mass_range`.
     `to_front_m` (horizontal release → board front edge) None withholds the flight-model quantities.
+    `scale_*` describe the calibration that scaled the release speed/height; `plane_reason` (throw line
+    far out of the image plane) makes even the release angle "estimated".
     """
     rng = np.random.default_rng(seed)
     scale = rng.normal(1.0, rel_scale_sd, draws)
@@ -407,7 +512,7 @@ def release_chain(speed: float, angle_deg: float, height_m: float, to_front_m: f
     ke, pe, p = 0.5 * m * v**2, m * GRAVITY_M_S2 * h, m * v
     scale_note = (f"Scale uncertainty {100 * rel_scale_sd:.1f} % (1 SD)"
                   + (f": {scale_basis}." if scale_basis else "."))
-    common = [scale_note, "Bag mass 15.5–16 oz (uniform); nominal value at 15.75 oz."]
+    common = [scale_note, "Bag mass 15.5–16 oz (uniform); nominal value at 15.75 oz.", *extra_assumptions]
     metric_state, metric_reason = _cap("measured", None, scale_state, scale_reason)
 
     def metric(value, unit, formula, samples, extra=()) -> dict[str, Any]:
@@ -417,7 +522,8 @@ def release_chain(speed: float, angle_deg: float, height_m: float, to_front_m: f
     out = {
         "release_speed_m_s": metric(speed, "m/s", "|v| from the gravity-constrained ballistic flight fit", v,
                                     ["Fit standard error propagated."]),
-        "release_angle_deg": quantity(angle_deg, "°", "measured", "atan2(v_y, v_x) from the flight fit",
+        "release_angle_deg": quantity(angle_deg, "°", "estimated" if plane_reason else "measured",
+                                      "atan2(v_y, v_x) from the flight fit", reason=plane_reason,
                                       interval=_interval(th), assumptions=["Fit standard error propagated."]),
         "release_height_m": metric(height_m, "m", "bag centroid height above the floor at release", h,
                                    [f"Height SD {100 * (se.get('height') or 0.0):.0f} cm assumed."]),
@@ -433,7 +539,7 @@ def release_chain(speed: float, angle_deg: float, height_m: float, to_front_m: f
         out["energy_match_percent"] = _missing("%", "100 (v² / v_req² − 1)", reason)
         out["speed_margin_over_minimum_percent"] = _missing("%", "100 (v / v_min − 1)", reason)
         out["predicted_along_error_in"] = _missing("in", "drag-free landing − hole centre", reason)
-        return out
+        return _with_inputs(out)
     d = to_front_m * scale
     flight_state, flight_reason = _cap("estimated", "Drag-free flight model.", scale_state, scale_reason)
     req0 = required_speed(angle_deg, height_m, to_front_m, board)
@@ -466,7 +572,7 @@ def release_chain(speed: float, angle_deg: float, height_m: float, to_front_m: f
             "drag-free landing on the (extended) deck plane − hole centre, along the throw line (+ = long)",
             reason=flight_reason, interval=None if interval is None else [x / INCH_M for x in interval],
             assumptions=flight_assume)
-    return out
+    return _with_inputs(out)
 
 
 # --------------------------------------------------------------------------------------------- scale
@@ -505,51 +611,111 @@ def build_chain(*, angles: dict[str, np.ndarray], fps: float, forward_swing: int
                 board: Board = Board(), scale_rel_sd: float = DEFAULT_SCALE_REL_SD, scale_state: str = "measured",
                 scale_reason: str | None = None, scale_basis: str | None = None, joints_reason: str | None = None,
                 wrist_speed: np.ndarray | None = None, landmark_noise_m: float | None = None,
-                draws: int = MC_DRAWS, seed: int = 0) -> dict[str, Any]:
-    """One throw's chain record. `joints_m` ("shoulder", "elbow", "wrist": (N, 2)) are board throw-plane
-    metres (front edge x = 0, y above the floor); None withholds the hand/bag mechanics with `joints_reason`.
-    Every name in `QUANTITY_UNITS` is present in `quantities`."""
+                release_scale: dict[str, Any] | None = None, plane_reason: str | None = None,
+                si_reason: str | None = None, draws: int = MC_DRAWS, seed: int = 0) -> dict[str, Any]:
+    """One throw's chain record. Every name in `QUANTITY_UNITS` is present in `quantities`.
+
+    `joints_m` ("shoulder", "elbow", "wrist": (N, 2)) are board throw-plane metres (front edge x = 0,
+    y above the floor), scaled by the board scale described by `scale_*`; None withholds the hand/bag
+    mechanics with `joints_reason`. `release_scale` ({"state", "reason", "relative_sd", "basis",
+    "source"}) describes the calibration that actually scaled the release speed/height — by default
+    the same board scale. `si_reason` (the pipeline's physical-units gate: not a fixed side camera)
+    withholds every metre-based quantity. `plane_reason` (φ > 20°) makes the release angle "estimated".
+    """
     q: dict[str, Any] = dict(body_chain(angles, fps, forward_swing, release, wrist_speed))
     series: dict[str, Any] = {}
     notes = [BAG_ONLY_NOTE]
-    hand_reason = joints_reason or "Throw-plane joint positions unavailable."
-    if joints_m is not None:
+    rs = release_scale or {"state": scale_state, "reason": scale_reason, "relative_sd": scale_rel_sd,
+                           "basis": scale_basis, "source": "board_throw_plane"}
+    hand_reason = si_reason or joints_reason or "Throw-plane joint positions unavailable."
+    hand = None
+    if joints_m is not None and not si_reason:
         hand = hand_chain(joints_m["shoulder"], joints_m["elbow"], joints_m["wrist"], fps, forward_swing, release,
                           landmark_noise_m=landmark_noise_m, rel_scale_sd=scale_rel_sd, scale_state=scale_state,
-                          scale_reason=scale_reason, board=board, draws=draws, seed=seed)
+                          scale_reason=scale_reason, draws=draws, seed=seed)
         q.update(hand["quantities"])
         series = hand["series"]
     else:
         notes.append(f"Hand/bag mechanics withheld: {hand_reason}")
     v, a, h = (release_values.get(k) for k in ("speed", "angle", "height"))
-    if None not in (v, a, h):
-        q.update(release_chain(v, a, h, to_front_m, release_se, rel_scale_sd=scale_rel_sd, draws=draws,
-                               seed=seed + 1, board=board, scale_state=scale_state, scale_reason=scale_reason,
-                               scale_basis=scale_basis))
-        release_reason = None
-    else:
+    release_reason = si_reason
+    if si_reason is None and None not in (v, a, h):
+        extra = []
+        if rs.get("source") != "board_throw_plane" and joints_m is not None:
+            extra.append(f"Release speed/height scaled by {rs.get('source')}, while joints and the distance to the "
+                         "board use the board's throw-plane scale.")
+        q.update(release_chain(v, a, h, to_front_m, release_se, rel_scale_sd=rs["relative_sd"], draws=draws,
+                               seed=seed + 1, board=board, scale_state=rs["state"], scale_reason=rs["reason"],
+                               scale_basis=rs.get("basis"), plane_reason=plane_reason, extra_assumptions=extra))
+    elif si_reason is None:
         missing = [k for k, x in (("speed (m/s)", v), ("angle", a), ("height (m)", h)) if x is None]
         release_reason = f"Release {', '.join(missing)} not available from the flight fit."
-    if measured_along_error_m is not None:
+    q["timing_sensitivity_in_per_10ms"] = _timing_quantity(
+        hand, v, a, h, to_front_m, board, hand_reason if hand is None else release_reason,
+        (scale_state, scale_reason), (rs["state"], rs["reason"]))
+    if measured_along_error_m is not None and not si_reason:
         state, reason = _cap("measured", None, scale_state, scale_reason)
         q["measured_along_error_in"] = quantity(
             measured_along_error_m / INCH_M, "in", state,
             "observed first contact − hole centre along the throw line, in the board plane (+ = long)",
             reason=reason, assumptions=["Contact classified as observed on the deck/floor (contact.py)."])
     else:
-        q["measured_along_error_in"] = _missing("in", "observed first contact − hole centre",
+        q["measured_along_error_in"] = _missing("in", "observed first contact − hole centre", si_reason or
                                                 "First contact not observed on the deck or floor for this throw.")
     hand_keys = {"hand_speed_at_release_m_s", "hand_acceleration_at_release_m_s2", "peak_net_force_on_bag_n",
                  "mean_net_force_on_bag_n", "force_direction_at_peak_deg", "peak_power_on_bag_w",
-                 "timing_sensitivity_in_per_10ms"}
+                 "hand_velocity_angle_at_release_deg", "hand_tangential_acceleration_at_release_m_s2",
+                 "hand_direction_rotation_rate_deg_s"}
     for name, unit in QUANTITY_UNITS.items():
         if name not in q:
             reason = (hand_reason if name in hand_keys else
                       release_reason or "Distance from release to the board is unknown.")
             q[name] = _missing(unit, name, reason)
-    return {"quantities": {name: q[name] for name in QUANTITY_UNITS}, "series": series, "notes": notes,
+    return {"quantities": _with_inputs({name: q[name] for name in QUANTITY_UNITS}), "series": series,
+            "notes": notes,
             "scale": {"state": scale_state, "reason": scale_reason, "relative_sd": scale_rel_sd,
-                      "basis": scale_basis}}
+                      "basis": scale_basis, "applies_to": "joints, hand/bag mechanics, distance to the board"},
+            "release_scale": {**rs, "applies_to": "release speed/height, momentum, energies, flight model"}}
+
+
+def _timing_quantity(hand: dict[str, Any] | None, v, a, h, to_front_m, board: Board, missing_reason: str | None,
+                     joint_scale: tuple[str, str | None], release_scale: tuple[str, str | None]) -> dict[str, Any]:
+    """Release-timing sensitivity from the bag's fitted release and the hand path's rates at release."""
+    unit, formula = "in / 10 ms", ("(∂R/∂v · dv/dt + ∂R/∂θ · dθ/dt + ∂R/∂h · dh/dt + ∂R/∂x · dx/dt) × 10 ms; Jacobian "
+                                   "at the bag's fitted release, rates from the hand path at release")
+    rates = None if hand is None else hand.get("release_rates")
+    if rates is None or None in (v, a, h, to_front_m):
+        why = missing_reason if hand is None else (
+            "Hand path missing at release." if rates is None else
+            "Bag release speed/angle/height or the distance to the board is unavailable.")
+        return _missing(unit, formula, why or "Inputs unavailable.")
+    nom = rates["nominal"]
+    diff = (nom["angle_deg"] - a + 180.0) % 360.0 - 180.0
+    if abs(diff) > MAX_HAND_BAG_ANGLE_DIFF_DEG:
+        return _missing(unit, formula, f"The hand path at release points {nom['angle_deg']:.0f}° but the bag left at "
+                        f"{a:.0f}° (difference {diff:+.0f}°, > {MAX_HAND_BAG_ANGLE_DIFF_DEG:.0f}°), so the hand's "
+                        "rates cannot stand in for the bag's.")
+    out = timing_sensitivity_from_rates(v, a, h, to_front_m, nom["tangential_m_s2"], nom["rotation_deg_s"],
+                                        nom["vy"], nom["vx"], board)
+    if out is None:
+        return _missing(unit, formula, "Landing Jacobian undefined at this release (path misses the deck plane).")
+    interval = None
+    draws = rates.get("draws")
+    if draws:
+        mc = timing_sensitivity_from_rates(v, a, h, to_front_m, draws["tangential_m_s2"], draws["rotation_deg_s"],
+                                           draws["vy"], draws["vx"], board)
+        interval = None if mc is None else _interval(np.asarray(mc["total"]) / INCH_M)
+    state, reason = _cap("estimated", "Rates from the hand path at release; drag-free flight.", *joint_scale)
+    if release_scale[0] != "measured" and joint_scale[0] == "measured":
+        state, reason = _cap(state, reason, *release_scale)
+    item = quantity(out["total"] / INCH_M, unit, state, formula, reason=reason, interval=interval,
+                    assumptions=["Hand path's rates at the release frame stand in for the bag's rate of change of "
+                                 "release conditions (Nasu et al. 2014; Venkadesan & Mahadevan 2017).",
+                                 f"Used only when the hand-path direction is within {MAX_HAND_BAG_ANGLE_DIFF_DEG:.0f}° "
+                                 "of the bag's fitted release angle.", "Drag-free flight."])
+    item["terms_in"] = {k: out[k] / INCH_M for k in ("speed", "angle", "height", "position")}
+    item["hand_minus_bag_angle_deg"] = diff
+    return item
 
 
 def flatten_for_summaries(chain: dict[str, Any]) -> dict[str, float | None]:

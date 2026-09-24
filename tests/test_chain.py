@@ -53,7 +53,7 @@ def test_hand_chain_force_vector_for_circular_swing():
     # Rigid arm swinging on a circle at constant ω: hand force = m(−ω²r r̂ − g⃗)
     shoulder, elbow, wrist, release = _circular_swing()
     out = hand_chain(shoulder, elbow, wrist, FPS, 20, release)
-    f = np.asarray(out["series"]["force_n"])[release]
+    f = np.asarray(out["series"]["force_n"], float)[release - out["series"]["start_frame"]]
     assert f[1] > BAG_MASS_KG * G      # at the bottom of the swing the hand pulls up more than the weight
     assert out["quantities"]["peak_net_force_on_bag_n"]["unit"] == "N"
     assert "Bag-only" in out["quantities"]["peak_net_force_on_bag_n"]["assumptions"][0]
@@ -88,7 +88,10 @@ def test_hand_chain_scale_state_caps_every_metre_quantity():
     shoulder, elbow, wrist, release = _circular_swing()
     out = hand_chain(shoulder, elbow, wrist, FPS, 20, release, landmark_noise_m=0.0005, draws=100,
                      scale_state="estimated", scale_reason="HFOV at the band edge")
+    scale_free = {"hand_velocity_angle_at_release_deg", "hand_direction_rotation_rate_deg_s"}
     for name, item in out["quantities"].items():
+        if name in scale_free:
+            continue
         assert item["state"] in ("estimated", "unavailable"), name
         if item["state"] == "estimated":
             assert "HFOV at the band edge" in item["reason"], name
@@ -229,7 +232,7 @@ def test_throw_chain_end_to_end_on_a_rendered_scene():
     fit_points = filtered[:, 2, :].copy()        # bag at the wrist in this toy scene
     scale = {"status": "estimated", "reason": "HFOV at band edge", "hfov_deg": 62.0, "pixels_per_meter": 150.0,
              "pixels_per_meter_at_55_deg": 170.0, "pixels_per_meter_at_75_deg": 120.0}
-    summaries = {"bag_release_speed_m_s": 8.0, "bag_release_angle_deg": 30.0, "bag_release_speed_se_m_s": 0.1,
+    summaries = {"bag_release_speed_m_s": 8.0, "bag_release_angle_deg": 0.0,     # hand moves horizontally here "bag_release_speed_se_m_s": 0.1,
                  "bag_release_angle_se_deg": 1.0, "landing_along_error_m": 0.1}
     chain = _throw_chain(auto_flight=auto_flight, board_scale=scale, filtered=filtered, landmarks=landmarks,
                          side="right", camera_to_release=auto_flight["camera_to_release"],
@@ -280,14 +283,167 @@ def test_implausibly_early_forward_swing_falls_back_to_a_window_before_release()
     assert any("forward-swing event" in a for a in out["elbow_peak_time_rel_release_ms"]["assumptions"])
 
 
-def test_timing_sensitivity_reason_when_the_hand_moves_away_from_the_board():
+def _release_arc(tangential=0.0, speed=8.4, r=0.8, angle=30.0, fps=240.0, n=121, release=60):
+    """Hand point on a circle about a fixed shoulder, moving at `speed` and `angle` at release, with constant
+    tangential acceleration. Returns joints (plane metres), fps, release and an exact state function."""
+    shoulder0 = np.array([-6.0, 1.3])
+    phi0 = math.radians(angle - 90.0)          # counter-clockwise: velocity direction = position angle + 90°
+    w0, alpha = speed / r, tangential / r
+    phi = lambda t: phi0 + w0 * t + 0.5 * alpha * t * t
+    t = (np.arange(n) - release) / fps
+    u = np.column_stack([np.cos(phi(t)), np.sin(phi(t))])
+    shoulder = np.tile(shoulder0, (n, 1))
+    wrist = shoulder + u * r / (1 + 0.34)
+    elbow = shoulder + u * r / (2 * (1 + 0.34))
+
+    def state(tt):
+        p, w = phi(tt), w0 + alpha * tt
+        pos = shoulder0 + r * np.array([math.cos(p), math.sin(p)])
+        vel = r * w * np.array([-math.sin(p), math.cos(p)])
+        return pos, vel
+    return {"shoulder": shoulder, "elbow": elbow, "wrist": wrist}, fps, release, state
+
+
+def _arc_chain(joints, fps, release, state, angle_offset=0.0):
+    pos, vel = state(0.0)
+    speed, angle = float(np.hypot(*vel)), math.degrees(math.atan2(vel[1], vel[0])) + angle_offset
+    n = len(joints["wrist"])
+    return build_chain(angles={"arm_to_trunk_deg": np.zeros(n), "elbow_angle_deg": np.full(n, 170.0)}, fps=fps,
+                       forward_swing=release - 30, release=release, joints_m=joints,
+                       release_values={"speed": speed, "angle": angle, "height": float(pos[1])},
+                       release_se={}, to_front_m=float(-pos[0]), measured_along_error_m=None, draws=0)
+
+
+def _finite_difference_timing(state, board):
+    from cornhole_biomech.mechanics import along_error_m
+    def landing(tt):
+        pos, vel = state(tt)
+        return along_error_m(vel[0], vel[1], pos[1], -pos[0], board)
+    d = 1e-4
+    return (landing(d) - landing(-d)) / (2 * d) * 0.010 / 0.0254
+
+
+def test_timing_sensitivity_matches_an_independent_finite_difference_on_a_constant_speed_arc():
     from cornhole_biomech.regulation import Board
-    shoulder, elbow, wrist, release = _circular_swing()
-    shift = np.array([-7.0, -0.4])
-    # Reverse time: the hand now swings backward (away from the board) through release.
-    rev = lambda a: (a + shift)[::-1].copy()
-    out = hand_chain(rev(shoulder), rev(elbow), rev(wrist), FPS, 20, len(wrist) - 1 - release, board=Board())
-    item = out["quantities"]["timing_sensitivity_in_per_10ms"]
-    assert item["state"] == "unavailable" and "does not reach the board" in item["reason"]
-    ok = hand_chain(shoulder + shift, elbow + shift, wrist + shift, FPS, 20, release, board=Board())
-    assert ok["quantities"]["timing_sensitivity_in_per_10ms"]["state"] == "estimated"
+    joints, fps, release, state = _release_arc(tangential=0.0)
+    item = _arc_chain(joints, fps, release, state)["quantities"]["timing_sensitivity_in_per_10ms"]
+    expected = _finite_difference_timing(state, Board())
+    assert expected > 0                               # rising, constant-speed arc: later release lands longer
+    assert item["value"] == pytest.approx(expected, rel=0.03)
+    assert item["state"] == "estimated"
+    assert set(item["terms_in"]) == {"speed", "angle", "height", "position"}
+
+
+def test_timing_sensitivity_falls_when_the_hand_decelerates():
+    from cornhole_biomech.regulation import Board
+    base = _arc_chain(*_release_arc(tangential=0.0))["quantities"]["timing_sensitivity_in_per_10ms"]["value"]
+    joints, fps, release, state = _release_arc(tangential=-50.0)
+    slowing = _arc_chain(joints, fps, release, state)["quantities"]
+    assert slowing["timing_sensitivity_in_per_10ms"]["value"] < base
+    assert slowing["timing_sensitivity_in_per_10ms"]["value"] == pytest.approx(
+        _finite_difference_timing(state, Board()), rel=0.05, abs=0.5)
+    assert slowing["hand_tangential_acceleration_at_release_m_s2"]["value"] == pytest.approx(-50.0, rel=0.03)
+    assert slowing["hand_direction_rotation_rate_deg_s"]["value"] == pytest.approx(math.degrees(8.4 / 0.8), rel=0.03)
+    assert slowing["hand_velocity_angle_at_release_deg"]["value"] == pytest.approx(30.0, abs=0.5)
+
+
+def test_timing_sensitivity_unavailable_when_hand_and_bag_directions_disagree():
+    item = _arc_chain(*_release_arc(), angle_offset=15.0)["quantities"]["timing_sensitivity_in_per_10ms"]
+    assert item["state"] == "unavailable"
+    assert "difference" in item["reason"] and "10°" in item["reason"]
+
+
+def test_si_gate_withholds_every_metre_quantity():
+    joints, fps, release, state = _release_arc()
+    pos, vel = state(0.0)
+    n = len(joints["wrist"])
+    gate = "Physical units withheld: confirm a fixed side camera and an in-plane scale."
+    chain = build_chain(angles={"arm_to_trunk_deg": np.zeros(n), "elbow_angle_deg": np.full(n, 170.0)}, fps=fps,
+                        forward_swing=release - 30, release=release, joints_m=joints,
+                        release_values={"speed": 8.4, "angle": 30.0, "height": float(pos[1])}, release_se={},
+                        to_front_m=float(-pos[0]), measured_along_error_m=0.1, si_reason=gate, draws=0)
+    q = chain["quantities"]
+    for name, unit in ((k, v["unit"]) for k, v in q.items()):
+        if any(u in unit for u in ("m", "N", "W", "J", "in")) and unit != "ms":
+            assert q[name]["state"] == "unavailable" and q[name]["reason"] == gate, name
+    assert q["elbow_angle_at_release_deg"]["state"] == "measured"
+
+
+def test_release_scale_from_another_calibration_is_recorded():
+    joints, fps, release, state = _release_arc()
+    pos, _ = state(0.0)
+    n = len(joints["wrist"])
+    gravity = {"state": "estimated", "reason": "Release scaled by the flight's own gravity fit.",
+               "relative_sd": 0.08, "basis": "gravity-fit scale SE", "source": "bag_flight_plane_gravity"}
+    chain = build_chain(angles={"arm_to_trunk_deg": np.zeros(n), "elbow_angle_deg": np.full(n, 170.0)}, fps=fps,
+                        forward_swing=release - 30, release=release, joints_m=joints,
+                        release_values={"speed": 8.4, "angle": 30.0, "height": float(pos[1])}, release_se={},
+                        to_front_m=float(-pos[0]), measured_along_error_m=None, release_scale=gravity,
+                        plane_reason="Throw line 25° out of the image plane.", draws=50)
+    q = chain["quantities"]
+    ke = q["kinetic_energy_j"]
+    assert ke["state"] == "estimated" and "gravity fit" in ke["reason"]
+    assert any("bag_flight_plane_gravity" in a and "board" in a for a in ke["assumptions"])
+    assert any("8.0 %" in a for a in ke["assumptions"])
+    assert q["peak_net_force_on_bag_n"]["reason"] is None or "gravity" not in q["peak_net_force_on_bag_n"]["reason"]
+    assert q["release_angle_deg"]["state"] == "estimated"
+    assert chain["release_scale"]["source"] == "bag_flight_plane_gravity"
+    assert chain["scale"]["state"] == "measured"
+
+
+def test_every_quantity_names_its_inputs_and_series_are_trimmed_and_rounded():
+    joints, fps, release, state = _release_arc()
+    chain = _arc_chain(joints, fps, release, state)
+    for name, item in chain["quantities"].items():
+        assert item["inputs"], name
+    series = chain["series"]
+    assert "acceleration_m_s2" not in series and series["mass_kg"] == pytest.approx(BAG_MASS_KG)
+    assert series["start_frame"] == max(0, (release - 30) - int(round(0.2 * fps)))
+    assert len(series["force_n"]) == release + int(round(0.1 * fps)) + 1 - series["start_frame"]
+    value = series["force_n"][5][1]
+    assert value == float(f"{value:.4g}")
+
+
+def _scene_chain(**kwargs):
+    from cornhole_biomech.pipeline import _throw_chain
+    auto_flight, filtered, landmarks, truth = _rendered_scene(true_hfov=62.0)
+    n = len(filtered)
+    scale = {"status": "measured", "reason": None, "hfov_deg": 62.0, "pixels_per_meter": 150.0,
+             "pixels_per_meter_at_55_deg": 170.0, "pixels_per_meter_at_75_deg": 120.0}
+    summaries = {"bag_release_speed_m_s": 8.0, "bag_release_angle_deg": 0.0, "bag_release_speed_se_m_s": 0.1,
+                 "bag_release_angle_se_deg": 1.0, "bag_release_height_m": 0.9, "landing_along_error_m": 0.1}
+    return _throw_chain(auto_flight=auto_flight, board_scale=scale, filtered=filtered, landmarks=landmarks,
+                        side="right", camera_to_release=auto_flight["camera_to_release"],
+                        angles={"arm_to_trunk_deg": np.linspace(0, 60, n), "elbow_angle_deg": np.full(n, 170.0)},
+                        fps=FPS, forward_swing=20, release_frame=auto_flight["release_frame"],
+                        fit_points=filtered[:, 2, :].copy(), summaries=summaries, wrist_speed=None, **kwargs), truth
+
+
+def test_throw_chain_applies_the_pipeline_si_gate():
+    gate = "Physical units withheld: confirm a fixed side camera and an in-plane scale."
+    chain, _ = _scene_chain(si_reason=gate)
+    q = chain["quantities"]
+    for name in ("peak_net_force_on_bag_n", "hand_speed_at_release_m_s", "kinetic_energy_j", "release_height_m",
+                 "measured_along_error_in", "timing_sensitivity_in_per_10ms", "predicted_along_error_in"):
+        assert q[name]["state"] == "unavailable" and q[name]["reason"] == gate, name
+    assert chain["release_to_board_front_m"] is None and "joints_plane_m" not in chain
+    assert q["elbow_angle_at_release_deg"]["state"] == "measured"
+
+
+def test_throw_chain_takes_the_release_scale_from_a_gravity_calibration():
+    from cornhole_biomech.bag import SpatialCalibration
+    calibration = SpatialCalibration(140.0, "bag_flight_plane_gravity", True, "reviewed_flight_gravity_fit")
+    chain, truth = _scene_chain(calibration=calibration, gravity_scale={"pixels_per_meter_se": 7.0})
+    q = chain["quantities"]
+    assert chain["release_scale"]["source"] == "bag_flight_plane_gravity"
+    assert chain["release_scale"]["relative_sd"] == pytest.approx(0.05)
+    assert chain["scale"]["state"] == "measured"                     # joints still on the measured board scale
+    assert q["kinetic_energy_j"]["state"] == "estimated" and "gravity fit" in q["kinetic_energy_j"]["reason"]
+    assert any("board" in a for a in q["kinetic_energy_j"]["assumptions"])
+    assert q["release_height_m"]["value"] == pytest.approx(0.9)       # height from the same calibration as speed
+    assert q["peak_net_force_on_bag_n"]["state"] in ("measured", "estimated")
+    assert chain["release_to_board_front_m"] == pytest.approx(-truth["wrist"][60][0], abs=1e-3)
+    file_cal = SpatialCalibration(150.0, "athlete_plane", True, "known_length")
+    chain, _ = _scene_chain(calibration=file_cal)
+    assert chain["release_scale"]["state"] == "measured"
+    assert "known_length" in chain["release_scale"]["basis"]
