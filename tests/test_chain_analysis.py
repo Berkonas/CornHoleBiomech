@@ -122,3 +122,68 @@ def test_coordination_variability_drops_high_nan_curves():
     assert out["status"] == "available"
     assert "bad" not in out["rms_from_mean_deg"]
     assert out["n"] == ca.MIN_THROWS
+
+
+def _budget_rows(n, n_predicted):
+    rng = np.random.default_rng(5)
+    rows = rows_from(8.5 + rng.normal(0, 0.3, n), 30.0 + rng.normal(0, 2.0, n), np.full(n, 0.9),
+                     err=rng.normal(0, 5, n))
+    for i, r in enumerate(rows):
+        r["release_to_board_front_m"] = 7.3
+        if i >= n_predicted:
+            r["chain_predicted_along_error_in"] = None
+    return rows
+
+
+def test_predicted_sd_needs_min_throws_but_predicted_n_stays_visible():
+    out = ca.error_budget_analysis(_budget_rows(10, ca.MIN_THROWS - 1))
+    assert out["status"] == "available"
+    assert out["predicted_sd_in"] is None and out["predicted_n"] == ca.MIN_THROWS - 1
+    assert out["predicted_status"] == "insufficient_data" and f"≥ {ca.MIN_THROWS}" in out["predicted_message"]
+    out = ca.error_budget_analysis(_budget_rows(10, ca.MIN_THROWS))
+    assert out["predicted_sd_in"] is not None and out["predicted_status"] == "available"
+    assert out["predicted_n"] == ca.MIN_THROWS and out["predicted_message"] is None
+
+
+def test_blocks_report_measured_vs_estimated_value_counts():
+    rows = _budget_rows(10, 10)
+    for i, r in enumerate(rows):
+        r["chain_states"] = {"chain_release_speed_m_s": "measured" if i < 6 else "estimated",
+                             "chain_release_angle_deg": "measured", "chain_release_height_m": "estimated",
+                             "release_to_board_front_m": "measured",
+                             "chain_predicted_along_error_in": "estimated", "chain_measured_along_error_in": "measured"}
+    rows[9].pop("chain_states")                 # an older analysis without states
+    out = ca.summarize(rows)
+    eb = out["error_budget"]["value_states"]
+    assert eb == {"measured": 6 + 9 + 9, "estimated": 3 + 9, "unknown": 4}
+    assert out["error_budget"]["predicted_value_states"] == {"measured": 0, "estimated": 9, "unknown": 1}
+    assert out["predicted_vs_measured"]["value_states"] == {"measured": 9, "estimated": 9, "unknown": 2}
+    assert out["speed_angle_tradeoff"]["value_states"] == {"measured": 6 + 9, "estimated": 3, "unknown": 2}
+    speed = next(o for o in out["outcome"] if o["variable"] == "chain_release_speed_m_s")
+    assert speed["value_states"] == {"measured": 6, "estimated": 3, "unknown": 1}
+    assert all("value_states" in item for item in out["body_release"])
+    # Insufficient blocks still say what their values rest on.
+    few = ca.error_budget_analysis(rows[:3])
+    assert few["status"] == "insufficient_data" and few["value_states"]["measured"] == 9
+
+
+def test_analyze_relationships_rows_carry_chain_states(tmp_path):
+    import json
+    from cornhole_biomech.pipeline import analyze_relationships
+    dirs = []
+    for i in range(3):
+        d = tmp_path / f"t{i}"
+        d.mkdir()
+        chain = {"quantities": {"release_speed_m_s": {"state": "estimated", "value": 6.0 + i},
+                                "release_angle_deg": {"state": "measured", "value": 30.0}},
+                 "scale": {"state": "measured"}}
+        (d / "results.json").write_text(json.dumps({
+            "trial_id": f"t{i}", "athlete_id": "A1", "chain": chain,
+            "summaries": {"chain_release_speed_m_s": 6.0 + i, "chain_release_angle_deg": 30.0}}))
+        dirs.append(d)
+    result = analyze_relationships(dirs, {}, tmp_path / "relationships.json")
+    row = result["data_rows"][0]
+    assert row["chain_states"] == {"chain_release_speed_m_s": "estimated", "chain_release_angle_deg": "measured",
+                                   "release_to_board_front_m": "measured"}
+    assert result["chain_analysis"]["speed_angle_tradeoff"]["value_states"] == {
+        "measured": 3, "estimated": 3, "unknown": 0}

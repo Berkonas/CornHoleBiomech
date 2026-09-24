@@ -141,6 +141,15 @@ def person_masks(video_path: str, cache_dir: Path, frame_size: tuple[int, int], 
                 "masks": {}, "step": None}
 
     width, height = frame_size
+    try:
+        sizes_ok = min(float(mask_width), float(mask_height), float(width), float(height)) > 0
+    except (TypeError, ValueError):
+        sizes_ok = False
+    if not sizes_ok:
+        shutil.rmtree(cache, ignore_errors=True)
+        return {"status": "unavailable", "masks": {}, "step": step,
+                "reason": f"scene-vision cache has an invalid mask size {mask_width}×{mask_height} "
+                          f"(video {width}×{height}); person masks skipped."}
     if abs(mask_width / mask_height - width / height) > 0.01:
         return {"status": "unavailable", "masks": {}, "step": step,
                 "reason": f"Mask size {mask_width}×{mask_height} does not match the video "

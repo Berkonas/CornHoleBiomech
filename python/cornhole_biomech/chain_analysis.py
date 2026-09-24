@@ -1,7 +1,8 @@
 """Within-athlete analyses linking the chain to performance (spec §6).
 
 All variables are pre-specified (lists below), claims are associational, and each
-block reports `status` so the UI never shows a finding without enough throws.
+block reports `status` so the UI never shows a finding without enough throws, and
+`value_states` (how many of the values it used were measured vs estimated).
 """
 from __future__ import annotations
 
@@ -60,6 +61,25 @@ def _pairs(rows, x, y):
     return np.array(xs, float), np.array(ys, float)
 
 
+def value_states(rows, keys) -> dict[str, int]:
+    """Counts of the values a block uses, by state (spec §8: say what rests on estimated inputs).
+
+    Only rows where every key in `keys` is finite are counted (the rows the block's statistic
+    uses); each row's `chain_states` (written by `analyze_athlete` from the throw's chain) gives
+    each value's state. "unknown" counts values whose throw has no recorded state (an older
+    analysis).
+    """
+    counts = {"measured": 0, "estimated": 0, "unknown": 0}
+    for r in rows:
+        if not all(_finite(r.get(k)) for k in keys):
+            continue
+        states = r.get("chain_states") or {}
+        for k in keys:
+            state = states.get(k)
+            counts[state if state in ("measured", "estimated") else "unknown"] += 1
+    return counts
+
+
 def _insufficient(n, need=MIN_THROWS, **extra):
     return {"status": "insufficient_data", "n": int(n), "message": f"Needs ≥ {need} throws with these values (has {n}).",
             **extra}
@@ -79,13 +99,14 @@ def error_budget_analysis(rows, board: Board = Board()) -> dict[str, Any]:
     keys = ("chain_release_speed_m_s", "chain_release_angle_deg", "chain_release_height_m", "release_to_board_front_m")
     var_names = ("speed", "angle", "height", "distance")
     usable = [r for r in rows if all(_finite(r.get(k)) for k in keys)]
+    states = value_states(usable, keys)
     if len(usable) < MIN_THROWS:
-        return _insufficient(len(usable))
+        return _insufficient(len(usable), value_states=states)
     arr = {name: np.array([r[k] for r in usable], float) for name, k in zip(var_names, keys)}
     center = {name: float(np.mean(v)) for name, v in arr.items()}   # spec: mean release condition
     jac = landing_jacobian(center["speed"], center["angle"], center["height"], center["distance"], board)
     if not all(math.isfinite(v) for v in jac.values()):
-        return {"status": "model_unavailable", "n": len(usable),
+        return {"status": "model_unavailable", "n": len(usable), "value_states": states,
                 "reason": "Landing Jacobian is non-finite at the mean release condition (too close to a model "
                           "singularity — e.g. a near-zero or negative approach speed)."}
     sd = {"speed": float(np.std(arr["speed"], ddof=1)), "angle": float(np.std(arr["angle"], ddof=1)),
@@ -101,7 +122,11 @@ def error_budget_analysis(rows, board: Board = Board()) -> dict[str, Any]:
     predicted_vals = [r["chain_predicted_along_error_in"] for r in usable
                        if _finite(r.get("chain_predicted_along_error_in"))]
     predicted_n = len(predicted_vals)
-    predicted_sd_in = float(np.std(predicted_vals, ddof=1)) if predicted_n >= 2 else None
+    # The headline needs as many throws as every other block; predicted_n stays visible either way.
+    predicted_sd_in = float(np.std(predicted_vals, ddof=1)) if predicted_n >= MIN_THROWS else None
+    predicted_status = "available" if predicted_sd_in is not None else "insufficient_data"
+    predicted_message = None if predicted_sd_in is not None else (
+        f"Needs ≥ {MIN_THROWS} throws with a predicted landing error (has {predicted_n}).")
 
     matched_measured = [r["chain_measured_along_error_in"] for r in usable
                          if _finite(r.get("chain_predicted_along_error_in")) and _finite(r.get("chain_measured_along_error_in"))]
@@ -132,6 +157,9 @@ def error_budget_analysis(rows, board: Board = Board()) -> dict[str, Any]:
         "predicted_sd_cov_in": predicted_sd_cov_m / INCH_M,
         "covariation_reduction": covariation_reduction,
         "predicted_sd_in": predicted_sd_in, "predicted_n": predicted_n,
+        "predicted_status": predicted_status, "predicted_message": predicted_message,
+        "value_states": states,
+        "predicted_value_states": value_states(usable, ("chain_predicted_along_error_in",)),
         "measured_sd_in": measured_sd_in, "measured_n": measured_n,
         "sentence": sentence,
         "method": ("predicted_sd_in: SD across throws of each throw's own release speed/angle/height/distance run "
@@ -144,13 +172,15 @@ def error_budget_analysis(rows, board: Board = Board()) -> dict[str, Any]:
 
 def predicted_vs_measured(rows) -> dict[str, Any]:
     p, m = _pairs(rows, "chain_predicted_along_error_in", "chain_measured_along_error_in")
+    states = value_states(rows, ("chain_predicted_along_error_in", "chain_measured_along_error_in"))
     if len(p) < MIN_THROWS:
-        return _insufficient(len(p))
+        return _insufficient(len(p), value_states=states)
     if np.std(p) == 0 or np.std(m) == 0:
         return _insufficient(len(p), message="Predicted or measured landing error has zero variance in this set; "
-                                             "correlation is undefined.")
+                                             "correlation is undefined.", value_states=states)
     r = float(np.corrcoef(p, m)[0, 1])
     return {"status": "available", "n": len(p), "r_squared": r * r, "mean_offset_in": float(np.mean(m - p)),
+            "value_states": states,
             "r_squared_note": "Pearson r^2 (squared correlation), not 1 - SSE/SST; the two coincide only when the "
                               "predictions are an unbiased linear fit to the measured values.",
             "sentence": (f"Release conditions explain {100 * r * r:.0f}% of the measured landing variation; the "
@@ -189,6 +219,7 @@ def body_release_links(rows, seed: int = 0) -> list[dict[str, Any]]:
                         f"No clear association between {LABELS[x]} and {LABELS[y]} (ρ = {rho:.2f}).")
             item = {"x": x, "y": y, "status": "available", "n": len(a), "rho": rho, "ci": ci, "clear": clear,
                     "sentence": sentence}
+        item["value_states"] = value_states(rows, (x, y))
         if x in NEAR_TAUTOLOGICAL_PAIRS:
             item["caveat"] = ("Near-tautological: the bag is in the hand at release, so this mostly reflects "
                               "measurement geometry rather than an independent movement finding.")
@@ -232,14 +263,16 @@ def outcome_links(rows, seed: int = 0) -> list[dict[str, Any]]:
                     f"{100 * (1 - alpha):.1f}% CI {ci[0]:.2f} to {ci[1]:.2f}).")
         item["status"] = "available" if item.get("cliffs_delta") is not None or "rho_abs_landing_error" in item \
             else "insufficient_data"
+        item["value_states"] = value_states(rows, (key,))
         out.append(item)
     return out
 
 
 def speed_angle_tradeoff(rows) -> dict[str, Any]:
     angle, speed = _pairs(rows, "chain_release_angle_deg", "chain_release_speed_m_s")
+    states = value_states(rows, ("chain_release_angle_deg", "chain_release_speed_m_s"))
     if len(angle) < MIN_THROWS or np.ptp(angle) == 0:
-        return _insufficient(len(angle))
+        return _insufficient(len(angle), value_states=states)
     slope, intercept, lo, hi = stats.theilslopes(speed, angle)
     rho = float(stats.spearmanr(angle, speed).statistic)
     clear = bool(lo > 0 or hi < 0)
@@ -247,7 +280,7 @@ def speed_angle_tradeoff(rows) -> dict[str, Any]:
                 "(Linthorne 2001: the best angle is individual)." if clear else
                 "No clear speed-angle trade-off (the Theil-Sen slope's 95% CI includes 0).")
     return {"status": "available", "n": len(angle), "slope_m_s_per_deg": float(slope), "slope_ci": [float(lo), float(hi)],
-            "rho": rho, "clear": clear, "sentence": sentence}
+            "rho": rho, "clear": clear, "sentence": sentence, "value_states": states}
 
 
 def coordination_variability(curves: list[np.ndarray], trial_ids: list[str] | None = None) -> dict[str, Any]:

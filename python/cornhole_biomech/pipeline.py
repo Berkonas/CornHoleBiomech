@@ -1703,6 +1703,11 @@ def analyze_relationships(
         )
         spatial = outcome.get("spatial_error") or {}
         row["radial_error_inches"] = spatial.get("radial_error_inches")
+        chain = result.get("chain") or {}
+        row["chain_states"] = {f"chain_{name}": item.get("state")
+                               for name, item in (chain.get("quantities") or {}).items()}
+        if chain:
+            row["chain_states"]["release_to_board_front_m"] = (chain.get("scale") or {}).get("state")
         rows.append(row)
         swing_curve = result.get("swing_curve_deg")
         if swing_curve:

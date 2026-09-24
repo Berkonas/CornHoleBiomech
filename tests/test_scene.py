@@ -38,6 +38,15 @@ def test_mask_size_mismatch_is_rejected(tmp_path):
     assert out["status"] == "unavailable" and "size" in out["reason"]
 
 
+def test_zero_mask_height_is_unavailable_not_a_division_error(tmp_path):
+    cache = _fake_cache(tmp_path, 40, 30)
+    index = json.loads((cache / "index.json").read_text())
+    (cache / "index.json").write_text(json.dumps({**index, "mask_height": 0}))
+    out = person_masks("x.mov", tmp_path, (80, 60), binary=None)
+    assert out["status"] == "unavailable" and "invalid mask size" in out["reason"]
+    assert out["masks"] == {}
+
+
 def test_tag_people_marks_candidates_inside_masks():
     m = np.zeros((60, 80), np.uint8); m[20:40, 20:40] = 255
     tagged = tag_people([Candidate(0, 30.0, 30.0, 5.0), Candidate(0, 70.0, 5.0, 5.0), Candidate(1, 30.0, 30.0, 5.0)],

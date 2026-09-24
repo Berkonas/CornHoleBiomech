@@ -465,3 +465,13 @@ def test_a_maximum_at_the_edge_of_the_search_window_is_not_a_peak():
         assert "peak at the edge of the search window" in out[key]["reason"]
     assert out["shoulder_peak_time_rel_release_ms"]["state"] == "measured"
     assert out["peak_sequence"]["state"] == "unavailable"               # an edge maximum never enters the order
+
+
+def test_timing_sensitivity_unavailable_when_hand_direction_is_nan():
+    from cornhole_biomech.chain import _timing_quantity
+    from cornhole_biomech.regulation import Board
+    nominal = {"angle_deg": float("nan"), "tangential_m_s2": 1.0, "rotation_deg_s": 2.0, "vx": 0.0, "vy": 0.0}
+    hand = {"release_rates": {"nominal": nominal, "draws": None}}
+    item = _timing_quantity(hand, 6.0, 30.0, 1.2, 7.0, Board(), None, ("measured", None), ("measured", None))
+    assert item["state"] == "unavailable" and item["value"] is None
+    assert "not finite" in item["reason"]

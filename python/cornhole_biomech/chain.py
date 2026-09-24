@@ -713,6 +713,12 @@ def _timing_quantity(hand: dict[str, Any] | None, v, a, h, to_front_m, board: Bo
             "Bag release speed/angle/height or the distance to the board is unavailable.")
         return _missing(unit, formula, why or "Inputs unavailable.")
     nom = rates["nominal"]
+    if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in
+               (nom.get("angle_deg"), nom.get("tangential_m_s2"), nom.get("rotation_deg_s"), nom.get("vx"),
+                nom.get("vy"), v, a, h, to_front_m)):
+        # A NaN direction would make the angle gate below compare False and pass silently.
+        return _missing(unit, formula, "The hand path's direction or rates at release are not finite (stationary "
+                        "or missing hand path), so its rates cannot stand in for the bag's.")
     diff = (nom["angle_deg"] - a + 180.0) % 360.0 - 180.0
     if abs(diff) > MAX_HAND_BAG_ANGLE_DIFF_DEG:
         return _missing(unit, formula, f"The hand path at release points {nom['angle_deg']:.0f}° but the bag left at "
