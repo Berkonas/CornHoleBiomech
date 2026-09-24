@@ -162,3 +162,83 @@ session.
 After Part B every session has at least 3 measured throws, so the fallback is not triggered on the
 pilot data. Under the Task-8b detection it would have given Player 3 59.3° ("measured") instead of
 an "estimated" single-throw 55.3°.
+
+
+## Release onset audit (Task 9b)
+
+Every body timing (shoulder, elbow and wrist peaks) and the release-timing sensitivity are measured relative to the detected release frame. Task 9 raised a concern. On most throws, the hand-point direction matched the bag's release angle 3–5 frames *before* the detected release, which suggested release was being detected late.
+
+This audit checks the detected release against the video itself, frame by frame.
+
+**Tool.** `scripts/release_audit.py` reads a `regression_check.py` scratch directory. For every accepted flight it writes:
+- a contact sheet of frames release−8 … release+3, as 2× crops centred on the hand point. Each crop marks:
+  - the wrist landmark;
+  - the hand point (wrist + 0.34 arm along the forearm);
+  - the bag detection, or the flight traced backwards before the first detection;
+- the per-throw table below.
+
+It is also given visually judged release frames, passed as `--visual visual.json`. With these it reports method − visual for each method.
+
+```
+PYTHONPATH=python .venv/bin/python scripts/release_audit.py --analyses /tmp/regression \
+    --sheets /tmp/release-audit/sheets --visual visual.json --output audit.json
+```
+
+**Visual release.** For each throw I recorded the first frame where the bag has visibly separated from the fingers. This was done by looking at all 21 sheets of accepted pilot throws (Task 8c state, detector v11c).
+- Every judgement is a 2-frame range, [last frame the fingertips still touch, first frame with a clear gap].
+- Motion blur at the fingertips makes it impossible to tell which of the two adjacent frames is the separation.
+- Errors count as 0 inside the range; otherwise they are the signed distance to the nearest end.
+
+**Methods compared.**
+- R: detected release, i.e. the first frame of the flight fit.
+- C: the backward-flight/wrist cue (`release_check`).
+- A: the hand-angle match, i.e. the frame in R−8 … R where the hand-point velocity direction (board plane) is closest to the bag's fitted release angle.
+
+| throw | R | C | A | visual | R−V | C−V | A−V |
+|---|---|---|---|---|---|---|---|
+| 08541449 | 50 | 46 | 45 | 48–49 | +1 | -2 | -3 |
+| 105B9972 | 159 | 156 | 155 | 158–159 | +0 | -2 | -3 |
+| 126CCAD1 | 118 | 118 | 118 | 121–122 | -3 | -3 | -3 |
+| 1500778E | 205 | 202 | 201 | 203–204 | +1 | -1 | -2 |
+| 19A9640F | 227 | 224 | 223 | 226–227 | +0 | -2 | -3 |
+| 3B1EF3CA | 190 | 190 | 189 | 192–193 | -2 | -2 | -3 |
+| 3B3DC0EC | 200 | 196 | 196 | 199–200 | +0 | -3 | -3 |
+| 41A04DAC | 156 | 154 | 153 | 156–157 | +0 | -2 | -3 |
+| 44CA1279 | 168 | 166 | 165 | 168–169 | +0 | -2 | -3 |
+| 5B5C77D7 | 628 | 628 | 628 | 631–632 | -3 | -3 | -3 |
+| 62AA318D | 103 | 99 | 97 | 102–103 | +0 | -3 | -5 |
+| 6BD2EE8F | 133 | 132 | 130 | 133–134 | +0 | -1 | -3 |
+| 80823323 | 206 | 202 | 202 | 205–206 | +0 | -3 | -3 |
+| 8D96BCAF | 83 | 81 | 79 | 83–84 | +0 | -2 | -4 |
+| A21B263C | 93 | 93 | 92 | 96–97 | -3 | -3 | -4 |
+| AA7AC4A3 | 39 | 35 | 35 | 38–39 | +0 | -3 | -3 |
+| D4FF5A49 | 194 | 194 | 194 | 197–198 | -3 | -3 | -3 |
+| DB5A8186 | 106 | 104 | 104 | 107–108 | -1 | -3 | -3 |
+| DE7F5B7D | 246 | 244 | 243 | 246–247 | +0 | -2 | -3 |
+| E0D8F3B9 | 40 | 37 | 37 | 39–40 | +0 | -2 | -2 |
+| F0E77C58 | 178 | 175 | 174 | 177–178 | +0 | -2 | -3 |
+
+| method | mean (frames) | SD | within ±1 of the visual range | vs the clear-gap frame: mean, within ±1 |
+|---|---|---|---|---|
+| R: first flight frame (v11c) | −0.62 | 1.32 | 16/21 | −1.14, 15/21 |
+| C: backward flight meets wrist | −2.33 | 0.66 | 2/21 | −3.33, 0/21 |
+| A: hand-angle match | −3.10 | 0.62 | 0/21 | −4.10, 0/21 |
+
+**Findings.**
+
+1. **Release is not detected late.**
+   - It is never later than the visual range by more than 1 frame (+1 on 2 throws, and both of those are ambiguous by a single frame).
+   - It is **early by 2–3 frames on 5 of 21 throws**: 126CCAD1, 3B1EF3CA, 5B5C77D7, A21B263C and D4FF5A49.
+   - On those 5, the sheets show the bag still wrapped in the fingers at R.
+   - The cause: the bag's last in-hand frames lie on nearly the same arc as its free flight, so the flight fit accepted them. The in-hand gate (bag within 0.45 arm lengths of the wrist) was applied only while extending the flight backwards, never to the fit's own first points.
+2. **The hand-point model is wrong near release (Task 9's alternative explanation).**
+   - At the visually judged release frame (the clear-gap frame), the hand-point direction is **27–47° steeper than the bag's fitted angle on all 21 throws** (median 38°).
+   - The hand-angle match A lies 3–5 frames *before* the visual release on every throw.
+   - So the bag does not leave along the rigid hand point's path. In the last ~50–80 ms the bag leaves along a shallower line, while the tracked hand point is already turning upward into the follow-through.
+   - Two causes cannot be separated with body-only landmarks:
+     - finger and wrist action, which the model does not capture;
+     - lag of the 6 Hz-filtered wrist in these motion-blurred frames. On the sheets, the wrist ring visibly trails the real wrist after release.
+   - The rigid-offset hand point cannot stand in for the bag's path at release.
+3. **Conclusion: (b), the hand-point model is wrong near release, not (a).**
+   - In addition there is an early-release failure on 5/21 throws, which is the opposite of the suspected late bias.
+   - The 4/21 throws where Task 9's timing sensitivity was "available" are 4 of those 5 early throws. Their hand rates were read 2–3 frames before the bag actually left the hand.
