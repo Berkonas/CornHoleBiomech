@@ -34,6 +34,14 @@ MIN_CONFIDENCE = 0.75                # shape evidence alone (max 0.5) is not eno
 MAX_PNP_RESIDUAL_FRACTION = 0.03    # of the quad's width; pilot apron quads 0.8–2.2 %, wrong quads 5–10 %
 RED_HUE_MAX, RED_HUE_MIN = 10, 150  # OpenCV hue (0–180): red wraps, h <= 10 or h >= 150
 RED_MIN_SAT = 40                    # pilot decks: median S 55–84, 10th percentile ≈ 44
+# Retried in order, apron path only, when the standard pass finds no board. Task 8c: 10 of 26
+# pilot plates (8 of 11 for Player 3) show a paler, smaller deck — median S 26–34 and only
+# 680–1 764 deck px with S >= 40, against 1 425–3 282 on the 16 found — so no quad survived at
+# 40. At 30 eight of them are found, at 25 the other two; every relaxed "found" quad lies within
+# 5 px of the same board's quad at other thresholds. Rim candidates stay at the standard
+# threshold: at S >= 20 a rim candidate on a pink TV-screen banner scored 1.0 and beat the real
+# board, whereas apron-only detection gave no wrong "found" on any pilot plate down to S >= 10.
+RELAXED_RED_MIN_SATS = (30, 25)
 RED_MIN_VAL = 50
 DARK_MAX_VAL = 70
 RIM_GROW_FRACTION = 0.08            # rim growth limit as a fraction of the red component's width
@@ -363,10 +371,10 @@ def pool_session_hfov(calibrations: list[dict[str, Any]]) -> dict[str, Any]:
     return {**base, "status": "measured", "reason": None}
 
 
-def _red_and_rim(plate: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _red_and_rim(plate: np.ndarray, min_sat: int = RED_MIN_SAT) -> tuple[np.ndarray, np.ndarray]:
     hsv = cv2.cvtColor(plate, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-    red = (((h <= RED_HUE_MAX) | (h >= RED_HUE_MIN)) & (s >= RED_MIN_SAT) & (v >= RED_MIN_VAL)).astype(np.uint8)
+    red = (((h <= RED_HUE_MAX) | (h >= RED_HUE_MIN)) & (s >= min_sat) & (v >= RED_MIN_VAL)).astype(np.uint8)
     dark = (v <= DARK_MAX_VAL).astype(np.uint8)
     return red, dark
 
@@ -388,15 +396,31 @@ def detect_board(plate: np.ndarray, target_direction: str, board: Board = Board(
     """Find the deck quad on a clean plate; `found` needs the shape evidence and the hole to agree.
 
     Two candidate sources: a red deck grown into a dark rim that frames it, and (the pilot
-    boards' look) a dark near-side apron with red deck showing along its top.
+    boards' look) a dark near-side apron with red deck showing along its top. When nothing is
+    found at the standard red saturation, the apron path is retried at each of
+    `RELAXED_RED_MIN_SATS` (pale decks); every retry passes the same PnP, hole and
+    observed-corner gates. `red_min_sat` reports the threshold of the returned result; with no
+    board found, the most confident candidate of all passes is kept for pre-filling clicks.
     """
-    red, dark = _red_and_rim(plate)
+    result = _detect_board_at(plate, target_direction, board, RED_MIN_SAT, use_rims=True)
+    for min_sat in RELAXED_RED_MIN_SATS:
+        if result["status"] == "found":
+            break
+        retry = _detect_board_at(plate, target_direction, board, min_sat, use_rims=False)
+        if retry["status"] == "found" or retry["confidence"] > result["confidence"]:
+            result = retry
+    return result
+
+
+def _detect_board_at(plate: np.ndarray, target_direction: str, board: Board, min_sat: int,
+                     use_rims: bool) -> dict[str, Any]:
+    red, dark = _red_and_rim(plate, min_sat)
     # A rim grown into an apron (or a visible end face) puts corners at the apron's floor edge
     # instead of the deck edge, so a rim quad is dropped where an apron quad covers the same
     # deck (synthetic pilot-look boards: such rim quads were 25–37 px off yet passed the hole
     # check). Conservative: an apron quad later rejected by PnP still suppresses the rim quad.
     aprons = _apron_candidates(red, dark, target_direction, board)
-    rims = [(q, s, True) for q, s in _rim_candidates(red, dark, target_direction)
+    rims = [(q, s, True) for q, s in (_rim_candidates(red, dark, target_direction) if use_rims else [])
             if not any(_quads_overlap(q, a) for a, _, _ in aprons)]
     candidates = aprons + rims
     height, width = plate.shape[:2]
@@ -411,8 +435,10 @@ def detect_board(plate: np.ndarray, target_direction: str, board: Board = Board(
                     "corners_observed": corners_observed}
     if best is None:
         return {"status": "not_found", "corners_px": None, "confidence": 0.0, "hole_offset_in": None,
+                "red_min_sat": min_sat,
                 "reasons": ["No red deck with a dark rim or apron large enough to be a regulation board was found."]}
     observed = best.pop("corners_observed")
+    best["red_min_sat"] = min_sat
     if best["confidence"] < MIN_CONFIDENCE:
         return {**best, "status": "not_found",
                 "reasons": [f"Best board candidate has confidence {best['confidence']:.2f} (< {MIN_CONFIDENCE}); "

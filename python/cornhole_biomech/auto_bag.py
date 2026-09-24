@@ -37,7 +37,7 @@ from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v11b_predicted_rest"
+AUTO_BAG_REVISION = "auto_motion_parabola_v11c_pale_deck"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -783,8 +783,10 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
 
     With `cache_dir`, person masks are computed/cached there (scene.py) and the
     background plate is written as `plate.jpg`. `board_corners_px` (clicked deck
-    corners in release-frame pixels) bypass board detection. `board`, `landing`
-    and `predicted_contact` are in release-frame pixels.
+    corners in the plate's reference-frame pixels) bypass board detection. `board`, `landing`
+    and `predicted_contact` are in release-frame pixels; `board["reference_frame"]` names the
+    frame the corners are in (the release frame, or the middle frame when no flight was found,
+    in which case the board is still detected and reported).
     """
     started = time.perf_counter()
     frames, fps = read_frames(video_path)
@@ -802,7 +804,17 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     accepted = [f for f in flights if f["status"] == "accepted"]
     pool = accepted or flights
     if not pool:
+        # No flight gives no release frame, but the board is still worth locating (coach view,
+        # session pooling, clicked-corner transfer): use the clip's middle frame as the reference.
+        reference = len(frames) // 2
+        _, board = _scene_and_board(frames, reference_chain(to_prev, reference), target_direction,
+                                    masks_info["masks"], board_corners_px, cache_dir)
+        board_payload = {k: v for k, v in board.items() if k != "model"}
+        if board.get("model") is not None:
+            board_payload.update(board["model"].as_dict())
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "fps": fps, "flights": summary,
+                "width": width, "height": height,
+                "board": {**board_payload, "reference_frame": reference, "reference": "middle_frame"},
                 "reasons": ["No moving object followed a plausible projectile path. Check that the bag stays in view."]}
     def gap_to_wrist(f: dict[str, Any]) -> float:
         start = f["points"][0]
@@ -879,6 +891,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     board_payload = {k: v for k, v in board.items() if k != "model"}
     if board.get("model") is not None:
         board_payload.update(board["model"].as_dict())
+    board_payload.update({"reference_frame": release, "reference": "release_frame"})
     if len(accepted) > 1:
         reasons.append(f"{len(accepted)} flights were found in this clip; the one starting at the throwing hand was used.")
     return {

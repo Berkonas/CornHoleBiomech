@@ -30,11 +30,11 @@ def side_pose(phi_deg=8.0, distance=6.0):
     return cv2.Rodrigues(R)[0], tvec
 
 
-def render(corners, size=(H, W)):
+def render(corners, size=(H, W), deck_bgr=(30, 30, 190)):
     img = np.full(size + (3,), 150, np.uint8)
     cv2.fillConvexPoly(img, corners.astype(np.int32), (25, 25, 25))           # dark rim
     inner = corners.mean(axis=0) + 0.88 * (corners - corners.mean(axis=0))
-    cv2.fillConvexPoly(img, inner.astype(np.int32), (30, 30, 190))           # red deck
+    cv2.fillConvexPoly(img, inner.astype(np.int32), deck_bgr)                # red deck
     # dark hole: 3 in radius at deck (u=12 in across, v=39 in from the front edge)
     to_img = cv2.getPerspectiveTransform(np.float32([[0, 0], [24, 0], [24, 48], [0, 48]]), corners.astype(np.float32))
     a = np.linspace(0, 2 * np.pi, 48, endpoint=False)
@@ -247,14 +247,14 @@ def test_oblique_board_flags_phi():
     assert model.as_dict()["phi_status"] == "estimated"
 
 
-def render_apron_board(corners, apron_px=24, stripe=True, hole=True):
+def render_apron_board(corners, apron_px=24, stripe=True, hole=True, deck_bgr=(30, 30, 190)):
     """Pilot-board look: red deck top, dark near-side apron under the near edge, optional
     white stripe that reaches the far edge near the front, dark hole at (12 in, 39 in)."""
     img = np.full((H, W, 3), 150, np.uint8)
     front_near, back_near = corners[1], corners[2]
     apron = np.array([front_near, back_near, back_near + [0, apron_px], front_near + [0, apron_px]])
     cv2.fillConvexPoly(img, apron.astype(np.int32), (25, 25, 25))
-    cv2.fillConvexPoly(img, corners.astype(np.int32), (30, 30, 190))
+    cv2.fillConvexPoly(img, corners.astype(np.int32), deck_bgr)
     to_img = cv2.getPerspectiveTransform(np.float32([[0, 0], [24, 0], [24, 48], [0, 48]]), corners.astype(np.float32))
     to_px = lambda uv: cv2.perspectiveTransform(np.float32(uv).reshape(-1, 1, 2), to_img).reshape(-1, 2)  # noqa: E731
     if stripe:
@@ -312,10 +312,10 @@ def _deck_to_px(corners):
     return lambda uv: cv2.perspectiveTransform(np.float32(uv).reshape(-1, 1, 2), to_img).reshape(-1, 2)
 
 
-def render_pilot_board(corners, apron_px=24, hole_bgr=(18, 18, 110), logo=True, hole=True):
+def render_pilot_board(corners, apron_px=24, hole_bgr=(18, 18, 110), logo=True, hole=True, deck_bgr=(30, 30, 190)):
     """Apron board as on the pilot plates: visible dark front face, a faint hole (only ~0.6 of
     the deck brightness) and a dark deck graphic near the front larger than the hole."""
-    img = render_apron_board(corners, apron_px, stripe=True, hole=False)
+    img = render_apron_board(corners, apron_px, stripe=True, hole=False, deck_bgr=deck_bgr)
     ordered = order_corners(corners, "left_to_right")
     ff, fn = ordered[0], ordered[1]
     cv2.fillConvexPoly(img, np.array([ff, fn, fn + [0, apron_px], ff + [0, apron_px]]).astype(np.int32),
@@ -388,3 +388,43 @@ def test_rim_grown_into_apron_and_face_does_not_win_over_the_apron_quad():
     out = detect_board(render_pilot_board(corners), "left_to_right", B)
     assert out["status"] == "found"
     assert np.abs(np.array(out["corners_px"]) - order_corners(corners, "left_to_right")).max() < 12
+
+
+# ---- task 8c: pale decks (Player-3 plates: deck median S 26–34, below RED_MIN_SAT = 40)
+PALE_DECK_BGR = (165, 165, 190)      # HSV S = 34: the missed pilot decks' median S (26–34)
+
+
+def test_pale_pilot_board_is_found_by_the_relaxed_apron_pass():
+    from cornhole_biomech.board import RED_MIN_SAT, RELAXED_RED_MIN_SATS
+    corners = pilot_like_corners()
+    out = detect_board(render_pilot_board(corners, deck_bgr=PALE_DECK_BGR), "left_to_right", B)
+    assert out["status"] == "found"
+    assert out["red_min_sat"] in RELAXED_RED_MIN_SATS and out["red_min_sat"] < RED_MIN_SAT
+    assert np.abs(np.array(out["corners_px"]) - order_corners(corners, "left_to_right")).max() < 12
+
+
+def test_pale_pilot_board_is_missed_without_the_relaxed_pass(monkeypatch):
+    # the failure mode the relaxed pass fixes: at the standard threshold the pale deck is not red
+    monkeypatch.setattr("cornhole_biomech.board.RELAXED_RED_MIN_SATS", ())
+    out = detect_board(render_pilot_board(pilot_like_corners(), deck_bgr=PALE_DECK_BGR), "left_to_right", B)
+    assert out["status"] == "not_found"
+
+
+def test_saturated_board_keeps_the_standard_threshold():
+    from cornhole_biomech.board import RED_MIN_SAT
+    out = detect_board(render_pilot_board(pilot_like_corners()), "left_to_right", B)
+    assert out["status"] == "found" and out["red_min_sat"] == RED_MIN_SAT
+
+
+def test_relaxed_pass_ignores_rim_candidates():
+    # A pale red patch framed by a dark border (on the pilot plates: a pink TV-screen banner)
+    # is a rim candidate; the relaxed pass must not turn it into "found".
+    rvec, tvec = side_pose()
+    out = detect_board(render(project_board(rvec, tvec), deck_bgr=PALE_DECK_BGR), "left_to_right", B)
+    assert out["status"] == "not_found"
+
+
+def test_pale_board_without_hole_is_still_not_found():
+    corners = pilot_like_corners()
+    out = detect_board(render_pilot_board(corners, deck_bgr=PALE_DECK_BGR, hole=False), "left_to_right", B)
+    assert out["status"] == "not_found"

@@ -320,3 +320,38 @@ def test_no_board_fallback_contact_is_unverified_and_said_so():
     known, warning = ab._no_board_fallback(decided, fit, FPS, {"x": 5.0, "y": 500.0}, 80, 1920, 1080)  # at edge
     assert not known and decided["first_contact_frame"] is None and decided["contact"]["state"] == "unavailable"
     assert warning is None
+
+
+def _no_flight_clip(monkeypatch, frame_count=9):
+    """A clip whose frames show a pilot-look board and in which no flight is found."""
+    import cornhole_biomech.auto_bag as ab
+    from test_board import pilot_like_corners, render_pilot_board
+    frame = render_pilot_board(pilot_like_corners())
+    monkeypatch.setattr(ab, "read_frames", lambda path: ([frame.copy() for _ in range(frame_count)], FPS))
+    monkeypatch.setattr(ab, "detect_moving_blobs_in_frames",
+                        lambda frames: ([], [np.eye(3)[:2] for _ in range(len(frames))]))
+    monkeypatch.setattr(ab, "find_flights", lambda *a, **k: [])
+    return ab
+
+
+def test_board_is_detected_on_a_middle_frame_plate_when_no_flight_is_found(monkeypatch):
+    from test_board import pilot_like_corners
+    from cornhole_biomech.board import order_corners
+    ab = _no_flight_clip(monkeypatch)
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right")
+    assert out["status"] == "not_found"
+    board = out["board"]
+    assert board["status"] == "found"
+    assert board["reference_frame"] == 4 and board["reference"] == "middle_frame"
+    assert np.abs(np.array(board["corners_px"]) - order_corners(pilot_like_corners(), "left_to_right")).max() < 12
+    assert "phi_deg" in board and "model" not in board        # the pose is reported, the model object is not
+
+
+def test_clicked_corners_are_used_when_no_flight_is_found(monkeypatch):
+    ab = _no_flight_clip(monkeypatch)
+    from test_board import pilot_like_corners
+    from cornhole_biomech.board import order_corners
+    clicked = order_corners(pilot_like_corners(), "left_to_right").tolist()
+    out = ab.auto_track_bag("clip.mov", None, None, "left_to_right", board_corners_px=clicked)
+    assert out["board"]["status"] == "found" and out["board"]["reasons"] == ["clicked corners"]
+    assert out["board"]["corners_px"] == clicked
