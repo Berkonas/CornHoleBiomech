@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// Regulation board side profile (ACL: 48 in deck, 12 in back height, 6 in hole
 /// centred 9 in from the back). Front height varies by board (2.5–4 in); 3 in default.
@@ -24,6 +24,17 @@ struct LaunchParameters: Equatable {
 
     var vx: Double { speed * cos(angleDegrees * .pi / 180) }
     var vy: Double { speed * sin(angleDegrees * .pi / 180) }
+}
+
+/// Where first contact scores (python `zones.ZoneSettings.zone_for`): green / yellow / red.
+enum LandingZone: String, CaseIterable {
+    case hole, board, off
+
+    /// Key into `ZoneStyle` (green / yellow / red).
+    var styleKey: String { switch self { case .hole: "green"; case .board: "yellow"; case .off: "red" } }
+    var label: String { ZoneStyle.label(styleKey) }
+    var color: Color { ZoneStyle.color(styleKey) }
+    var symbol: String { ZoneStyle.symbol(styleKey) }
 }
 
 /// Drag-free 2D point-mass flight to first contact. A teaching model, not a
@@ -121,6 +132,26 @@ struct LaunchModel {
             perSpeed: derivative(0.01) { $0.speed += $1 },
             perAngle: derivative(0.05) { $0.angleDegrees += $1 },
             perHeight: derivative(0.005) { $0.releaseHeight += $1 })
+    }
+
+    /// Zone of first contact. Hole window = on the deck from `slideAllowance` short of the
+    /// hole centre to its far edge; board = elsewhere on the deck or up to `slideUp` short of
+    /// the front edge; off = further short, the front face, or long. Mirrors python exactly.
+    func zone(slideAllowance: Double = 0.45, slideUp: Double = 0.30) -> LandingZone {
+        Self.zone(for: landing(), distance: p.distanceToBoard, board: p.board, slideAllowance: slideAllowance, slideUp: slideUp)
+    }
+
+    static func zone(for hit: Landing, distance: Double, board b: BoardGeometry,
+                     slideAllowance: Double = 0.45, slideUp: Double = 0.30) -> LandingZone {
+        switch hit.kind {
+        case .onBoard:
+            guard let along = hit.alongBoard else { return .off }
+            return (b.holeAlong - slideAllowance <= along && along <= b.holeAlong + b.holeRadius) ? .hole : .board
+        case .shortOfBoard:
+            return hit.horizontal - distance >= -slideUp ? .board : .off
+        case .frontOfBoard, .pastBoard:
+            return .off
+        }
     }
 
     func trajectory(samples: Int = 80) -> [(x: Double, y: Double)] {

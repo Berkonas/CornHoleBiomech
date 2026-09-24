@@ -56,4 +56,69 @@ final class LaunchModelTests: XCTestCase {
         let path = m.trajectory(samples: 50)
         XCTAssertEqual(try XCTUnwrap(path.last).x, p.vx * m.landing().time, accuracy: 1e-9)
     }
+
+    // MARK: - Zones (mirror python zones.ZoneSettings.zone_for)
+
+    private func holeThrow() throws -> LaunchParameters {
+        var p = LaunchParameters(speed: 5, angleDegrees: 35, releaseHeight: 0.8, distanceToBoard: 7.7)
+        p.speed = try XCTUnwrap(LaunchModel(p).speedToHitHole())
+        return p
+    }
+
+    func testHoleCentreIsHoleZone() throws {
+        XCTAssertEqual(LaunchModel(try holeThrow()).zone(), .hole)
+    }
+
+    func testTwoMetresPerSecondFasterIsLongAndOff() throws {
+        var p = try holeThrow(); p.speed += 2
+        XCTAssertEqual(LaunchModel(p).landing().kind, .pastBoard)
+        XCTAssertEqual(LaunchModel(p).zone(), .off)
+    }
+
+    func testTwoMetresPerSecondSlowerIsShortAndOff() throws {
+        var p = try holeThrow(); p.speed -= 2
+        XCTAssertEqual(LaunchModel(p).landing().kind, .shortOfBoard)
+        XCTAssertEqual(LaunchModel(p).zone(), .off)
+    }
+
+    func testBoardLandingOutsideHoleWindowIsBoard() throws {
+        var p = try holeThrow(); p.distanceToBoard += 0.7     // board moved back: lands near the front edge
+        let hit = LaunchModel(p).landing()
+        XCTAssertEqual(hit.kind, .onBoard)
+        XCTAssertLessThan(try XCTUnwrap(hit.alongBoard), p.board.holeAlong - 0.45)
+        XCTAssertEqual(LaunchModel(p).zone(), .board)
+    }
+
+    func testShortBySlideUpOrLessIsBoardFurtherIsOff() throws {
+        var p = try holeThrow(); p.distanceToBoard = 100
+        let floor = LaunchModel(p).landing().horizontal
+        p.distanceToBoard = floor + 0.29
+        XCTAssertEqual(LaunchModel(p).landing().kind, .shortOfBoard)
+        XCTAssertEqual(LaunchModel(p).zone(), .board)
+        p.distanceToBoard = floor + 0.31
+        XCTAssertEqual(LaunchModel(p).zone(), .off)
+        XCTAssertEqual(LaunchModel(p).zone(slideUp: 0.40), .board)
+    }
+
+    func testFrontFaceIsOff() {
+        let p = LaunchParameters(speed: 10, angleDegrees: 0, releaseHeight: 0.05, distanceToBoard: 0.5)
+        XCTAssertEqual(LaunchModel(p).landing().kind, .frontOfBoard)
+        XCTAssertEqual(LaunchModel(p).zone(), .off)
+    }
+
+    func testHoleWindowBoundariesAreInclusive() {
+        let b = BoardGeometry.regulation
+        func board(_ along: Double) -> LaunchModel.Landing {
+            LaunchModel.Landing(kind: .onBoard, time: 1, horizontal: 8, alongBoard: along, distanceToHole: along - b.holeAlong)
+        }
+        XCTAssertEqual(LaunchModel.zone(for: board(b.holeAlong - 0.45), distance: 7.7, board: b), .hole)
+        XCTAssertEqual(LaunchModel.zone(for: board(b.holeAlong + b.holeRadius), distance: 7.7, board: b), .hole)
+        XCTAssertEqual(LaunchModel.zone(for: board(b.holeAlong - 0.4501), distance: 7.7, board: b), .board)
+        XCTAssertEqual(LaunchModel.zone(for: board(b.holeAlong + b.holeRadius + 0.0001), distance: 7.7, board: b), .board)
+        XCTAssertEqual(LaunchModel.zone(for: board(0.2), distance: 7.7, board: b, slideAllowance: 0.9), .hole)
+        let short = LaunchModel.Landing(kind: .shortOfBoard, time: 1, horizontal: 7.401)
+        XCTAssertEqual(LaunchModel.zone(for: short, distance: 7.7, board: b), .board)   // 0.299 m short
+        let farShort = LaunchModel.Landing(kind: .shortOfBoard, time: 1, horizontal: 7.399)
+        XCTAssertEqual(LaunchModel.zone(for: farShort, distance: 7.7, board: b), .off)
+    }
 }
