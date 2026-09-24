@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 
+# The backward-flight/wrist cue is early by construction: the wrist landmark trails the bag
+# centre by about a hand length. Release onset audit (Task 9b, docs/SCENE_REGRESSION.md): after
+# the release-onset correction every one of 21 pilot releases was within ±1 frame of the visible
+# separation, and the cue-to-release window was 1–4 frames (4 on five throws). The old ≤ 3 rule
+# graded those five correct releases WARNING.
+RELEASE_WINDOW_GOOD_FRAMES = 4
+
 
 def quality_summary(
     raw_coords: np.ndarray,
@@ -94,8 +101,8 @@ GRADE_RULES = {
                    "WARNING: a single scale source (gravity-only or measured-only). POOR: no physical scale "
                    "(results stay in pixels / arm lengths).",
     "release": "GOOD: release confirmed by a person, or found automatically with the two release cues (first "
-               "free-flight frame; backward flight meets the wrist) within 3 frames (50 ms at 60 fps), ≥6 launch-fit "
-               "samples and launch-angle SE ≤ 3°. WARNING: automatic release with a window of 4–6 frames or failing "
+               "free-flight frame; backward flight meets the wrist) within 4 frames (67 ms at 60 fps), ≥6 launch-fit "
+               "samples and launch-angle SE ≤ 3°. WARNING: automatic release with a window of 5–6 frames or failing "
                "a fit check. POOR: no confirmed release, or cues more than 6 frames apart.",
 }
 
@@ -142,7 +149,7 @@ def quality_grades(quality: dict[str, Any], flight_filter: dict[str, Any] | None
     if release_confirmed_by == "manual":
         release_grade = "GOOD"
     elif release_confirmed_by == "automatic_physics":
-        checks = [release_window_frames is not None and release_window_frames <= 3,
+        checks = [release_window_frames is not None and release_window_frames <= RELEASE_WINDOW_GOOD_FRAMES,
                   (launch_sample_count or 0) >= 6,
                   launch_angle_se_deg is not None and launch_angle_se_deg <= 3.0]
         release_grade = ("POOR" if release_window_frames is not None and release_window_frames > 6

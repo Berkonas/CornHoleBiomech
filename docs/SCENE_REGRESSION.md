@@ -242,3 +242,61 @@ PYTHONPATH=python .venv/bin/python scripts/release_audit.py --analyses /tmp/regr
 3. **Conclusion: (b), the hand-point model is wrong near release, not (a).**
    - In addition there is an early-release failure on 5/21 throws, which is the opposite of the suspected late bias.
    - The 4/21 throws where Task 9's timing sensitivity was "available" are 4 of those 5 early throws. Their hand rates were read 2–3 frames before the bag actually left the hand.
+
+### Correction (Task 9b, part B): release = first flight centroid beyond the hand
+
+**Rule.** Release is the first refined bag centroid in the chosen flight that lies more than `IN_HAND_ARM_LENGTHS` (0.45 arm lengths) from the wrist. Frames the segmentation re-acquired between detections are included.
+- This is the same in-hand radius the backward extension already used. The constant is not re-tuned: 0.40 and 0.45 score the same, and 0.50 scores 21/21 within ±1 but with only 17 exact.
+- Earlier flight points were still in the hand, so they are dropped.
+- The detector revision is now `auto_motion_parabola_v12_release_beyond_hand`.
+- `auto_flight.json` records the dropped frames in `release_onset`.
+- The raw detection blob, which marks the bag's leading edge, would have scored 20/21. The centroid is used instead.
+
+**Fresh two-pass run with the correction** (21 accepted, as before; 126CCAD1 stays accepted):
+
+| method | mean vs visual range | SD | within ±1 |
+|---|---|---|---|
+| R before | −0.62 | 1.32 | 16/21 |
+| **R after** | **+0.10** | **0.30** | **21/21** (19 exact) |
+| C (backward flight meets the wrist), after | −2.19 | 0.60 | 2/21 |
+
+Before → after, per throw (chain timings in ms relative to release):
+
+| throw | release b→a | window b→a | release grade b→a (run used the old ≤3 rule) | shoulder pk ms | elbow pk ms | wrist pk ms | hand angle ° | TS in/10ms |
+|---|---|---|---|---|---|---|---|---|
+| 08541449 | 50 → 50 (acc) | [46, 50] → [46, 50] | WARNING → WARNING | -83 → -83 | -100 → -100 | -50 → -50 | 74 → 74 | — → — |
+| 105B9972 | 159 → 159 (acc) | [156, 159] → [156, 159] | GOOD → GOOD | 67 → 67 | -133 → -133 | -83 → -83 | 68 → 68 | — → — |
+| 126CCAD1 | 118 → 122 (acc) | [118, 118] → [119, 122] | GOOD → GOOD | 83 → 17 | -83 → -150 | 0 → -67 | 39 → 81 | — → — |
+| 1500778E | 205 → 205 (acc) | [202, 205] → [202, 205] | GOOD → GOOD | 33 → 33 | 0 → 0 | -67 → -67 | 94 → 94 | — → — |
+| 19A9640F | 227 → 227 (acc) | [224, 227] → [224, 227] | GOOD → GOOD | 17 → 17 | 100 → 100 | -67 → -67 | 75 → 75 | — → — |
+| 3B1EF3CA | 190 → 193 (acc) | [190, 190] → [190, 193] | GOOD → GOOD | -50 → -100 | -117 → -167 | 0 → -50 | 48 → 73 | 7.6 (est) → — |
+| 3B3DC0EC | 200 → 200 (acc) | [196, 200] → [196, 200] | WARNING → WARNING | -33 → -33 | -33 → -33 | -67 → -67 | 81 → 81 | — → — |
+| 41A04DAC | 156 → 156 (acc) | [154, 156] → [154, 156] | GOOD → GOOD | -17 → -17 | -167 → -167 | -50 → -50 | 71 → 71 | — → — |
+| 44CA1279 | 168 → 168 (acc) | [166, 168] → [166, 168] | GOOD → GOOD | -17 → -17 | -150 → -150 | -50 → -50 | 72 → 72 | — → — |
+| 5B5C77D7 | 628 → 632 (acc) | [628, 628] → [629, 632] | GOOD → GOOD | -17 → -83 | -150 → 100 | -33 → -100 | 63 → 103 | -33.0 (est) → — |
+| 62AA318D | 103 → 103 (acc) | [99, 103] → [99, 103] | WARNING → WARNING | -117 → -117 | -183 → -183 | -100 → -100 | 95 → 95 | — → — |
+| 6BD2EE8F | 133 → 133 (acc) | [132, 133] → [132, 133] | GOOD → GOOD | -83 → -83 | -133 → -133 | -33 → -33 | 68 → 68 | — → — |
+| 80823323 | 206 → 206 (acc) | [202, 206] → [202, 206] | WARNING → WARNING | 17 → 17 | -150 → -150 | -67 → -67 | 82 → 82 | — → — |
+| 8D96BCAF | 83 → 83 (acc) | [81, 83] → [81, 83] | GOOD → GOOD | 0 → 0 | -234 → -234 | -50 → -50 | 82 → 82 | — → — |
+| A21B263C | 93 → 96 (acc) | [93, 93] → [93, 96] | GOOD → GOOD | -50 → -100 | -50 → -100 | -33 → -83 | 47 → 76 | -4.7 (est) → — |
+| AA7AC4A3 | 39 → 39 (acc) | [35, 39] → [35, 39] | WARNING → WARNING | -67 → -67 | -83 → -83 | -50 → -50 | 71 → 71 | — → — |
+| D4FF5A49 | 194 → 198 (acc) | [194, 194] → [195, 198] | GOOD → GOOD | -17 → -83 | -83 → -150 | -50 → -117 | 43 → 79 | -23.9 (est) → — |
+| DB5A8186 | 106 → 107 (acc) | [104, 106] → [104, 107] | GOOD → GOOD | -67 → -83 | -133 → 100 | -67 → -83 | 64 → 75 | — → — |
+| DE7F5B7D | 246 → 247 (acc) | [244, 246] → [244, 247] | GOOD → GOOD | -67 → -83 | -50 → -67 | -33 → -50 | 52 → 59 | — → — |
+| E0D8F3B9 | 40 → 40 (acc) | [37, 40] → [37, 40] | GOOD → GOOD | -33 → -33 | -100 → -100 | -50 → -50 | 51 → 51 | — → — |
+| F0E77C58 | 178 → 178 (acc) | [175, 178] → [175, 178] | GOOD → GOOD | 33 → 33 | 83 → 83 | -83 → -83 | 104 → 104 | — → — |
+timing sensitivity available {'b': 4, 'a': 0}
+
+
+- **Releases moved on 7 throws:**
+  - by +3 to +4 frames on the 5 early throws;
+  - by +1 frame on DB5A8186 and DE7F5B7D.
+- **Body timings shift by the same amount** on those throws, 50–67 ms earlier relative to release.
+  - On 5B5C77D7 and DB5A8186, the elbow's peak extension velocity now falls after release (+100 ms). Its search window ends at release + 0.1 s, so the peak picked is a different one.
+- **Release window grade.** The backward-flight/wrist cue is early by construction: after the correction it is 1–4 frames before release on every throw. So the GOOD limit is now a window of 4 frames or fewer (was 3), and WARNING is 5–6 frames.
+  - This regrades five correct releases from WARNING to GOOD: 08541449, 3B3DC0EC, 62AA318D, 80823323 and AA7AC4A3.
+- **Timing sensitivity is available on 0 of 21 throws (was 4).**
+  - The 4 earlier values were read 2–3 frames before the bag had actually left the hand.
+  - At the true release, the hand path is 27–47° steeper than the bag on every throw, so the existing 10° gate withholds the value.
+  - This is finding (b). The rigid hand point cannot provide the bag's release-rate derivatives, and this has not been fixed here. Using the bag's own post-release path would give ballistic rates, not the rates of a later release.
+  - Timing sensitivity therefore needs a direct measure of the hand/bag path in the last frames of contact, for example a hand keypoint model or bag tracking while in hand.

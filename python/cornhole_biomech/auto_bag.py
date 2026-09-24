@@ -12,8 +12,10 @@ and trajectory-rectification stages, without a trained network):
    path x(t) ≈ linear, y(t) = quadratic with downward (image +y) curvature,
    moving toward the target. The fitted image gravity must be plausible for the
    athlete's scale (projected arm length ≈ 0.45–0.9 m), which rejects clutter.
-3. Events: release is where the fitted parabola, traced backwards, meets the
-   throwing wrist. First contact is OBSERVED only when the last
+3. Events: release is the first flight frame whose bag centroid is beyond the
+   in-hand radius of the throwing wrist (`held_at_start`); the frame where the
+   fitted parabola, traced backwards, meets the wrist is kept as a second,
+   earlier cue (`release_check`). First contact is OBSERVED only when the last
    parabola-consistent detection lies on the detected board's deck/front face or
    the floor (contact.py); a flight that ends in the air is `lost_in_flight`,
    and its parabola is extended to an ESTIMATED (predicted) contact instead.
@@ -37,7 +39,7 @@ from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
 from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v11c_pale_deck"
+AUTO_BAG_REVISION = "auto_motion_parabola_v12_release_beyond_hand"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -574,6 +576,45 @@ def _stabilized_residual(points: list[Candidate], to_prev: list[np.ndarray], fps
     return np.hypot(xs - px, ys - py)
 
 
+def held_at_start(points: list[dict[str, Any]], wrist: np.ndarray | None, in_hand_px: float | None,
+                  keep: int = MIN_INLIERS) -> int:
+    """How many leading flight points are still in the hand (bag centre within `in_hand_px` of the wrist).
+
+    The bag's last frames in the hand lie on nearly the same arc as its free flight, so the
+    flight fit can accept them; the in-hand gate in `_extend` only stops the backward
+    extension. Release onset audit (Task 9b, 21 pilot throws judged frame by frame): the
+    first bag centroid beyond 0.45 arm lengths of the wrist was within ±1 frame of the visible
+    separation on 21/21 throws (the previous first-flight frame: 16/21, early by 2–3 frames
+    on 5). Points without a wrist stop the count, and at least `keep` points always remain.
+    """
+    if wrist is None or not in_hand_px:
+        return 0
+    held = 0
+    for p in points[:max(0, len(points) - keep)]:
+        f = int(p["frame"])
+        if f >= len(wrist) or not np.isfinite(wrist[f]).all():
+            break
+        if np.hypot(p["x"] - wrist[f][0], p["y"] - wrist[f][1]) >= in_hand_px:
+            break
+        held += 1
+    return held
+
+
+def _start_after_hand(chosen: dict[str, Any], release: int, fps: float) -> dict[str, Any]:
+    """The flight from frame `release` on (earlier points were still in the hand); fit bookkeeping updated.
+
+    `release` may be a frame the segmentation re-acquired between detections, so it can
+    precede the first remaining detection.
+    """
+    points = [p for p in chosen["points"] if p["frame"] >= release]
+    last = points[-1]["frame"]
+    fit = {**chosen["fit"], "first_frame": release, "inliers": len(points),
+           "span_seconds": (last - release) / fps,
+           "coverage": len(points) / (last - release + 1),
+           "early_points": [{"frame": p["frame"], "x": p["x"], "y": p["y"]} for p in points[:8]]}
+    return {**chosen, "points": points, "fit": fit}
+
+
 def release_from_wrist(fit: dict[str, Any], wrist: np.ndarray, fps: float,
                        search_seconds: float = 0.4) -> tuple[int | None, float | None]:
     """Release = latest frame (up to the first detection) where the backward parabola meets the wrist.
@@ -860,6 +901,22 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     else:
         # The trial's throw is the flight that starts at this athlete's throwing hand.
         chosen = min(pool, key=lambda f: (gap_to_wrist(f), f["fit"]["first_frame"]))
+    chain = reference_chain(to_prev, int(chosen["fit"]["first_frame"]))
+    # Detection blobs mark where the bag differs most from the background, not its
+    # centre; a local background mask gives the silhouette centroid (bag_segment.py).
+    # (The segmentation uses frame-to-frame transforms only, so the chain's reference
+    # frame does not matter here.)
+    refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
+    # Release onset: flight points whose bag centre is still in the hand are not free flight.
+    first_detection = int(chosen["fit"]["first_frame"])
+    # Every refined frame counts, including gaps the segmentation re-acquired between detections.
+    centres = [{"frame": f, "x": refined[f]["x"], "y": refined[f]["y"]} for f in sorted(refined)]
+    in_hand_px = IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None
+    held = held_at_start(centres, wrist, in_hand_px)
+    held_frames = [c["frame"] for c in centres[:held]]
+    if held:
+        chosen = _start_after_hand(chosen, centres[held]["frame"], fps)
+        refined = {f: r for f, r in refined.items() if f >= chosen["fit"]["first_frame"]}
     fit = chosen["fit"]
     release, contact = int(fit["first_frame"]), int(fit["last_frame"])
     last = next(p for p in chosen["points"] if p["frame"] == contact)
@@ -873,9 +930,6 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         contact_known, fallback_warning = _no_board_fallback(decided, fit, fps, last, contact, width, height)
     else:
         contact_known = decided["first_contact_frame"] is not None
-    # Detection blobs mark where the bag differs most from the background, not its
-    # centre; a local background mask gives the silhouette centroid (bag_segment.py).
-    refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
     raw = [Candidate(f, refined[f]["x"], refined[f]["y"], refined[f].get("area_px") or 0.0) for f in sorted(refined)]
     stabilized = to_reference(raw, to_prev, release)
     # Transforms for every frame of the clip: fits use the flight frames; the replay
@@ -955,6 +1009,9 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         "camera_to_release": camera_to_release,
         "after_contact": after_contact,
         "release_check": release_check,
+        "release_onset": {"method": "first_flight_point_beyond_hand", "first_detection_frame": first_detection,
+                          "held_frames": held_frames, "in_hand_px": in_hand_px,
+                          "in_hand_arm_lengths": IN_HAND_ARM_LENGTHS},
         "typical_bag_area_px": typical_area,
         "runtime_seconds": time.perf_counter() - started,
         "frames_processed": len(frames),

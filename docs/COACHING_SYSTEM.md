@@ -83,8 +83,8 @@ Withheld values never enter the athlete analysis.
 - the frame where the flight, traced backwards, meets the wrist (earlier by construction).
 
 Release grade:
-- **GOOD:** within 3 frames, or labelled by a person;
-- **WARNING:** 4–6 frames;
+- **GOOD:** within 4 frames (the wrist cue is 2–3 frames early by construction; Task 9b audit), or labelled by a person;
+- **WARNING:** 5–6 frames;
 - **POOR:** more than 6 frames.
 
 ## 4. Athlete analysis and coaching priorities (performance.py, coaching.py)

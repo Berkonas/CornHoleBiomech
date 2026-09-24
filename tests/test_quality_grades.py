@@ -42,3 +42,10 @@ def test_manual_release_is_good_and_scale_disagreement_is_not():
 def test_release_cues_far_apart_are_poor():
     g = quality_grades(POSE_OK, flight(), None, False, "automatic_physics", 9, 8, 1.0)
     assert g["release"]["grade"] == "POOR"
+
+
+def test_release_window_of_four_frames_is_good():
+    # Release onset audit (Task 9b): with release within ±1 frame of the visible separation on
+    # 21/21 pilot throws, the backward-flight/wrist cue was 1–4 frames earlier (4 on five throws).
+    assert quality_grades(POSE_OK, flight(), None, False, "automatic_physics", 4, 8, 1.0)["release"]["grade"] == "GOOD"
+    assert quality_grades(POSE_OK, flight(), None, False, "automatic_physics", 5, 8, 1.0)["release"]["grade"] == "WARNING"
