@@ -47,6 +47,22 @@ Because rules can change, every participant protocol/report should state the rul
 
 API documentation supports implementation semantics; it is not evidence that a chosen biomechanical parameter, cutoff, or sample size is scientifically appropriate.
 
+## Throwing accuracy and release mechanics (added 2026-09-24)
+
+Added for the scene/throw-plane/body-to-outcome chain engine (`METHOD_VERSION 2026.09.24-scene`;
+[measurement-engine design spec §10](superpowers/specs/2026-09-23-measurement-engine-design.md#10-references-to-add-to-docsreferencesmd)).
+Two of the spec's nine listed sources are already cited above and are not duplicated here: Nasu,
+Matsuo & Kadota (2014, under "Primary biomechanics and motor-control literature") and Sih, Hubbard
+& Williams (2001) with Tran, Yano & Kondo (2019, same section).
+
+- Venkadesan, M., & Mahadevan, L. (2017). Optimal strategies for throwing accurately. *Royal Society Open Science, 4*, 170136. [https://doi.org/10.1098/rsos.170136](https://doi.org/10.1098/rsos.170136). Motivates the release-speed-margin-over-minimum and release→landing error-budget analyses (`chain_analysis.error_budget_analysis`, `mechanics.speed_margin_over_minimum`).
+- Hore, J., & Watts, S. (2011). Skilled throwers use physics to time ball release to the nearest millisecond. *Journal of Neurophysiology, 106*, 2024–2033. [https://doi.org/10.1152/jn.00059.2011](https://doi.org/10.1152/jn.00059.2011). Motivates the release-timing-sensitivity quantity; see [BIOMECHANICS_METHODS.md](BIOMECHANICS_METHODS.md) for why it is currently unavailable on the pilot footage.
+- Putnam, C. A. (1993). Sequential motions of body segments in striking and throwing skills of humans. *Journal of Biomechanics, 26*(Suppl. 1), 125–135. [https://doi.org/10.1016/0021-9290(93)90084-R](https://doi.org/10.1016/0021-9290(93)90084-R). Motivates the shoulder→elbow→wrist-speed→release peak-sequence description (`chain.body_chain`); explicitly not used to grade the sequence (cornhole is a slow accuracy swing, not the fast throws the source describes).
+- Linthorne, N. P. (2001). Optimum release angle in the shot put. *Journal of Sports Sciences, 19*(5), 359–372. [https://doi.org/10.1080/02640410152006135](https://doi.org/10.1080/02640410152006135). Motivates the within-athlete speed–angle trade-off analysis (`chain_analysis.speed_angle_tradeoff`); the source's finding that the best angle is athlete-specific is why the analysis reports a Theil–Sen slope, not a fixed target angle.
+- Müller, H., & Sternad, D. (2004). Decomposition of variability in the execution of goal-oriented tasks: three components of skill improvement. *Journal of Experimental Psychology: Human Perception and Performance, 30*(1), 212–233. [https://doi.org/10.1037/0096-1523.30.1.212](https://doi.org/10.1037/0096-1523.30.1.212). Tolerance–Noise–Covariation framing for the covariance-aware error budget and covariation-reduction figure (`chain_analysis.error_budget_analysis`) and for `coaching.py`'s existing compensation analysis.
+- Needham, L., Evans, M., Wade, L., Cosker, D., McGuigan, M. P., Bilzon, J. L., & Colyer, S. L. (2021). The accuracy of several pose estimation methods for 3D joint centre localisation. *Scientific Reports, 11*, 20673. [https://doi.org/10.1038/s41598-021-00212-x](https://doi.org/10.1038/s41598-021-00212-x). Reported 16–48 mm markerless joint-centre error is the source of `LANDMARK_NOISE_PX`/`landmark_noise_m` in the chain's Monte Carlo (`chain.py`).
+- Winter, D. A. (2009). *Biomechanics and Motor Control of Human Movement* (4th ed.). John Wiley & Sons. General reference for differentiation noise amplification, motivating the rule that second-derivative chain quantities (acceleration, force, power) are reported only when their Monte Carlo interval is narrower than the between-throw effect being described.
+
 ## Source-use boundary
 
 Untracked local books and design files under `research/` were **not read, cited, redistributed, or used as evidence** in this pass. They remain opaque user-owned material. The unrelated legacy `research/design/DESIGN_RESEARCH.md` was identified in the earlier audit as research for a different “Places” product and is not a source for this application.

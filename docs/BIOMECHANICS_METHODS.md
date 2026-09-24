@@ -280,3 +280,349 @@ Do not use causal or prescriptive language. Acceptable wording is: “In this at
 Every analysis exposes pose/tracker identity and version/hash where possible, fps, resolution, view, throwing side, target direction, confidence threshold, raw and usable missingness, longest gap, manual and interpolated point counts, filter settings, event source, bag-track quality, calibration method, and whether physical units are valid.
 
 Model confidence is not percent accuracy. Tracking quality, reference similarity, personal consistency, and performance association are separate constructs. Display sensible precision—typically one decimal degree and no more time precision than the frame interval supports. Unit tests verify equations; task-specific validation is governed by [VALIDATION_PLAN.md](VALIDATION_PLAN.md).
+
+## 18. Scene, throw plane and body-to-outcome chain (METHOD_VERSION 2026.09.24-scene)
+
+**Stage 2 measurement contract.** Everything in this section runs on top of Stage 1 (§1–17): the
+same filtered pose, the same effective bag track. It adds a scene model (board, floor, athlete
+masks), replaces "first contact" with a board/floor-gated classifier, and derives a body →
+release → flight → outcome chain with an explicit `state` (`measured` / `estimated` / `unavailable`)
+and a Monte Carlo uncertainty on every quantity. Design spec:
+[measurement-engine-design.md](superpowers/specs/2026-09-23-measurement-engine-design.md). Pilot
+regression results (26 clips, 3 athletes): [SCENE_REGRESSION.md](SCENE_REGRESSION.md).
+
+### 18.1 Camera stabilization: ECC keyframe registration
+
+Every clip is hand-held. ORB-keypoint + RANSAC similarity transforms alone captured only ~66% of
+the true sub-pixel inter-frame motion on the pilot clips, so a chain of per-step ORB transforms
+drifted 15–40 px over 200–350 frames. Each frame is instead registered directly to a keyframe with
+intensity-based ECC (enhanced correlation coefficient) registration, initialised from the previous
+frame's registration composed with the ORB step; per-step transforms (`to_prev[t]`, frame *t* →
+*t*−1) are derived from consecutive keyframe registrations, so the transform chain telescopes
+without accumulating drift. A new keyframe starts whenever the correlation with the current one
+falls below `KEYFRAME_MIN_CC` (0.8; pilot clips never fell below 0.93). Registration is affine, not
+similarity/Euclidean: with hand-held translation the floor/board and the far walls move
+differently (parallax), and an affine fit of the whole frame kept the board within ~3.5 px where a
+Euclidean fit left up to 9 px of residual on one pilot session. Measured on the 26 pilot clips:
+residual against frame 0 fell from up to 51 px (ORB-only) to ≤ 4.6 px (44 of 52 spot-checked
+patches ≤ 3 px). `to_prev` composed into a `reference_chain` maps any frame into any other frame's
+pixel coordinates (`auto_bag.py`); it is the coordinate system the flight fit, the background
+plate, the board corners and the athlete masks are all expressed in.
+
+### 18.2 Athlete masks and background plate
+
+A Swift/Apple Vision helper (`scene_vision`, `VNGeneratePersonSegmentationRequest`, quality
+`.accurate`, every 2nd frame) writes per-frame person masks to a per-trial cache keyed by video
+hash and `SCENE_REVISION`. Failure (helper missing, timeout, crash, unreadable cache) is
+`status: "unavailable"` with a reason; the pipeline falls back to unmasked motion-based tracking
+and flags it — masking is never required for a result, only for suppressing bystanders and the
+athlete's swinging arm from the background/bag-candidate steps.
+
+The background plate (`background.py`) is the per-pixel median of stabilized frames with masked
+athlete pixels treated as missing, in the release frame's coordinate system. Bag-candidate
+detection compares each frame against the plate warped to that frame (in addition to the existing
+three-frame differencing), which suppresses static bystanders, static reflections and camera-shake
+"motion" that three-frame differencing alone cannot distinguish from a moving bag. Candidates
+inside a person mask cannot seed a flight (a swinging arm is not the bag).
+
+### 18.3 Board detection
+
+`board.py` looks for a red deck framed by a dark rim, or (the pilot boards' look) a dark near-side
+apron with red deck showing along its top, on the background plate. HSV segmentation: red is
+`h ≤ 10° or h ≥ 150°` (OpenCV 0–180° hue) with `S ≥ RED_MIN_SAT` (40) and `V ≥ 50`; dark is
+`V ≤ 70`. The largest such quadrilateral is validated by solvePnP (IPPE, 4 coplanar deck corners at
+the regulation slope) and by the hole: a black-hat filter inside the rectified deck must find a
+dark blob within `HOLE_TOLERANCE_IN` (4 in) of the nominal hole centre (12, 39) in. Confidence is
+`0.5 × shape_score + 0.5` if the hole agrees, else `0.5 × shape_score`; `found` requires confidence
+≥ 0.75 **and** the front-near corner to have come from the image (not filled in from the PnP scan
+at a nominal focal length) — a hidden front corner is reported as `not_found` with the reason
+`"The board's front corner is hidden; click the four deck corners."`, because a synthetic check
+showed the PnP-filled corner 15–21 px (3–4 in) off even while the hole still agreed.
+
+**Pale-deck relaxed pass (Task 8c).** On the pilot library, 10 of 26 plates (8 of 11 for one
+athlete) have a paler, smaller-looking deck — median saturation 26–34 versus 55–84 on the rest —
+so no quadrilateral survived at `S ≥ 40`. When the standard pass finds nothing, `detect_board`
+retries the **apron path only** (not the rim path) at `S ≥ 30`, then `S ≥ 25`
+(`RELAXED_RED_MIN_SATS`), through the same PnP/hole/observed-corner gates. The apron path is
+restricted to the relaxed thresholds because a threshold sweep on the pilot plates found rim
+candidates giving a wrong "found" as low as `S ≥ 20` (a pink TV-screen banner scored 1.0 and beat
+the real board by 810 px on one plate), while the apron-only path gave no wrong "found" down to
+`S ≥ 10` and every relaxed-pass quad landed within 5–7 px of the same board's quad found at the
+standard threshold. With this cascade, board-found rate on the 26 pilot clips went from 16/26 to
+26/26 (every quad checked by eye against the video); see
+[SCENE_REGRESSION.md](SCENE_REGRESSION.md) for the full before/after table.
+
+Output: 4 deck corners (propagated to every frame via §18.1's stabilization), hole centre, a floor
+line through the front-leg base, the image→deck-inches homography, the out-of-plane angle φ of the
+throwing line (> 20° flagged, not corrected — Sih, Hubbard & Williams, 2001), and confidence.
+Precision is reported separately along-deck versus across-deck (in/px), since the pilot camera
+angle strongly foreshortens the across-deck axis.
+
+### 18.4 Scale: gravity-calibrated field of view, session and library pooling
+
+A single still frame cannot separate a wide lens seen from close up from a narrow lens seen from
+far away — both project the same board corners for a suitable camera distance, but disagree about
+the metric scale of everything else in the frame. `calibrate_hfov_from_flight` breaks that
+ambiguity: it searches the plausible horizontal-field-of-view range (55–75°) for the value whose
+board-plane vertical acceleration, from the flight's own quadratic fit, matches gravity
+(−9.80665 m/s², independent of lens). A root strictly inside the range gives `status: "measured"`;
+if the fitted acceleration never crosses −g inside the band, the closer edge is used with
+`status: "estimated"`; too few flight points, or too few HFOV samples where the PnP pose actually
+solves, falls back to the nominal 65° with `status: "estimated"`. The scale (pixels/metre) is
+evaluated at the flight's release point, and its value at the 55° and 75° band edges is retained so
+downstream quantities can express a scale relative-SD from the disagreement between the two edges.
+
+A single throw's ~0.4 s flight gives a noisy per-throw HFOV (spread of 10+° between throws filmed
+from the same fixed camera position). `pool_session_camera_files` groups a library's throws into
+recording sessions (same athlete, same source-clip folder) and pools each session's own *measured*
+per-throw HFOVs with a median; the pool is `status: "measured"` only with ≥ `MIN_SESSION_THROWS`
+(3) measured throws and an IQR ≤ `MAX_SESSION_IQR_DEG` (6°), otherwise `"estimated"` with a reason.
+A session with fewer than 3 measured throws falls back to the median of every measured throw across
+the whole library run (`source: "library_median_gravity_fov"`), which assumes the same camera and
+zoom in every session — the reason states this assumption explicitly. `regression_check.py` runs
+this as an explicit two-pass flow: pass 1 analyses every throw (so each throw's own `results.json`
+carries its own per-throw calibration), pooling writes a `camera.json` into every session member,
+and pass 2 re-analyses every throw so `_board_scale` (`pipeline.py`) picks up the pooled field of
+view.
+
+Every metre-based chain quantity is at most `"estimated"` when this scale is not `"measured"`; the
+scale's relative-SD (used for the chain's Monte Carlo, §18.9) is the larger of a fixed floor
+(`MIN_SCALE_REL_SD`, 1%) and a quarter of the relative spread between the 55° and 75° band-edge
+scales (≈ ±2 SD), or half the relative spread across the pooled session's HFOV IQR when that is
+available and larger.
+
+### 18.5 Bag flight acceptance: stabilized-RMS
+
+Motion candidates (camera-compensated three-frame differencing, background-plate differencing,
+person-mask exclusion) are fit by RANSAC to a projectile: `x(t)` linear, `y(t)` quadratic with
+downward (image +y) curvature toward the target, with the fitted image "gravity" required to be
+plausible for the athlete's projected arm length. The residual used for acceptance is computed
+**after** removing camera motion (§18.1's `to_prev` chain) — a whole-flight RMS residual of the
+detections against the fitted parabola in the *release-frame, camera-motion-removed* coordinate
+system, not raw video pixels. This separates genuine tracking scatter from hand-held camera shake,
+which would otherwise inflate the residual and reject good flights. The flight is `"accepted"` only
+if it clears every gate simultaneously: ≥ `MIN_INLIERS` (12) frames, ≥ `MIN_SPAN_SECONDS` (0.25 s),
+≥ `MIN_COVERAGE` (60%) of frames within the flight span, a plausible trajectory, ≥
+`MIN_TRAVEL_ARM_LENGTHS` (4) arm lengths of travel toward the target, and stabilized RMS ≤
+`MAX_RMS_ARM_LENGTHS` (0.08 arm lengths, i.e. proportional to the athlete's own scale, not a fixed
+pixel count). Any failed gate makes the flight `"needs_review"` with every reason listed; results
+are never silently used.
+
+### 18.6 Contact: board-gated classification and the 2-frame near-contact rule
+
+The flight fit's end frame is a **candidate**, not an observed contact. `contact.py` maps that
+point into the board's throw plane (`surface_at`) and classifies it as `"deck"` (within the deck
+footprint, expanded by half a bag width at each end for a bag overhanging an edge, and within
+`DECK_TOLERANCE_M`, 6 cm, of the deck surface height at that point), `"front"` (the board's front
+face), `"floor"` (within `FLOOR_TOLERANCE_M`, 6 cm, of floor height) or `"air"`. Only `"deck"`,
+`"front"` and `"floor"` are `contact.state == "measured"`; `"air"` becomes `contact.kind ==
+"lost_in_flight"`.
+
+**2-frame near-contact rule.** A descending track (fitted vertical velocity growing in image +y at
+the last tracked frame) that ends within `NEAR_CONTACT_FRAMES` (2) frames of its own predicted
+surface contact is still counted as a **measured** contact at the last tracked frame, rather than
+`lost_in_flight`. This was added after a pilot throw landed off the board centreline: its last
+observed point read "0.14 m above the floor" in the throw plane (a few centimetres outside the 6 cm
+floor tolerance, because an off-centreline landing maps to a slightly wrong plane height), while
+the predicted contact — extending the same fitted parabola one more frame — landed on the floor
+immediately after. Requiring the parabola to actually reach a surface within 2 frames, on a track
+that is still descending, distinguishes "the tracker stopped one frame early on a real landing"
+from "the bag genuinely left the frame or the detector lost it in the air".
+
+**Predicted contact.** When neither rule applies, the fit is `lost_in_flight`: `predict_contact`
+extends the fitted parabola frame by frame (through the same camera-stabilization chain) to the
+first frame whose plane position is not `"air"`, up to `MAX_PREDICT_SECONDS` (1.5 s) or the end of
+the clip. This is always `state: "estimated"`, is excluded from measured-landing statistics, and is
+spot-checked against the video before being trusted (§ regression acceptance criterion 3). Every
+`auto_flight.json` reports `first_contact_frame` (only for a measured contact), `contact` (kind,
+state, plane position, reason) and, when unavailable, `predicted_contact` (frame, plane position,
+reason).
+
+### 18.7 Suggested outcome
+
+`suggest_outcome` proposes a 0/1/3 bag value from the post-contact track, always
+`needs_confirmation: true` (a coach click is required, never auto-scored): 3 if the bag's path
+after contact disappears within `HOLE_VANISH_RADIUS_IN` (4 in = 3 in hole radius + 1 in tracking
+slack) of the nominal hole centre; 1 or 0 by whether the bag's tracked final-rest position lands
+inside the 24×48 in deck rectangle; `None` with a reason ("no post-contact track" / "final rest not
+found") when neither can be determined. The basis sentence (deck coordinates or "disappeared at the
+hole") is retained alongside the score so a coach can see why it was suggested.
+
+### 18.8 Release: first flight centroid beyond the hand
+
+**Definition.** Release is the first refined bag centroid in the chosen flight that lies more than
+`IN_HAND_ARM_LENGTHS` (0.45 projected arm lengths) from the throwing wrist landmark; earlier flight
+points are dropped as still-in-hand and the parabola is refitted on the remainder. This replaced an
+earlier definition (the flight fit's own first point) after a dedicated audit.
+
+**Why.** A visual audit (`scripts/release_audit.py`, `docs/release_audit_visual.json`) judged the
+true release frame by eye on all 21 accepted pilot flights (contact sheets of release−8…release+3,
+2× crops on the hand point, each visual judgement a 2-frame range because motion blur at the
+fingertips makes finer resolution impossible). Against that audit, the *previous* release rule
+(first flight-fit frame) was within ±1 frame of the visual range on only 16/21 throws, and was
+**early by 2–3 frames on 5/21** — the bag was still visibly in the fingers at the detected release,
+because its last in-hand frames lie on nearly the same parabolic arc as the free flight that
+follows, so the flight fit accepted them; the in-hand gate had only been applied while extending
+the flight backwards, never to the fit's own first points. Dropping in-hand points from the fit's
+own start fixed this: **21/21 throws land within ±1 frame of the visual range (19 exact), mean
+error +0.10 frame, SD 0.30 frame** (`docs/SCENE_REGRESSION.md`, "Release onset audit"). The 0.45
+arm-length in-hand radius is the same constant the backward-flight extension already used, and was
+not re-tuned for this result: 0.40 and 0.45 arm lengths score identically, 0.50 also scores 21/21
+within ±1 but with fewer exact matches.
+
+`release_onset.status` records what happened: `applied` (frames dropped), `no_in_hand_points` (the
+flight already started beyond the hand), `capped_min_inliers` (dropping more points would leave
+fewer than `MIN_INLIERS`), or `no_wrist` (the check could not run, no wrist landmark). An automatic
+release whose status is `no_wrist` or `capped_min_inliers` is graded at most WARNING.
+
+**A second, independent cue** (`release_check`, "backward flight meets the wrist" — where the
+fitted parabola, traced backward, crosses the wrist path) remains a cross-check only, not the
+release definition: on the corrected data it runs 1–4 frames *before* release (the release window
+grade: GOOD ≤ 4 frames, WARNING 5–6). The window widened by construction after the correction moved
+release later on 7/21 throws (5 of them by +3 to +4 frames), which is why GOOD's threshold moved
+from 3 to 4 frames rather than being kept fixed.
+
+### 18.9 Chain quantities (`chain.py`, `mechanics.py`)
+
+Coordinates are the board's 2D throw plane (§18.3): x horizontal toward the board with the front
+edge at x = 0, y height above the floor, SI units via §18.4's scale. Every quantity is
+`{value, unit, state, formula, reason, interval, assumptions}`; `state` is `measured`, `estimated`
+(with a reason) or `unavailable` (with a reason), and `interval` is a Monte Carlo 95% interval
+(2.5th–97.5th percentile of 500 draws per throw, §18.10) when the value is numeric.
+
+| Link | Quantity | Formula | State notes |
+|---|---|---|---|
+| Body | Shoulder angle, elbow included angle | `angle(A,B,C)` (§5), on the 6 Hz filtered pose | measured whenever the release/forward-swing pose is present |
+| Body | Shoulder/elbow peak angular velocity, time relative to release | derivative of the filtered angle; search window forward-swing-start … release + 0.1 s | `unavailable` ("peak at the edge of the search window") if the extremum sits exactly on either edge — not a real peak |
+| Body | Wrist speed at release, peak timing | 1st derivative of the filtered wrist, `timing.py` | reused from Stage 1 |
+| Body | Peak sequence (shoulder → elbow → wrist-speed → release), lags in ms | ordering of the above peak times | **described, not graded** (Putnam 1993: fast throws; cornhole is a slow accuracy swing); 1 frame = 16.7 ms resolution |
+| Release | Hand-point (bag proxy before release) speed, acceleration, velocity angle, tangential acceleration, direction rotation rate | hand point = wrist + `HAND_OFFSET_ARM_LENGTHS` (0.34 arm length) along the forearm; 1st/2nd derivative | metre-based, so capped by scale state |
+| Release | Release speed, angle, height | existing ballistic flight fit + its standard error | angle "estimated" if φ > 20° (§18.3) |
+| Mechanics (bag-only) | Momentum **p = m v** | `mass_kg × velocity` | mass ~ Uniform(15.5, 16.0 oz) in the Monte Carlo |
+| | Kinetic/potential/mechanical energy | `KE = ½ m v²`, `PE = m g h` (h above the floor line), `E = KE + PE` | |
+| | Net force on the bag **F = m(a_bag − g⃗)**, g⃗ = (0, −9.81 m/s²) | `a_bag` from the hand point's 2nd derivative over the forward swing; peak `|F|`, mean `|F|`, direction | **bag-only** (§18.11); direction `measured` only when the peak force is measured *and* its own 95% interval half-width < 15° (`MAX_DIRECTION_HALF_WIDTH_DEG`) |
+| | Power on the bag **P = F·v_bag** | dot product over the forward swing | reported `measured`/`estimated` only when it agrees with `dE/dt` within 10% of peak `F·v` (`MAX_POWER_DISAGREEMENT`); otherwise "estimated (power estimates disagree)" |
+| | Energy match, speed margin over minimum | `100(v²/v_req² − 1)`, `100(v/v_min − 1)`; `v_req`/`v_min` from the closed-form projectile-vs-hole solution | always `estimated`: assumes drag-free flight (Venkadesan & Mahadevan 2017: the most accurate throws sit slightly above the minimum, not at a fixed ideal) |
+| | Release-timing sensitivity | Jacobian of drag-free landing w.r.t. (v, θ, h, x) at the bag's fitted release, dotted with the hand point's rates at release, × 10 ms | see §18.12 — unavailable on all 21 pilot throws |
+| Flight | Predicted landing (drag-free) vs measured landing error | `mechanics.along_error_m` at the fitted release state vs the observed contact (§18.6) | always `estimated` for the prediction; the measured value needs a `measured`-state contact |
+| Outcome | Along-deck error to the hole, deck coordinates, suggested 0/1/3 | §18.6/18.7 | measured-contact only |
+
+Second-derivative quantities (hand acceleration, force, power) are `measured` only when their 95%
+interval half-width is below 25% of the value (`MAX_RELATIVE_HALF_WIDTH`; Winter, 2009 —
+differentiation amplifies landmark noise), otherwise "estimated" with that reason.
+
+### 18.10 Monte Carlo inputs
+
+Every chain quantity's uncertainty is a 500-draw (`MC_DRAWS`) Monte Carlo per throw, over:
+
+- **scale**: a common multiplicative factor `N(1, relative_sd)` applied to speed, height and
+  distance-to-board draws, where `relative_sd` comes from §18.4 (band-edge spread or session IQR
+  spread, floored at 1%, defaulting to 5% only when the scale block reports no uncertainty at all);
+- **bag mass**: `Uniform(15.5, 16.0 oz)` (`BAG_MASS_RANGE_KG`), nominal 15.75 oz (≈ 0.4465 kg);
+- **ballistic fit covariance**: the flight fit's own standard errors on release speed, angle and
+  height are added as independent normal draws before the scale factor is applied;
+- **landmark noise**: `LANDMARK_NOISE_PX` (4 px on the pilot's ~300-px-tall athlete) converted to
+  metres by the scale, added as 6 Hz-filtered white noise to each of the shoulder, elbow and wrist
+  joint draws before the hand point and its derivatives (acceleration, force, power, the release
+  rates used by timing sensitivity) are recomputed from them.
+
+Draws propagate through the same closed-form projectile/energy formulas as the nominal value, so
+the reported interval already reflects any nonlinearity (e.g. required speed, timing sensitivity).
+Second-derivative and direction quantities (§18.9) use their own interval half-width, not just the
+scale/landmark draws, to decide `measured` vs `estimated`.
+
+### 18.11 Bag-only labelling rule
+
+Every mechanics row under "Mechanics (bag-only)" in §18.9 carries the note: *"Bag-only: net
+external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about
+shoulder or elbow loading."* The rigid hand-point model (§18.8, §18.12) approximates where the bag
+is while still in the hand, not a measured hand force; force/power values describe the bag's own
+momentum and energy budget, never a joint or muscle quantity.
+
+### 18.12 Timing sensitivity: definition and why it is unavailable on the pilot footage
+
+**Definition** (Nasu, Matsuo & Kadota, 2014; Hore & Watts, 2011): the change in drag-free landing
+position (inches) per 10 ms of earlier/later release, computed from the Jacobian of the landing
+model with respect to release speed, angle, height and along-board position, dotted with the hand
+point's own rate of change of those quantities at release (`chain.timing_sensitivity_in_per_10ms`).
+It requires the hand path's velocity direction at release to be within `MAX_HAND_BAG_ANGLE_DIFF_DEG`
+(10°) of the bag's own fitted release angle — otherwise the hand point cannot stand in for the
+bag's rate of change and the quantity is withheld with that reason.
+
+**Why it is unavailable on all 21 accepted pilot throws.** The release-onset audit (§18.8) measured
+the hand-point direction against the bag's fitted release angle at the visually judged release
+frame on every throw: the hand path is **27–47° steeper than the bag's actual departure angle**
+(median 38°), on all 21 throws — far outside the 10° gate. The rigid hand-offset model (wrist +
+0.34 arm length along the forearm) tracks where a bag rigidly attached to the forearm would be; in
+the last ~50–80 ms before release the real bag leaves along a shallower path than that point,
+while the model's tracked point is already turning upward into the follow-through. Two causes are
+not separable with body-only landmarks: genuine finger/wrist action (unmeasured — no hand
+landmarks at this resolution, §18.13) and lag of the 6 Hz-filtered wrist in motion-blurred frames
+(the wrist ring visibly trails the true wrist after release on the audit's contact sheets). Using
+the bag's own *post-release* path instead would give the ballistic flight's rates, not the rates of
+a hypothetically later or earlier release, so it cannot substitute. Timing sensitivity therefore
+needs a direct measurement of the hand/bag path in the final frames of contact — a hand keypoint
+model, or bag tracking continued while still in the hand — which this pass does not add.
+
+### 18.13 Within-athlete analyses (`chain_analysis.py`, spec §6)
+
+All analyses are within one athlete, across repeated throws; wording is associational, never
+causal ("§16" of this document already sets that convention for Stage 1). Variables are
+pre-specified (fixed lists in `chain_analysis.py`, not chosen after seeing the data), correlation
+claims need ≥ 8 throws (`MIN_THROWS`) with both variables varying, and group comparisons need ≥ 5
+throws per group (`MIN_PER_GROUP`); every analysis reports `status` so the UI never displays a
+finding without enough throws.
+
+1. **Release → landing error budget** (`error_budget_analysis`). Central-difference Jacobian
+   ∂(landing)/∂(speed, angle, height) at the athlete's mean release condition, giving `σ_R² ≈
+   Σ(∂R/∂q · σ_q)²` under an independence assumption (`shares_if_independent`). Next to it: a
+   **covariance-aware** check using the athlete's actual release covariance matrix, `predicted_sd_cov_in
+   = √(J Σ Jᵀ)`, and the resulting `covariation_reduction = 1 − predicted_sd_cov / independent_sd` —
+   the share of independent-variable landing spread that the athlete's own speed/angle/height
+   covariation removes. When `covariation_reduction` exceeds `COVARIATION_MATERIAL` (0.15), the
+   sentence names the dominant co-varying pair (the pair whose cross term contributes most
+   negatively to the variance). `predicted_sd_in` is the SD, across throws, of each throw's own
+   release condition run through the (nonlinear) drag-free model directly — the headline number,
+   with no independence or linearisation assumption — reported next to the measured landing
+   spread. (Venkadesan & Mahadevan, 2017; Müller & Sternad, 2004 for the tolerance–noise–covariation
+   framing.)
+2. **Predicted vs. measured landing** (`predicted_vs_measured`). Pearson r² between the drag-free
+   prediction and the measured landing error; the unexplained remainder is attributed, without
+   separating them, to bag slide, air drag and measurement error.
+3. **Body → release** (`body_release_links`). Spearman ρ with a 2000-resample bootstrap 95% CI
+   (Bonferroni-corrected across the 5 pre-specified pairs) for: peak elbow extension velocity vs.
+   release speed; peak shoulder angular velocity vs. release speed; shoulder angle at release vs.
+   release angle; elbow angle at release vs. release angle; hand speed at release vs. release speed
+   (flagged near-tautological — the bag is essentially at the hand at release, so this mostly
+   reflects measurement geometry).
+4. **Movement → outcome** (`outcome_links`). Cliff's δ (scored vs. miss, Bonferroni-corrected across
+   the pre-specified outcome-variable list) plus a rank correlation between each variable and
+   |landing error| (usable even with few misses). This is also where **timing strategy** (spec §6
+   item 6) lives: `chain_timing_sensitivity_in_per_10ms` is one of the pre-specified
+   `OUTCOME_VARIABLES`, so its distribution and its association with scoring go through the same
+   gated Cliff's-δ/rank-correlation machinery as every other outcome variable, rather than a
+   separate function — unavailable on the pilot data (§18.12).
+5. **Consistency** (Stage 1 §15, reused unchanged) and **speed–angle trade-off**
+   (`speed_angle_tradeoff`, Theil–Sen slope of release speed vs. angle with a 95% CI; Linthorne,
+   2001 — the best angle is athlete-specific, so the analysis reports a slope, not a target angle)
+   and **shoulder–elbow coordination variability** (`coordination_variability`): point-wise SD of
+   the stacked, time-normalised shoulder–elbow angle–angle curves across throws (curves with > 20%
+   missing samples dropped), plus each kept throw's RMS deviation from the athlete's own mean
+   curve.
+
+### 18.14 Force-direction 15° rule
+
+The net-force-on-bag direction (§18.9) is `measured` only when two conditions both hold: the peak
+force magnitude itself is `measured` (§18.9's 25% relative-half-width rule), and the direction's
+own Monte Carlo 95% interval half-width is below `MAX_DIRECTION_HALF_WIDTH_DEG` (15°). Direction
+draws wrap around the nominal value (`(draw − nominal + 180°) % 360° − 180°`) before the interval is
+taken, so a direction near ±180° is not artificially split into two clusters.
+
+### 18.15 Not reported (spec §7)
+
+The following are explicitly not calculated, because a single hand-held side camera and body-only
+pose landmarks cannot support them: joint moments; joint or muscle forces (the bag-only mechanics
+in §18.9/§18.11 are never relabelled as these); wrist flexion or "wrist snap" (no hand/finger
+landmarks at this resolution); trunk axial rotation; lateral release direction (invisible to a side
+camera — lateral error is measured only on the board itself, from the top-down deck coordinates);
+bag spin.
