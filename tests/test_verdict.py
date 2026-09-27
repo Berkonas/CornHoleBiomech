@@ -109,3 +109,48 @@ def test_release_angle_not_dropped_by_body_flags():
     v = throw_verdict(release(7.0, angle=55.0, height=1.2), others, {}, 6.0, ZoneSettings())
     angle_items = [i for i in v["items"] if i["metric_key"] == "bag_release_angle_deg"]
     assert angle_items and angle_items[0]["kind"] == "fix", "Angle flag should be present with kind fix"
+
+
+def test_headline_counts_only_named_flags():
+    # An exploratory flag (no plain-language description) must not be counted in the headline.
+    key_x = "elbow_peak_extension_velocity_deg_s"
+    others = [{key_x: {**metric(v, noise=150.0), "exploratory": True}} for v in (900, 950, 1000, 1050, 1000, 980)]
+    this = {key_x: {**metric(2200.0, noise=150.0), "exploratory": True}}
+    assert personal_flags(this, others)  # it is flagged ...
+    v = throw_verdict(this, others, {}, None, ZoneSettings())
+    assert "differed" not in v["headline"]  # ... but not announced without being named
+    # A nameable flag is both counted and written as an item.
+    others2 = [{"elbow_angle_deg_at_release": metric(x, noise=10.0), key_x: {**metric(1000.0, noise=150.0), "exploratory": True}}
+               for x in (148, 150, 151, 152, 150, 149)]
+    this2 = {"elbow_angle_deg_at_release": metric(175.0, noise=10.0), key_x: {**metric(2200.0, noise=150.0), "exploratory": True}}
+    v2 = throw_verdict(this2, others2, {}, None, ZoneSettings())
+    assert "in 1 measured variable." in v2["headline"]
+    named = [i for i in v2["items"] if "Unusual for this athlete" in i["text"]]
+    assert [i["metric_key"] for i in named] == ["elbow_angle_deg_at_release"]
+
+
+def test_usual_range_needs_a_real_comparison():
+    # Six other throws, but none has a usable value for the measured key: nothing was compared.
+    others = [{"elbow_angle_deg_at_release": metric(None, status="unavailable")} for _ in range(6)]
+    v = throw_verdict({"elbow_angle_deg_at_release": metric(150.0, noise=10.0)}, others, {}, None, ZoneSettings())
+    assert "within this athlete's usual range" not in v["headline"]
+    assert "more analyzed throws" in v["headline"]
+    # With five usable history values it is a genuine comparison.
+    others = [{"elbow_angle_deg_at_release": metric(x, noise=10.0)} for x in (148, 150, 151, 152, 150)]
+    v = throw_verdict({"elbow_angle_deg_at_release": metric(150.0, noise=10.0)}, others, {}, None, ZoneSettings())
+    assert v["headline"] == "Every reliable measurement was within this athlete's usual range."
+
+
+def test_more_throws_needed_grammar():
+    others = [{} for _ in range(4)]
+    v = throw_verdict({"elbow_angle_deg_at_release": metric(150.0)}, others, {}, None, ZoneSettings())
+    assert "1 more analyzed throw is needed" in v["headline"]
+    v = throw_verdict({"elbow_angle_deg_at_release": metric(150.0)}, [], {}, None, ZoneSettings())
+    assert "5 more analyzed throws are needed" in v["headline"]
+
+
+def test_fmt_uses_unicode_minus():
+    from cornhole_biomech.verdict import _fmt
+    assert _fmt(-12.0, "°") == "−12°"
+    assert _fmt(-0.25, "m") == "−0.25 m"
+    assert _fmt(1.5, "back ÷ forward") == "1.5 back ÷ forward"

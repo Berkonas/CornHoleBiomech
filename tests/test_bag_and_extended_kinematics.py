@@ -145,6 +145,14 @@ def test_acceleration_is_suppressed_below_frame_rate_gate():
     assert "below" in result["acceleration"]["reason"]
 
 
+def test_acceleration_gate_accepts_nominal_60_fps_phone_video():
+    fps = 60000 / 1001  # 59.94 fps, recorded by phones as "60 fps"
+    time = np.arange(20) / fps
+    pixels = np.column_stack((100 + 10 * time + 2 * time**2, 100 - 20 * time - 3 * time**2))
+    result = estimate_projectile_release_kinematics(pixels, 0, fps, 50, "left_to_right")
+    assert result["acceleration"]["status"] == "estimated_exploratory"
+
+
 def test_path_straightness_and_curvature_are_descriptive():
     straight = path_shape_metrics(np.column_stack((np.arange(10), np.zeros(10))))
     curved = path_shape_metrics(np.column_stack((np.cos(np.linspace(0, np.pi, 30)), np.sin(np.linspace(0, np.pi, 30)))))

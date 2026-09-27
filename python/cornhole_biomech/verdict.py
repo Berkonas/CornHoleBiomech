@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from .reliability import BY_KEY
 from .zones import ZoneSettings, landing, predicted_zone, speed_to_hole
 
 MINIMUM_OTHERS = 5
@@ -35,7 +36,22 @@ BODY_WORDS = {  # key: (word when higher than usual, word when lower)
     "bag_release_angle_deg": ("higher release angle", "lower release angle"),
     "bag_release_speed_m_s": ("faster release", "slower release"),
     "bag_release_height_m": ("higher release point", "lower release point"),
+    "bag_release_position_forward_arm_lengths": ("release point further in front of the shoulder",
+                                                 "release point closer to the shoulder"),
+    "wrist_speed_at_release_arm_lengths_s": ("faster hand at release", "slower hand at release"),
+    "swing_release_arm_angle_deg": ("arm further forward at release", "arm further back at release"),
 }
+
+
+def _exploratory(metrics: dict, key: str) -> bool:
+    row = metrics.get(key) or {}
+    metric = BY_KEY.get(key)
+    return bool(row.get("exploratory") or (metric is not None and metric.exploratory))
+
+
+def _nameable(metrics: dict, key: str) -> bool:
+    """Flags the verdict can put into words: non-exploratory metrics with a plain-language description."""
+    return key in BODY_WORDS and not _exploratory(metrics, key)
 
 
 def _usable(metrics: dict, key: str) -> float | None:
@@ -92,7 +108,7 @@ def personal_flags(metrics: dict, others: list[dict]) -> list[dict[str, Any]]:
 
 def _fmt(value: float, unit: str) -> str:
     digits = 0 if unit in ("°", "ms", "°/s") else 2 if unit in ("m", "s") else 1
-    return f"{value:.{digits}f}{'' if unit == '°' else ' '}{unit}".strip()
+    return f"{value:.{digits}f}".replace("-", "−") + f"{'' if unit == '°' else ' '}{unit}".rstrip()
 
 
 def _fmt_range(low: float, high: float, unit: str) -> str:
@@ -129,18 +145,29 @@ def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_bo
         else:
             items.append({"kind": "good", "metric_key": "bag_release_speed_m_s",
                           "text": f"Release speed matched the hole ({approx}{physics['speed_m_s']:.1f} m/s vs {approx}{need:.1f} m/s needed)."})
-    elif flags:
-        headline = f"This throw differed from the athlete's usual pattern in {len(flags)} measured variable{'s' if len(flags) != 1 else ''}."
-    elif len(others) < MINIMUM_OTHERS:
-        headline = f"Measured. {MINIMUM_OTHERS - len(others)} more analysed throw{'s' if MINIMUM_OTHERS - len(others) != 1 else ''} are needed to compare it with this athlete's usual pattern."
-    else:
+    named = [f for f in flags if _nameable(metrics, f["key"])]
+    release_flags = [f for f in named if f["key"] in RELEASE]
+    body_flags = [f for f in named if f["key"] not in RELEASE]
+    shown = release_flags + body_flags[:2]
+    compared = [k for k in BODY_WORDS if _nameable(metrics, k) and _usable(metrics, k) is not None
+                and sum(_usable(o, k) is not None for o in others) >= MINIMUM_OTHERS]
+    if physics:
+        pass  # the physics headline above stands
+    elif named:
+        headline = f"This throw differed from the athlete's usual pattern in {len(named)} measured variable{'s' if len(named) != 1 else ''}"
+        headline += f" (the {len(shown)} largest are listed)." if len(shown) < len(named) else "."
+    elif compared:
         headline = "Every reliable measurement was within this athlete's usual range."
-    release_flags = [f for f in flags if f["key"] in RELEASE]
-    body_flags = [f for f in flags if f["key"] not in RELEASE]
-    for flag in release_flags + body_flags[:2]:
-        words = BODY_WORDS.get(flag["key"])
-        if not words:
-            continue
+    else:
+        missing = max(MINIMUM_OTHERS - len(others), 1)
+        if len(others) >= MINIMUM_OTHERS:
+            headline = ("Measured. Too few of this athlete's other throws have reliable values for the same measurements; "
+                        "more analyzed throws are needed to compare it with this athlete's usual pattern.")
+        else:
+            headline = (f"Measured. {missing} more analyzed throw{'s are' if missing != 1 else ' is'} needed "
+                        "to compare it with this athlete's usual pattern.")
+    for flag in shown:
+        words = BODY_WORDS[flag["key"]]
         word = words[0] if flag["direction"] == "high" else words[1]
         kind = "note" if physics and flag["key"] == "bag_release_speed_m_s" else "fix"
         items.append({"kind": kind, "metric_key": flag["key"],

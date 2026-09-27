@@ -915,7 +915,8 @@ def estimate_projectile_release_kinematics(
         base["physical_units"]["status"] = "rejected_invalid_or_wrong_plane_calibration"
 
     acceleration_reason = None
-    if fps < acceleration_minimum_fps:
+    # Nominal-rate tolerance as in quality.py: phone "60 fps" video is 59.94 fps and must pass the gate.
+    if fps < acceleration_minimum_fps - 0.5:
         acceleration_reason = f"Frame rate {fps:g} fps is below the {acceleration_minimum_fps:g} fps exploratory acceleration gate."
     elif degree < 2 or len(sample_indices) < acceleration_minimum_points:
         acceleration_reason = f"At least {acceleration_minimum_points} contiguous samples are required for exploratory acceleration."
