@@ -1,5 +1,13 @@
 import Foundation
 
+/// Size, length and rate of the analysis video: from the pose file, else from replay.json.
+struct VideoGeometry: Equatable {
+    var width: Int
+    var height: Int
+    var frameCount: Int
+    var fps: Double
+}
+
 @MainActor
 final class TrialDataController: ObservableObject {
     @Published private(set) var pose: PoseDocument?
@@ -13,6 +21,8 @@ final class TrialDataController: ObservableObject {
     @Published private(set) var bagCorrections = BagCorrectionDocument()
     @Published private(set) var events: EventDocument?
     @Published private(set) var kinematicRows: [[String: String]] = []
+    /// Video geometry even when pose_raw.json is missing (bag editing needs only the video).
+    @Published private(set) var geometry: VideoGeometry?
     let correctionUndoManager = UndoManager()
     @Published var inspectionFrame = 0
     @Published var loadError: String?
@@ -32,6 +42,13 @@ final class TrialDataController: ObservableObject {
         bagCorrections = decode(BagCorrectionDocument.self, at: analysisURL?.appendingPathComponent("bag_corrections.json")) ?? BagCorrectionDocument()
         events = decode(EventDocument.self, at: analysisURL?.appendingPathComponent("events.json"))
         kinematicRows = loadCSV(at: analysisURL?.appendingPathComponent("kinematics.csv"))
+        if let pose {
+            geometry = VideoGeometry(width: pose.width, height: pose.height, frameCount: pose.frameCount, fps: pose.fps)
+        } else if let replay = ReplayDocument.load(analysisURL?.appendingPathComponent("replay.json")) {
+            geometry = VideoGeometry(width: replay.width, height: replay.height, frameCount: replay.frame_count, fps: replay.fps)
+        } else {
+            geometry = nil
+        }
     }
 
     func loadComparison(at url: URL?) {
@@ -76,7 +93,7 @@ final class TrialDataController: ObservableObject {
 
     @discardableResult
     func setBagSeed(frame: Int, bboxXYWH: [Double]) -> Bool {
-        guard let pose, (0..<pose.frameCount).contains(frame), bboxXYWH.count == 4,
+        guard let pose = geometry, (0..<pose.frameCount).contains(frame), bboxXYWH.count == 4,
               bboxXYWH.allSatisfy(\.isFinite), bboxXYWH[0] >= 0, bboxXYWH[1] >= 0,
               bboxXYWH[2] > 1, bboxXYWH[3] > 1,
               bboxXYWH[0]+bboxXYWH[2] <= Double(pose.width), bboxXYWH[1]+bboxXYWH[3] <= Double(pose.height),

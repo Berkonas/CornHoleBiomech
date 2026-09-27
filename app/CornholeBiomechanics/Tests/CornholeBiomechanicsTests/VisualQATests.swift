@@ -50,10 +50,20 @@ final class VisualQATests: XCTestCase {
                 "bag_release_height_m": [0.82, 0.85, 0.8, 0.78, 0.9, 0.8], "elbow_angle_deg_at_release": [150, 158, 162, 147, 155],
                 "trunk_inclination_deg_at_release": [20, 24, 18, 26, 22], "wrist_peak_speed_arm_lengths_s": [10.5, 11.2, 9.8, 11.9],
                 "swing_backswing_angle_deg": [-50, -58, -61, -55], "swing_tempo_ratio": [1.6, 1.9, 1.7, 2.0]]
-            let data = ThrowReportData(insight: insight, coach: coach, replay: replay, pose: pose, results: results,
+            var data = ThrowReportData(insight: insight, coach: coach, replay: replay, pose: pose, results: results,
                                        kinematics: kinematics, scale: FlightScale.load(results: dir.appendingPathComponent("results.json")),
                                        launchFit: LaunchFitSummary.load(results: dir.appendingPathComponent("results.json")),
                                        history: history, analysisURL: dir)
+            data.manifest = ManifestInfo.load(dir.appendingPathComponent("manifest.json"))
+            data.derive()
+            var stale = data; stale.staleReason = "corrections_changed"
+            try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: stale, videoURL: nil, videoAvailable: false,
+                                          currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),
+                       "throw_report_stale", width: 1180, height: 1300)
+            try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
+                                          progress: ReportProgress(stage: "Tracking the body", detail: "Frame 120 of 343", fraction: 0.42),
+                                          currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),
+                       "throw_report_running", width: 1180, height: 1300)
             for dark in [false, true] {
                 try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
                                               currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),

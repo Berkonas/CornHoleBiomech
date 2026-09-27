@@ -88,14 +88,14 @@ struct VideoPoseEditor: View {
                     }
                 }
             }
-            .aspectRatio(data.pose.map { Double($0.width) / Double($0.height) } ?? 16 / 9, contentMode: .fit)
+            .aspectRatio(data.geometry.map { Double($0.width) / Double($0.height) } ?? 16 / 9, contentMode: .fit)
             Divider()
             VStack(spacing: 10) {
                 HStack {
                     Button { step(-1) } label: { Label("Previous frame", systemImage: "backward.frame.fill") }.labelStyle(.iconOnly)
                     Button { player.timeControlStatus == .playing ? player.pause() : player.play() } label: { Label("Play or pause", systemImage: player.timeControlStatus == .playing ? "pause.fill" : "play.fill") }.labelStyle(.iconOnly)
                     Button { step(1) } label: { Label("Next frame", systemImage: "forward.frame.fill") }.labelStyle(.iconOnly)
-                    Slider(value: frameBinding, in: 0...Double(max(0, (data.pose?.frameCount ?? 1) - 1)), step: 1)
+                    Slider(value: frameBinding, in: 0...Double(max(0, (data.geometry?.frameCount ?? 1) - 1)), step: 1)
                     Text(timeLabel).font(.caption.monospacedDigit()).frame(width: 110)
                 }
                 if mode == .body { bodyActions } else { bagActions }
@@ -234,14 +234,14 @@ struct VideoPoseEditor: View {
 
     private var primaryLandmarks: [String] { ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip"] }
     private var timeLabel: String {
-        let fps = data.pose?.fps ?? 1
+        let fps = data.geometry?.fps ?? 1
         return "\((Double(currentFrame) / fps).formatted(.number.precision(.fractionLength(2)))) s"
     }
     private var frameBinding: Binding<Double> {
         Binding(get: { Double(currentFrame) }, set: { value in
             player.pause()
             currentFrame = Int(value)
-            player.seek(to: CMTime(seconds: Double(currentFrame) / max(1, data.pose?.fps ?? 30), preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+            player.seek(to: CMTime(seconds: Double(currentFrame) / max(1, data.geometry?.fps ?? 30), preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
         })
     }
 
@@ -252,14 +252,14 @@ struct VideoPoseEditor: View {
     }
     /// The frame actually on screen: read from the player while playing, else the inspected frame.
     private var displayedFrame: Int {
-        guard player.timeControlStatus == .playing, let pose = data.pose else { return currentFrame }
+        guard player.timeControlStatus == .playing, let pose = data.geometry else { return currentFrame }
         return min(max(0, Int((player.currentTime().seconds * pose.fps).rounded())), max(0, pose.frameCount - 1))
     }
-    private func step(_ amount: Int) { frameBinding.wrappedValue = Double(min(max(0, currentFrame + amount), max(0, (data.pose?.frameCount ?? 1) - 1))) }
+    private func step(_ amount: Int) { frameBinding.wrappedValue = Double(min(max(0, currentFrame + amount), max(0, (data.geometry?.frameCount ?? 1) - 1))) }
     private func installTimeObserver() {
         guard timeObserver == nil else { return }
-        let fps = data.pose?.fps ?? 30
-        let maximumFrame = max(0, (data.pose?.frameCount ?? 1) - 1)
+        let fps = data.geometry?.fps ?? 30
+        let maximumFrame = max(0, (data.geometry?.frameCount ?? 1) - 1)
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
             currentFrame = min(max(0, Int((time.seconds * fps).rounded())), maximumFrame)
         }
@@ -276,7 +276,7 @@ private struct LandmarkCoordinateEditor: View {
     @State private var y = ""
     private var point: (Double, Double)? {
         guard let px = Double(x), let py = Double(y), px.isFinite, py.isFinite,
-              let pose = data.pose, (0...Double(pose.width)).contains(px),
+              let pose = data.geometry, (0...Double(pose.width)).contains(px),
               (0...Double(pose.height)).contains(py) else { return nil }
         return (px, py)
     }
@@ -286,7 +286,7 @@ private struct LandmarkCoordinateEditor: View {
             Text("Frame \(frame) · Original video pixels, measured from the top-left corner.").foregroundStyle(.secondary)
             TextField("X pixel", text: $x)
             TextField("Y pixel", text: $y)
-            Text("Allowed: x 0–\(data.pose?.width ?? 0), y 0–\(data.pose?.height ?? 0). This creates a separate, undoable manual correction.").font(.caption).foregroundStyle(.secondary)
+            Text("Allowed: x 0–\(data.geometry?.width ?? 0), y 0–\(data.geometry?.height ?? 0). This creates a separate, undoable manual correction.").font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -314,7 +314,7 @@ private struct BagCoordinateEditor: View {
 
     private var point: (Double, Double)? {
         guard let px = Double(x), let py = Double(y), px.isFinite, py.isFinite,
-              let pose = data.pose, (0...Double(pose.width)).contains(px), (0...Double(pose.height)).contains(py)
+              let pose = data.geometry, (0...Double(pose.width)).contains(px), (0...Double(pose.height)).contains(py)
         else { return nil }
         return (px, py)
     }
@@ -351,7 +351,7 @@ private struct BagOverlay: View {
     let availableSize: CGSize
 
     var body: some View {
-        if let pose = data.pose {
+        if let pose = data.geometry {
             let rect = videoRect(width: Double(pose.width), height: Double(pose.height))
             Canvas { context, _ in
                 var trail = Path(); var previous: Int?
@@ -514,7 +514,7 @@ struct QualityEventsView: View {
                 Divider()
                 Text("Movement Events").font(.title2.weight(.semibold))
                 Text("The frame carries over from the Body landmarks and Bag tabs. Use Mark event while watching the video, or adjust its frame here. Automatic and manual values remain separate. Visible release is frame-limited—at 60 fps, one frame is about 16.7 ms.").foregroundStyle(.secondary)
-                Stepper("Correction frame: \(currentEventFrame)", value: $data.inspectionFrame, in: 0...max(0, (data.pose?.frameCount ?? 1) - 1))
+                Stepper("Correction frame: \(currentEventFrame)", value: $data.inspectionFrame, in: 0...max(0, (data.geometry?.frameCount ?? 1) - 1))
                 ForEach(eventNames.map(\.0), id: \.self) { name in
                     if let event = data.events?.events[name] {
                         HStack {

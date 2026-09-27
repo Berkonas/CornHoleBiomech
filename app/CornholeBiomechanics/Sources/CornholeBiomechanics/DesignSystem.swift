@@ -218,7 +218,11 @@ struct MetricTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(0.6)))
-        .help(row.definition)
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card))
+        // Clicking anywhere on the tile shows its moment in the replay (spec §3.4).
+        .onTapGesture { if let seek, let frame = row.frame { seek(frame) } }
+        .accessibilityAction(named: "Show in video") { if let seek, let frame = row.frame { seek(frame) } }
+        .help(row.frame != nil && seek != nil ? "\(row.definition)\nClick to show this moment in the replay." : row.definition)
     }
 
     private var info: some View {

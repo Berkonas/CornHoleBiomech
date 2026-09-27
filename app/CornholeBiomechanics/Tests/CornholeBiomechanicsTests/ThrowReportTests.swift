@@ -46,10 +46,51 @@ final class ThrowReportTests: XCTestCase {
 }
 
 final class VerdictCardTests: XCTestCase {
-    func testAtMostThreeRowsKeepingOneOfEachKind() {
-        let items = [Verdict.Item(kind: "fix", text: "a"), Verdict.Item(kind: "fix", text: "b"),
-                     Verdict.Item(kind: "good", text: "c"), Verdict.Item(kind: "note", text: "d")]
-        XCTAssertEqual(VerdictCard.shown(items).map(\.text), ["a", "c", "d"])
-        XCTAssertEqual(VerdictCard.shown(Array(items.prefix(2))).map(\.text), ["a", "b"])
+    func testAllWorkOnItemsUpToTwoThenOneNoteAndOneGoodRestBehindMore() {
+        let items = [Verdict.Item(kind: "fix", text: "a"), Verdict.Item(kind: "fix", text: "b"), Verdict.Item(kind: "fix", text: "e"),
+                     Verdict.Item(kind: "good", text: "c"), Verdict.Item(kind: "note", text: "d"), Verdict.Item(kind: "good", text: "f")]
+        let split = VerdictCard.split(items)
+        XCTAssertEqual(split.shown.map(\.text), ["a", "b", "c", "d"])
+        XCTAssertEqual(split.more.map(\.text), ["e", "f"])
+        XCTAssertTrue(VerdictCard.split([Verdict.Item(kind: "fix", text: "a")]).more.isEmpty)
+    }
+}
+
+final class FlightChartDataTests: XCTestCase {
+    /// The measured path starts before release (hand-held bag); the chart must start at release and stop at first contact.
+    func testFlightIsAnchoredAtReleaseAndEndsAtFirstContact() throws {
+        let points = (0...10).map { #"{"frame": \#($0), "x": \#(Double($0) * 10), "y": \#(50 - Double($0))}"# }.joined(separator: ",")
+        let model = (3...12).map { #"{"frame": \#($0), "x": \#(Double($0) * 10), "y": 47}"# }.joined(separator: ",")
+        let json = """
+        {"fps": 60, "frame_count": 20, "width": 100, "height": 100, "coordinates": "release_frame_pixels",
+         "measured": [\(points)], "filtered": [], "model": [\(model)], "after_contact": [],
+         "events": {"release": {"frame": 3, "label": "Release", "position": {"x": 30, "y": 47}},
+                    "first_contact": {"frame": 8, "label": "First contact"}},
+         "grades": {}}
+        """
+        let replay = try JSONDecoder().decode(ReplayDocument.self, from: Data(json.utf8))
+        let flight = try XCTUnwrap(FlightChartData.make(replay: replay, scale: nil, releaseHeight: nil, boardDistance: nil))
+        XCTAssertEqual(flight.measured.map(\.id), Array(3...8))
+        XCTAssertEqual(flight.measured.first?.x, 0); XCTAssertEqual(flight.measured.first?.y, 0)
+        XCTAssertEqual(try XCTUnwrap(flight.measured.last?.x), 50, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(flight.measured.last?.y), 5, accuracy: 1e-9)
+        XCTAssertEqual(flight.model.map(\.id), Array(3...8))
+        XCTAssertFalse(flight.metres)
+    }
+
+    func testJointAngleDomainKeepsNegativeValues() {
+        let domain = JointAngleChart.domain([-15, 170])
+        XCTAssertLessThan(domain.lowerBound, -15); XCTAssertGreaterThan(domain.upperBound, 170)
+    }
+}
+
+final class ReportStateTests: XCTestCase {
+    func testStaleReasonReadsMarkerFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("stale-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertNil(ThrowReportView.staleReason(url))
+        try Data(#"{"reason":"bag_seed_changed"}"#.utf8).write(to: url)
+        XCTAssertEqual(ThrowReportView.staleReason(url), "bag_seed_changed")
+        XCTAssertEqual(ThrowReportContent.staleText("bag_seed_changed"), "The bag track was corrected after this analysis.")
     }
 }

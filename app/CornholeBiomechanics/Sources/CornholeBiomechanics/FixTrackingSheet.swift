@@ -41,7 +41,9 @@ struct FixTrackingSheet: View {
     @ViewBuilder private func content(_ tab: Tab) -> some View {
         switch tab {
         case .body, .bag:
-            if let videoURL = store.videoURL(for: trial), data.pose != nil {
+            // Landmark editing needs the pose file; bag editing needs only the video and the analysis folder.
+            let ready = tab == .body ? data.pose != nil : (data.geometry != nil && data.analysisURL != nil)
+            if let videoURL = store.videoURL(for: trial), ready {
                 ScrollView {
                     VideoPoseEditor(videoURL: videoURL, data: data,
                                     confidenceThreshold: store.project?.analysisSettings.confidenceThreshold ?? 0.35,
@@ -52,15 +54,18 @@ struct FixTrackingSheet: View {
                 EmptyState("Video Not Found", symbol: "exclamationmark.triangle",
                            message: "The recording for this throw is missing. Locate it to correct the tracking.",
                            action: ("Locate Video…", { store.locateAndRelinkVideo(for: trial) }))
+            } else if tab == .body {
+                EmptyState("No Body Tracking", symbol: "figure.walk",
+                           message: "This analysis has no body landmarks to correct. Re-analyze the throw to track the body.")
             } else {
-                EmptyState("No Tracking Yet", symbol: "figure.walk", message: "Analyze this throw first; its tracking can then be corrected here.")
+                EmptyState("No Analysis Yet", symbol: "figure.walk", message: "Analyze this throw first; its bag track can then be corrected here.")
             }
         case .flight:
-            if data.analysisURL != nil, data.pose != nil {
+            if data.analysisURL != nil, data.geometry != nil {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: Space.m) {
                         Stepper("Selected frame: \(data.inspectionFrame)", value: $data.inspectionFrame,
-                                in: 0...max(0, (data.pose?.frameCount ?? 1) - 1))
+                                in: 0...max(0, (data.geometry?.frameCount ?? 1) - 1))
                             .monospacedDigit().fixedSize()
                         Text("Choose frames while watching the video in the Body landmarks or Bag tab.")
                             .font(.caption).foregroundStyle(.secondary)

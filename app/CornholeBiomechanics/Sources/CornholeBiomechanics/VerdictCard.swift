@@ -1,27 +1,34 @@
 import SwiftUI
 
-/// One headline sentence and up to three rows: went well / to work on / data note (insights.verdict).
-/// When corrections changed since the analysis, a stale banner replaces the verdict.
+/// One headline sentence and its rows: went well / to work on / data note (insights.verdict).
+/// Every "work on" item is shown (at most two), then one data note and one success; anything else
+/// sits behind a "N more" disclosure so nothing Python said is silently dropped.
 struct VerdictCard: View {
     let verdict: Verdict?
-    let stale: Bool
-    var canReanalyze = true
-    var reanalyze: () -> Void = {}
     /// Frame to show for a metric key, when the metric has one.
     var frameFor: (String) -> Int? = { _ in nil }
     var seek: (Int) -> Void = { _ in }
+    @State private var showsMore = false
 
     var body: some View {
         Card {
-            if stale {
-                staleBanner
-            } else if let verdict {
+            if let verdict {
+                let split = Self.split(verdict.items)
                 VStack(alignment: .leading, spacing: Space.m) {
                     Text(verdict.headline).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
-                    if !verdict.items.isEmpty {
+                    if !split.shown.isEmpty {
                         VStack(alignment: .leading, spacing: Space.s) {
-                            ForEach(Self.shown(verdict.items)) { item in row(item) }
+                            ForEach(split.shown) { item in row(item) }
+                        }
+                    }
+                    if !split.more.isEmpty {
+                        DisclosureGroup(isExpanded: $showsMore) {
+                            VStack(alignment: .leading, spacing: Space.s) {
+                                ForEach(split.more) { item in row(item) }
+                            }.padding(.top, Space.xs)
+                        } label: {
+                            Text("\(split.more.count) more").font(.callout).foregroundStyle(.secondary)
                         }
                     }
                     if let physics = verdict.physics {
@@ -37,21 +44,6 @@ struct VerdictCard: View {
                     }
                 } icon: { Image(systemName: "text.bubble").foregroundStyle(.secondary) }
             }
-        }
-    }
-
-    private var staleBanner: some View {
-        HStack(alignment: .center, spacing: Space.m) {
-            Image(systemName: "arrow.triangle.2.circlepath").font(.title2).foregroundStyle(.orange)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Analysis out of date").font(.title3.weight(.semibold))
-                Text("Tracking or events were corrected after this analysis. Re-analyze to update the verdict and the numbers below.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: Space.m)
-            Button("Re-analyze", systemImage: "arrow.clockwise", action: reanalyze)
-                .buttonStyle(.borderedProminent).disabled(!canReanalyze)
         }
     }
 
@@ -82,15 +74,12 @@ struct VerdictCard: View {
         }
     }
 
-    /// At most three rows: the first of each kind present (work on, data note, went well), then the rest in order.
-    static func shown(_ items: [Verdict.Item]) -> [Verdict.Item] {
-        var picked: [Verdict.Item] = []
-        for kind in ["fix", "note", "good"] {
-            if let first = items.first(where: { $0.kind == kind }) { picked.append(first) }
-        }
-        for item in items where picked.count < 3 && !picked.contains(where: { $0.id == item.id }) { picked.append(item) }
-        let ids = Set(picked.prefix(3).map(\.id))
-        return items.filter { ids.contains($0.id) }
+    /// Rows shown up front (up to two "work on", then the first data note and first "went well") and the rest.
+    static func split(_ items: [Verdict.Item]) -> (shown: [Verdict.Item], more: [Verdict.Item]) {
+        var ids = Set(items.filter { $0.kind == "fix" }.prefix(2).map(\.id))
+        if let note = items.first(where: { $0.kind == "note" }) { ids.insert(note.id) }
+        if let good = items.first(where: { $0.kind == "good" }) { ids.insert(good.id) }
+        return (items.filter { ids.contains($0.id) }, items.filter { !ids.contains($0.id) })
     }
 
     static func style(_ kind: String) -> (title: String, symbol: String, color: Color) {

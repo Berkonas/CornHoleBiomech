@@ -54,6 +54,74 @@ struct ThrowReportData {
     /// Metric key → the same metric on this athlete's other analysed throws.
     var history: [String: [Double]] = [:]
     var analysisURL: URL?
+    /// Why the saved analysis is out of date (`needs_reanalysis.json` reason); nil when current.
+    var staleReason: String?
+    var manifest: ManifestInfo?
+
+    // Derived once per load by `derive()`, never per replay frame.
+    var timeline = EventTimeline(fps: 30, frames: [:])
+    var jointAngles = JointAngleSeries(rows: [], releaseFrame: nil)
+    var flight: FlightChartData?
+    var targets: [String: ClosedRange<Double>] = [:]
+    var allMetrics: [CoachMetricRow] = []
+
+    /// Usable (not unreliable, finite) value of a coach metric.
+    func value(_ key: String) -> Double? {
+        guard let row = coach?.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
+        return v
+    }
+
+    /// Fill the derived fields (hole windows, chart series, table rows) from the loaded documents.
+    mutating func derive() {
+        var frames = (coach?.event_frames ?? [:]).compactMapValues { $0 }
+        for (key, event) in replay?.events ?? [:] where frames[key] == nil { frames[key] = event.frame }
+        timeline = EventTimeline(fps: replay?.fps ?? results?.quality.frameRateFPS ?? 30, frames: frames)
+        jointAngles = JointAngleSeries(rows: kinematics, releaseFrame: timeline.release)
+        let physics = insight?.verdict?.physics
+        flight = replay.flatMap {
+            FlightChartData.make(replay: $0, scale: scale, releaseHeight: physics?.height_m ?? value("bag_release_height_m"),
+                                 boardDistance: physics?.distance_m)
+        }
+        targets = [:]
+        if let physics, let height = physics.height_m ?? value("bag_release_height_m") {
+            let speed = physics.speed_m_s ?? value("bag_release_speed_m_s")
+            let angle = physics.angle_deg ?? value("bag_release_angle_deg")
+            if let angle {
+                targets["bag_release_speed_m_s"] = HoleWindow.speed(angle: angle, height: height, distance: physics.distance_m, near: speed ?? 8)
+            }
+            if let speed {
+                targets["bag_release_angle_deg"] = HoleWindow.angle(speed: speed, height: height, distance: physics.distance_m, near: angle ?? 35)
+            }
+        }
+        if let metrics = coach?.coach_metrics {
+            allMetrics = coachMetricOrder.compactMap { metrics[$0] }
+                + metrics.keys.filter { !coachMetricOrder.contains($0) }.sorted().compactMap { metrics[$0] }
+        } else {
+            allMetrics = []
+        }
+    }
+}
+
+/// Engine versions from the analysis folder's manifest.json (read loosely).
+struct ManifestInfo: Equatable {
+    var methodVersion: String?
+    var packageVersion: String?
+    var engineHash: String?
+    var poseModelVersion: String?
+
+    static func load(_ url: URL) -> ManifestInfo? {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return ManifestInfo(methodVersion: root["method_version"] as? String, packageVersion: root["python_package_version"] as? String,
+                            engineHash: root["engine_source_sha256"] as? String, poseModelVersion: root["pose_model_version"] as? String)
+    }
+}
+
+/// Progress of an analysis of the throw on screen.
+struct ReportProgress: Equatable {
+    var stage: String
+    var detail: String
+    var fraction: Double
 }
 
 /// The bag's launch fit as written in results.json → bag.launch (read loosely; older files lack fields).
@@ -133,14 +201,12 @@ struct ThrowReportView: View {
     @EnvironmentObject private var analysis: AnalysisService
     let trial: Trial
     @StateObject private var data = TrialDataController()
-    @State private var insight: TrialInsights?
+    @State private var report = ThrowReportData()
     @State private var failure: String?
     @State private var refreshing = false
-    @State private var replay: ReplayDocument?
-    @State private var coach: CoachMetricsDocument?
-    @State private var scale: FlightScale?
-    @State private var launchFit: LaunchFitSummary?
     @State private var history: [UUID: [String: Double]] = [:]
+    /// The Fix Tracking sheet closed to re-analyze: its dismissal must not start a competing refresh.
+    @State private var skipDismissRefresh = false
     @State private var replayFrame = 0
     @State private var seekRequest: Int?
     @State private var sheet: ReportSheet?
@@ -154,10 +220,10 @@ struct ThrowReportView: View {
     private enum ReportSheet: String, Identifiable { case fixTracking, trim, edit; var id: String { rawValue } }
 
     var body: some View {
-        ThrowReportContent(trial: trial, athleteName: athleteName, data: reportData,
+        ThrowReportContent(trial: trial, athleteName: athleteName, data: report,
                            videoURL: store.videoURL(for: trial), videoAvailable: store.videoState(for: trial).isAvailable,
                            canTrim: store.originalVideoURL(for: trial) != nil,
-                           loading: refreshing && insight == nil, failure: failure,
+                           loading: refreshing && report.insight == nil, failure: failure, progress: progress,
                            currentFrame: $replayFrame, seekRequest: $seekRequest, actions: actions)
             .navigationTitle(trial.displayName)
             .toolbar { toolbar }
@@ -171,9 +237,12 @@ struct ThrowReportView: View {
                     Task { await refresh(); await loadHistory() }
                 }
             }
-            .sheet(item: $sheet, onDismiss: { if !analysis.isRunning { Task { await refresh() } } }) { sheet in
+            .sheet(item: $sheet, onDismiss: {
+                if skipDismissRefresh { skipDismissRefresh = false; return }
+                if !analysis.isRunning { Task { await refresh() } }
+            }) { sheet in
                 switch sheet {
-                case .fixTracking: FixTrackingSheet(trial: trial, data: data, reanalyze: reanalyze)
+                case .fixTracking: FixTrackingSheet(trial: trial, data: data, reanalyze: { skipDismissRefresh = true; reanalyze() })
                 case .trim: VideoPreparationView(trial: trial)
                 case .edit: TrialEditForm(trial: trial)
                 }
@@ -185,6 +254,12 @@ struct ThrowReportView: View {
     }
 
     private var busy: Bool { analysis.isRunning }
+
+    /// Progress when the worker is analysing this throw (not while it only refreshes insights).
+    private var progress: ReportProgress? {
+        guard analysis.isRunning, analysis.activeTrialID == trial.id else { return nil }
+        return ReportProgress(stage: analysis.stage, detail: analysis.detail, fraction: analysis.progress)
+    }
     private var analyzed: Bool { trial.analysisRelativePath != nil }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
@@ -226,13 +301,12 @@ struct ThrowReportView: View {
             openReport: { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } })
     }
 
-    private var reportData: ThrowReportData {
+    /// Metric key → values on this athlete's other throws.
+    private func historyByMetric() -> [String: [Double]] {
         let others = history.filter { $0.key != trial.id }.map(\.value)
         var byMetric: [String: [Double]] = [:]
         for key in ThrowReportContent.headlineKeys.map(\.key) { byMetric[key] = others.compactMap { $0[key] } }
-        return ThrowReportData(insight: insight, coach: coach, replay: replay, pose: data.pose, results: data.results,
-                               kinematics: data.kinematicRows, scale: scale, launchFit: launchFit, history: byMetric,
-                               analysisURL: data.analysisURL)
+        return byMetric
     }
 
     private var athleteName: String {
@@ -255,13 +329,15 @@ struct ThrowReportView: View {
 
     private func loadHistory() async {
         let values = await AthleteHistory.values(athleteID: trial.athleteID, store: store)
-        if !Task.isCancelled { history = values }
+        if !Task.isCancelled { history = values; report.history = historyByMetric() }
     }
 
-    /// Show the saved results at once, then re-run the insights step (moved from the old Results page) and reload.
+    /// Show the saved results at once; re-run the insights step (moved from the old Results page) only when
+    /// insights.json is missing or older than its inputs, then reload.
     private func refresh() async {
-        guard trial.analysisRelativePath != nil else { insight = nil; return }
+        guard trial.analysisRelativePath != nil else { report = ThrowReportData(); return }
         loadFiles()
+        guard insightsNeedRefresh() else { return }
         guard !analysis.isRunning else { pendingRefresh = true; return }
         refreshing = true; failure = nil
         defer { refreshing = false }
@@ -272,22 +348,55 @@ struct ThrowReportView: View {
         } catch { failure = error.localizedDescription }
     }
 
+    /// Insights depend on this throw's results, the library's outcomes (project.json) and the athlete's other throws.
+    private func insightsNeedRefresh() -> Bool {
+        guard let url = store.analysisURL(for: trial) else { return false }
+        func modified(_ file: URL) -> Date? {
+            try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        }
+        guard let insights = modified(url.appendingPathComponent("insights.json")) else { return true }
+        var inputs: [URL] = [url.appendingPathComponent("results.json")]
+        if let root = store.projectURL { inputs.append(root.appendingPathComponent("project.json")) }
+        for other in store.project?.trials ?? [] where other.athleteID == trial.athleteID && other.id != trial.id {
+            if let otherURL = store.analysisURL(for: other) { inputs.append(otherURL.appendingPathComponent("results.json")) }
+        }
+        return inputs.contains { (modified($0) ?? .distantPast) > insights }
+    }
+
     private func loadFiles() {
         guard let url = store.analysisURL(for: trial) else { return }
+        var next = ThrowReportData()
         let insightsURL = url.appendingPathComponent("insights.json")
         if FileManager.default.fileExists(atPath: insightsURL.path) {
-            do { insight = try JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: insightsURL)) }
-            catch { insight = nil; failure = "Could not read the throw summary: \(error.localizedDescription)" }
-        } else { insight = nil }
+            do { next.insight = try JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: insightsURL)) }
+            catch { failure = "Could not read the throw summary: \(error.localizedDescription)" }
+        }
         data.load(analysisURL: url)
-        replay = ReplayDocument.load(url.appendingPathComponent("replay.json"))
-        coach = CoachMetricsDocument.load(url.appendingPathComponent("results.json"))
-        scale = FlightScale.load(results: url.appendingPathComponent("results.json"))
-        launchFit = LaunchFitSummary.load(results: url.appendingPathComponent("results.json"))
+        let resultsURL = url.appendingPathComponent("results.json")
+        next.coach = CoachMetricsDocument.load(resultsURL)
+        next.replay = ReplayDocument.load(url.appendingPathComponent("replay.json"))
+        next.pose = data.pose
+        next.results = data.results
+        next.kinematics = data.kinematicRows
+        next.scale = FlightScale.load(results: resultsURL)
+        next.launchFit = LaunchFitSummary.load(results: resultsURL)
+        next.manifest = ManifestInfo.load(url.appendingPathComponent("manifest.json"))
+        next.analysisURL = url
+        next.history = historyByMetric()
+        next.staleReason = Self.staleReason(url.appendingPathComponent("needs_reanalysis.json"))
+        next.derive()
+        report = next
         if !loadedOnce {
-            replayFrame = replay?.events["release"]?.frame ?? 0
+            replayFrame = next.replay?.events["release"]?.frame ?? 0
             loadedOnce = true
         }
+    }
+
+    /// The reason in needs_reanalysis.json, or nil when the file is absent.
+    static func staleReason(_ url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (object?["reason"] as? String) ?? "changed"
     }
 }
 
@@ -303,6 +412,8 @@ struct ThrowReportContent: View {
     var canTrim = true
     var loading = false
     var failure: String?
+    /// Set while this throw is being analysed: the page shows progress instead of results.
+    var progress: ReportProgress?
     @Binding var currentFrame: Int
     @Binding var seekRequest: Int?
     var actions = ThrowReportActions()
@@ -322,7 +433,11 @@ struct ThrowReportContent: View {
     var body: some View {
         Page {
             header
-            if trial.analysisRelativePath == nil {
+            if let progress {
+                // Analysing this throw: the saved numbers are about to be replaced, so only the video is shown.
+                runningBanner(progress)
+                if trial.analysisRelativePath != nil { replayCard }
+            } else if trial.analysisRelativePath == nil {
                 notAnalyzed
             } else {
                 if let failure {
@@ -331,13 +446,68 @@ struct ThrowReportContent: View {
                 if loading {
                     HStack(spacing: Space.s) { ProgressView().controlSize(.small); Text("Preparing this throw's report…").foregroundStyle(.secondary) }
                 }
-                VerdictCard(verdict: data.insight?.verdict, stale: data.insight?.needs_reanalysis == true,
-                            canReanalyze: actions.canEdit && videoAvailable, reanalyze: actions.reanalyze,
-                            frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 })
-                replayCard
-                keyNumbers
-                plots
-                scientificDetails
+                if let reason = staleReason {
+                    // Out of date: numbers from the old analysis would mislead, so only the video is shown.
+                    staleBanner(reason)
+                    replayCard
+                } else {
+                    VerdictCard(verdict: data.insight?.verdict,
+                                frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 })
+                    replayCard
+                    keyNumbers
+                    ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
+                    scientificDetails
+                }
+            }
+        }
+    }
+
+    // MARK: Status banners
+
+    private var staleReason: String? {
+        data.staleReason ?? (data.insight?.needs_reanalysis == true ? "changed" : nil)
+    }
+
+    /// Plain-English reason for a stale analysis (codes written by the app, or a sentence).
+    static func staleText(_ reason: String) -> String {
+        switch reason {
+        case "corrections_changed": "Body landmarks or events were corrected after this analysis."
+        case "bag_seed_changed", "bag_corrections_changed": "The bag track was corrected after this analysis."
+        case "flight_review_changed": "Release, first contact or the scale were reviewed after this analysis."
+        case "analysis_in_progress": "The last analysis did not finish (it was cancelled or failed)."
+        case "changed", "": "Tracking or settings changed after this analysis."
+        default: reason
+        }
+    }
+
+    private func staleBanner(_ reason: String) -> some View {
+        Card {
+            HStack(alignment: .center, spacing: Space.m) {
+                Image(systemName: "arrow.triangle.2.circlepath").font(.title2).foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text("Analysis out of date").font(.title3.weight(.semibold))
+                    Text("\(Self.staleText(reason)) Re-analyze to see the verdict, numbers and plots.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Space.m)
+                Button("Re-analyze", systemImage: "arrow.clockwise", action: actions.reanalyze)
+                    .buttonStyle(.borderedProminent).disabled(!actions.canEdit || !videoAvailable)
+            }
+        }
+    }
+
+    private func runningBanner(_ progress: ReportProgress) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: Space.s) {
+                HStack(spacing: Space.m) {
+                    ProgressView().controlSize(.small)
+                    Text("Analyzing this throw").font(.title3.weight(.semibold))
+                    Spacer()
+                    Text(progress.fraction, format: .percent.precision(.fractionLength(0))).monospacedDigit().foregroundStyle(.secondary)
+                }
+                ProgressView(value: progress.fraction)
+                Text("\(progress.stage) · \(progress.detail)").font(.callout).foregroundStyle(.secondary).lineLimit(2)
             }
         }
     }
@@ -419,28 +589,6 @@ struct ThrowReportContent: View {
         data.coach?.coach_metrics[spec.key] ?? .notMeasured(key: spec.key, label: spec.label, unit: spec.unit, group: group)
     }
 
-    private func value(_ key: String) -> Double? {
-        guard let row = data.coach?.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
-        return v
-    }
-
-    /// Hole window for speed (at this angle, height and board distance) or angle (at this speed).
-    private func target(_ key: String) -> ClosedRange<Double>? {
-        guard let physics = data.insight?.verdict?.physics else { return nil }
-        let speed = physics.speed_m_s ?? value("bag_release_speed_m_s")
-        let angle = physics.angle_deg ?? value("bag_release_angle_deg")
-        guard let height = physics.height_m ?? value("bag_release_height_m") else { return nil }
-        switch key {
-        case "bag_release_speed_m_s":
-            guard let angle else { return nil }
-            return HoleWindow.speed(angle: angle, height: height, distance: physics.distance_m, near: speed ?? 8)
-        case "bag_release_angle_deg":
-            guard let speed else { return nil }
-            return HoleWindow.angle(speed: speed, height: height, distance: physics.distance_m, near: angle ?? 35)
-        default: return nil
-        }
-    }
-
     private func uncertainty(_ row: CoachMetricRow) -> MetricUncertainty? {
         let seKey = ["bag_release_speed_m_s": "bag_release_speed_se_m_s", "bag_release_angle_deg": "bag_release_angle_se_deg"][row.key ?? ""]
         if let seKey, let se = data.results?.summaries[seKey] ?? nil, se.isFinite, se > 0 { return MetricUncertainty(value: se, kind: .standardError) }
@@ -451,7 +599,7 @@ struct ThrowReportContent: View {
     private func tiles(_ specs: [(key: String, label: String, unit: String)], group: String) -> some View {
         let rows = specs.map { row($0, group: group) }
         func tile(_ row: CoachMetricRow) -> some View {
-            MetricTile(row: row, history: data.history[row.key ?? ""] ?? [], target: target(row.key ?? ""),
+            MetricTile(row: row, history: data.history[row.key ?? ""] ?? [], target: data.targets[row.key ?? ""],
                        uncertainty: uncertainty(row), seek: { seekRequest = $0 })
         }
         return ViewThatFits(in: .horizontal) {
@@ -486,58 +634,7 @@ struct ThrowReportContent: View {
         return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board). Grey dots: this athlete's other throws."
     }
 
-    // MARK: Plots
-
-    private var timeline: EventTimeline {
-        var frames = (data.coach?.event_frames ?? [:]).compactMapValues { $0 }
-        for (key, event) in data.replay?.events ?? [:] where frames[key] == nil { frames[key] = event.frame }
-        return EventTimeline(fps: data.replay?.fps ?? data.results?.quality.frameRateFPS ?? 30, frames: frames)
-    }
-
-    private var plots: some View {
-        let timeline = timeline
-        let seek: (Int) -> Void = { seekRequest = $0 }
-        let angles = JointAngleSeries(rows: data.kinematics, releaseFrame: timeline.release)
-        let physics = data.insight?.verdict?.physics
-        let flight = data.replay.flatMap {
-            FlightChartData.make(replay: $0, scale: data.scale, releaseHeight: physics?.height_m ?? value("bag_release_height_m"),
-                                 boardDistance: physics?.distance_m)
-        }
-        return ThrowPlots {
-            if angles.points.isEmpty {
-                unavailable("Joint angles appear once the release is found.")
-            } else {
-                JointAngleChart(series: angles, timeline: timeline, currentFrame: currentFrame, seek: seek)
-            }
-        } speed: {
-            if let speed = data.coach?.wrist_speed_arm_lengths_s, timeline.release != nil {
-                WristSpeedChart(speed: speed, fps: timeline.fps, events: timeline.frames, currentFrame: currentFrame, seek: seek)
-            } else {
-                unavailable("Wrist speed appears once the release is found.")
-            }
-        } flight: {
-            if let flight {
-                FlightChart(data: flight, scaleSource: data.scale?.source, distanceNote: physics.map(VerdictCard.distanceNote))
-            } else {
-                unavailable("The bag's flight was not measured for this throw.")
-            }
-        } timing: {
-            TimingStrip(timeline: timeline, currentFrame: currentFrame, seek: seek)
-        }
-    }
-
-    private func unavailable(_ text: String) -> some View {
-        Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 120)
-    }
-
     // MARK: Scientific details
-
-    private var allMetrics: [CoachMetricRow] {
-        guard let metrics = data.coach?.coach_metrics else { return [] }
-        let ordered = coachMetricOrder.compactMap { metrics[$0] }
-        let rest = metrics.keys.filter { !coachMetricOrder.contains($0) }.sorted().compactMap { metrics[$0] }
-        return ordered + rest
-    }
 
     private var scientificDetails: some View {
         Card {
@@ -570,7 +667,7 @@ struct ThrowReportContent: View {
     }
 
     @ViewBuilder private var metricsTable: some View {
-        let rows = allMetrics
+        let rows = data.allMetrics
         VStack(alignment: .leading, spacing: Space.s) {
             section("All measurements")
             if rows.isEmpty {
@@ -692,6 +789,12 @@ struct ThrowReportContent: View {
                 Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.xs) {
                     GridRow { Text("Camera"); Text("\(insight.provenance.camera_view.capitalized) · \(q.resolutionPixels.width) × \(q.resolutionPixels.height) · \(number(q.frameRateFPS, digits: 2)) fps") }
                     GridRow { Text("Engine / model"); Text("\(insight.provenance.backend) · \(insight.provenance.model)") }
+                    if let version = insight.provenance.sports2d_version { GridRow { Text("Sports2D version"); Text(version) } }
+                    if let manifest = data.manifest {
+                        if let method = manifest.methodVersion { GridRow { Text("Method version"); Text(method) } }
+                        if let package = manifest.packageVersion { GridRow { Text("Engine package"); Text("cornhole-biomech \(package)") } }
+                        if let hash = manifest.engineHash { GridRow { Text("Engine source"); Text(String(hash.prefix(12))).textSelection(.enabled) } }
+                    }
                     if let id = insight.provenance.analysis_id { GridRow { Text("Analysis"); Text(id).textSelection(.enabled) } }
                     GridRow { Text("Usable frames"); Text("\(number(q.usableFramePercentage))%") }
                     GridRow { Text("Mean pose confidence"); Text(number(q.averagePoseConfidence, digits: 3)) }
@@ -710,9 +813,50 @@ struct ThrowReportContent: View {
                     Text("Model SHA-256: \(hash)").font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 Text("Model confidence is not a calibrated position or angle error.").font(.caption).foregroundStyle(.secondary)
+            } else if let method = data.manifest?.methodVersion {
+                Text("Method version \(method)").font(.callout).monospacedDigit()
             } else {
                 Text("Provenance appears once the throw summary has been prepared.").foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// The four plots. The only part of the page besides the replay that follows the playing frame, so
+/// the rest of the report is not re-evaluated on every frame.
+private struct ReportPlots: View {
+    let data: ThrowReportData
+    @Binding var currentFrame: Int
+    @Binding var seekRequest: Int?
+
+    var body: some View {
+        let timeline = data.timeline
+        let seek: (Int) -> Void = { seekRequest = $0 }
+        ThrowPlots {
+            if data.jointAngles.points.isEmpty {
+                unavailable("Joint angles appear once the release is found.")
+            } else {
+                JointAngleChart(series: data.jointAngles, timeline: timeline, currentFrame: currentFrame, seek: seek)
+            }
+        } speed: {
+            if let speed = data.coach?.wrist_speed_arm_lengths_s, timeline.release != nil {
+                WristSpeedChart(speed: speed, fps: timeline.fps, events: timeline.frames, currentFrame: currentFrame, seek: seek)
+            } else {
+                unavailable("Wrist speed appears once the release is found.")
+            }
+        } flight: {
+            if let flight = data.flight {
+                FlightChart(data: flight, scaleSource: data.scale?.source,
+                            distanceNote: data.insight?.verdict?.physics.map(VerdictCard.distanceNote))
+            } else {
+                unavailable("The bag's flight between release and first contact was not measured for this throw.")
+            }
+        } timing: {
+            TimingStrip(timeline: timeline, currentFrame: currentFrame, seek: seek)
+        }
+    }
+
+    private func unavailable(_ text: String) -> some View {
+        Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 120)
     }
 }

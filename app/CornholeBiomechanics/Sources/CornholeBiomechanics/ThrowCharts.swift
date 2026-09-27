@@ -134,6 +134,14 @@ struct JointAngleChart: View {
     let seek: (Int) -> Void
 
     static let elbowInk = athleteInk
+
+    /// Padded min–max of the plotted angles (at least 20° tall), so negative trunk lean is never clipped.
+    static func domain(_ values: [Double]) -> ClosedRange<Double> {
+        guard var lo = values.min(), var hi = values.max() else { return 0...180 }
+        if hi - lo < 20 { let mid = (lo + hi) / 2; lo = mid - 10; hi = mid + 10 }
+        let pad = 0.08 * (hi - lo)
+        return (lo - pad)...(hi + pad)
+    }
     static let trunkInk = Color.indigo
 
     var body: some View {
@@ -155,7 +163,7 @@ struct JointAngleChart: View {
             .chartXScale(domain: window)
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
             .chartYAxisLabel("Angle (°)", position: .leading)
-            .chartYScale(domain: 0...max(180, (points.map(\.value).max() ?? 0) + 10))
+            .chartYScale(domain: Self.domain(points.map(\.value)))
             .seekOnClick(timeline, seek)
             .frame(height: 220)
             .accessibilityLabel("Elbow angle and trunk inclination in degrees against time from release")
@@ -286,8 +294,15 @@ struct FlightChartData: Equatable {
 
     static func make(replay: ReplayDocument, scale: FlightScale?, releaseHeight: Double?, boardDistance: Double?,
                      board geometry: BoardGeometry = .regulation) -> FlightChartData? {
-        let path = replay.filtered.isEmpty ? replay.measured : replay.filtered
-        guard let first = path.first, let last = path.last, path.count >= 2 else { return nil }
+        // Release → first contact only, anchored at the release event, from one series throughout.
+        guard let release = replay.events["release"] else { return nil }
+        let contact = replay.events["first_contact"]?.frame
+        func inFlight(_ p: ReplayDocument.Point) -> Bool { p.frame >= release.frame && contact.map { p.frame <= $0 } ?? true }
+        let series = replay.filtered.isEmpty ? replay.measured : replay.filtered
+        let path = series.filter(inFlight)
+        guard let start = path.first, let last = path.last, path.count >= 2 else { return nil }
+        let first = start.frame == release.frame ? start
+            : release.position.map { ReplayDocument.Point(frame: release.frame, x: $0.x, y: $0.y) } ?? start
         let sign: Double = last.x >= first.x ? 1 : -1
         let ppm = scale?.pixelsPerMeter
         let lift = ppm != nil ? (releaseHeight ?? 0) : 0
@@ -305,7 +320,7 @@ struct FlightChartData: Equatable {
             hole = Point(id: 0, x: d + geometry.holeAlong * cos(geometry.angle),
                          y: geometry.frontHeight + geometry.holeAlong * sin(geometry.angle))
         }
-        return FlightChartData(measured: replay.measured.map(convert), model: replay.model.map(convert),
+        return FlightChartData(measured: path.map(convert), model: replay.model.filter(inFlight).map(convert),
                                board: board, hole: hole, metres: ppm != nil, heightAboveFloor: ppm != nil && releaseHeight != nil)
     }
 }
@@ -319,14 +334,15 @@ struct FlightChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             Chart {
-                ForEach(data.model) { p in
-                    LineMark(x: .value(data.xTitle, p.x), y: .value(data.yTitle, p.y), series: .value("Series", "Drag-free fit"))
-                        .foregroundStyle(Color.secondary)
-                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                }
                 ForEach(data.measured) { p in
                     PointMark(x: .value(data.xTitle, p.x), y: .value(data.yTitle, p.y))
-                        .foregroundStyle(measuredInk).symbolSize(16)
+                        .foregroundStyle(measuredInk.opacity(0.55)).symbolSize(9)
+                }
+                // The fit is drawn over the points so the dashed reference stays visible.
+                ForEach(data.model) { p in
+                    LineMark(x: .value(data.xTitle, p.x), y: .value(data.yTitle, p.y), series: .value("Series", "Drag-free fit"))
+                        .foregroundStyle(Color.primary.opacity(0.75))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
                 }
                 ForEach(data.board) { p in
                     LineMark(x: .value(data.xTitle, p.x), y: .value(data.yTitle, p.y), series: .value("Series", "Board"))
@@ -348,8 +364,8 @@ struct FlightChart: View {
             .frame(height: 220)
             .accessibilityLabel("Bag flight side view, \(data.measured.count) measured points")
             HStack(spacing: Space.l) {
-                ChartLegendItem(color: measuredInk, label: "Measured bag", dot: true)
-                if !data.model.isEmpty { ChartLegendItem(color: .secondary, label: "Drag-free fit", dashed: true) }
+                ChartLegendItem(color: measuredInk, label: "Measured bag, release → first contact", dot: true)
+                if !data.model.isEmpty { ChartLegendItem(color: .primary.opacity(0.75), label: "Drag-free fit", dashed: true) }
                 if !data.board.isEmpty { ChartLegendItem(color: .primary.opacity(0.7), label: "Board") }
             }
             Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

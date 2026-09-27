@@ -25,8 +25,8 @@ struct BagSelectionView: View {
     @State private var rectangle: [Double]?
     @State private var zoom = 1.0
     @State private var error: String?
-    private var width: Int { data.pose?.width ?? 1920 }
-    private var height: Int { data.pose?.height ?? 1080 }
+    private var width: Int { data.geometry?.width ?? 1920 }
+    private var height: Int { data.geometry?.height ?? 1080 }
     private var scale: Double { min(780/Double(width), 430/Double(height))*zoom }
 
     var body: some View {
@@ -80,7 +80,7 @@ struct BagSelectionView: View {
                 generator.appliesPreferredTrackTransform = true
                 generator.requestedTimeToleranceBefore = .zero
                 generator.requestedTimeToleranceAfter = .zero
-                let (cg, _) = try await generator.image(at: CMTime(seconds: Double(frame)/(data.pose?.fps ?? 30), preferredTimescale: 60000))
+                let (cg, _) = try await generator.image(at: CMTime(seconds: Double(frame)/(data.geometry?.fps ?? 30), preferredTimescale: 60000))
                 guard abs(Double(cg.width)/Double(cg.height)-Double(width)/Double(height)) < 0.01 else {
                     error = "Video orientation differs from the analysis. Prepare a rotated copy and analyze it before selecting the bag."; return
                 }
