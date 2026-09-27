@@ -70,6 +70,14 @@ struct CoachMetricRow: Decodable, Identifiable {
     var reasons: [String]
     var value: Double?
     var exploratory: Bool?
+    /// Smallest change the measurement can resolve (same unit as `value`).
+    var noise_floor: Double?
+
+    /// A row for a metric the analysis did not produce: shown as "—", "Not measured".
+    static func notMeasured(key: String, label: String, unit: String, group: String) -> CoachMetricRow {
+        CoachMetricRow(key: key, label: label, unit: unit, group: group, definition: "Not produced by this analysis.",
+                       event: nil, frame: nil, status: "not_measured", reasons: [], value: nil, exploratory: nil, noise_floor: nil)
+    }
 
     var statusColor: Color {
         switch status {

@@ -38,13 +38,30 @@ final class VisualQATests: XCTestCase {
             }.frame(width: size.width, height: size.height).background(Color.black), "replay_\(file.dropLast(4))", width: 1280, height: 720)
         }
         if let coach = CoachMetricsDocument.load(dir.appendingPathComponent("results.json")) {
-            try render(VStack(alignment: .leading, spacing: 16) {
-                TrustStrip(grades: replay.grades)
-                CoachMetricsPanel(document: coach, groups: ["Release", "Hand & wrist", "Arm", "Trunk", "Timing"]) { _ in }
-                if let speed = coach.wrist_speed_arm_lengths_s, let events = coach.event_frames {
-                    WristSpeedChart(speed: speed, fps: replay.fps, events: events, currentFrame: replay.events["release"]?.frame ?? 0) { _ in }
-                }
-            }.padding(24), "coach_metrics", width: 1100, height: 1500)
+            // Throw report page, light and dark, from the same folder (video replaced by the animation view).
+            let insight = try? JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: dir.appendingPathComponent("insights.json")))
+            let results = try? JSONDecoder.projectDecoder.decode(AnalysisResults.self, from: Data(contentsOf: dir.appendingPathComponent("results.json")))
+            let kinematics = VisualQATests.csv(dir.appendingPathComponent("kinematics.csv"))
+            let trial = Trial(athleteID: UUID(), sourceVideoRelativePath: "throw.mov", originalFilename: "throw.mov",
+                              cameraView: .side, throwingSide: .right, targetDirection: .leftToRight,
+                              outcome: TrialOutcome(scoreCategory: .onBoard), analysisRelativePath: "analysis", name: "Throw 6")
+            let history: [String: [Double]] = [
+                "bag_release_speed_m_s": [7.4, 7.9, 6.6, 8.6, 7.6, 7.2], "bag_release_angle_deg": [33, 36, 30, 38, 41, 35],
+                "bag_release_height_m": [0.82, 0.85, 0.8, 0.78, 0.9, 0.8], "elbow_angle_deg_at_release": [150, 158, 162, 147, 155],
+                "trunk_inclination_deg_at_release": [20, 24, 18, 26, 22], "wrist_peak_speed_arm_lengths_s": [10.5, 11.2, 9.8, 11.9],
+                "swing_backswing_angle_deg": [-50, -58, -61, -55], "swing_tempo_ratio": [1.6, 1.9, 1.7, 2.0]]
+            let data = ThrowReportData(insight: insight, coach: coach, replay: replay, pose: pose, results: results,
+                                       kinematics: kinematics, scale: FlightScale.load(results: dir.appendingPathComponent("results.json")),
+                                       launchFit: LaunchFitSummary.load(results: dir.appendingPathComponent("results.json")),
+                                       history: history, analysisURL: dir)
+            for dark in [false, true] {
+                try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
+                                              currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),
+                           "throw_report\(dark ? "_dark" : "")", width: 1180, height: 3200, dark: dark)
+            }
+            try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
+                                          currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),
+                       "throw_report_narrow", width: 820, height: 4200)
         }
         for name in ["dashboard", "demo_dashboard"] {
             if let dashboard = AthleteDashboard.load(dir.appendingPathComponent("\(name).json")) {
@@ -56,5 +73,13 @@ final class VisualQATests: XCTestCase {
                 XCTFail("\(name).json did not decode")
             }
         }
+    }
+
+    static func csv(_ url: URL) -> [[String: String]] {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let lines = content.split(whereSeparator: \.isNewline).map(String.init)
+        guard let first = lines.first else { return [] }
+        let headers = first.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        return lines.dropFirst().map { Dictionary(uniqueKeysWithValues: zip(headers, $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init))) }
     }
 }

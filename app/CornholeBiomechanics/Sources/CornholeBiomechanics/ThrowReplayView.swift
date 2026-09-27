@@ -6,10 +6,13 @@ let measuredInk = Color(red: 0.98, green: 0.55, blue: 0.13)   // measured bag pa
 let slideInk = Color(red: 0.99, green: 0.83, blue: 0.25)      // after first contact
 let modelInk = Color.white.opacity(0.7)                       // fitted model (secondary)
 
-/// Measured throw replay: video + skeleton + measured bag path + fitted model + events.
+/// Measured throw replay. View = Video (video + skeleton + measured bag path + fitted model + events)
+/// or Animation (stick figure and bag path on a clean canvas). Both share one timeline and `currentFrame`.
 /// The measured path dominates; the drag-free model is a thin dashed reference.
 struct ThrowReplayView: View {
-    let videoURL: URL
+    enum Mode: String, CaseIterable, Identifiable { case video = "Video", animation = "Animation"; var id: String { rawValue } }
+
+    let videoURL: URL?
     let replay: ReplayDocument
     let pose: PoseDocument?
     let throwingSide: ThrowingSide
@@ -19,44 +22,100 @@ struct ThrowReplayView: View {
     @State private var timeObserver: Any?
     @State private var playing = false
     @State private var rate: Float = 0.5
-    @State private var showSkeleton = true
-    @State private var showModel = true
-    @State private var showTrail = true
+    @State private var mode: Mode
+    @State private var figureBounds: CGRect?
+    @State private var clock: (start: Date, frame: Int)?
+    @AppStorage("replayShowSkeleton") private var showSkeleton = true
+    @AppStorage("replayShowModel") private var showModel = true
+    @AppStorage("replayShowTrail") private var showTrail = true
 
-    init(videoURL: URL, replay: ReplayDocument, pose: PoseDocument?, throwingSide: ThrowingSide,
-         currentFrame: Binding<Int>, seekRequest: Binding<Int?>) {
+    init(videoURL: URL?, replay: ReplayDocument, pose: PoseDocument?, throwingSide: ThrowingSide,
+         currentFrame: Binding<Int>, seekRequest: Binding<Int?>, mode: Mode = .video) {
         self.videoURL = videoURL; self.replay = replay; self.pose = pose; self.throwingSide = throwingSide
         _currentFrame = currentFrame; _seekRequest = seekRequest
-        _player = State(initialValue: AVPlayer(url: videoURL))
+        _player = State(initialValue: videoURL.map { AVPlayer(url: $0) } ?? AVPlayer())
+        _mode = State(initialValue: videoURL == nil ? .animation : mode)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.m) {
+            HStack(spacing: Space.m) {
+                Picker("View", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(videoURL == nil)
+                .help(videoURL == nil ? "The video file is not available; the animation is drawn from the tracking." : "Show the video or a clean animation")
+                Spacer()
+                showMenu
+            }
             GeometryReader { geometry in
                 ZStack {
-                    Color.black
-                    NativeVideoPlayer(player: player, showsControls: false)
+                    if mode == .video {
+                        Color.black
+                        NativeVideoPlayer(player: player, showsControls: false)
+                    } else {
+                        Color(nsColor: .textBackgroundColor)
+                    }
                     TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
-                        ReplayOverlay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
-                                      size: geometry.size, showSkeleton: showSkeleton, showModel: showModel, showTrail: showTrail)
+                        if mode == .video {
+                            ReplayOverlay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                          size: geometry.size, showSkeleton: showSkeleton, showModel: showModel, showTrail: showTrail)
+                        } else {
+                            StickFigureReplay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                              bounds: figureBounds ?? CGRect(x: 0, y: 0, width: replay.width, height: replay.height),
+                                              showModel: showModel, showTrail: showTrail)
+                        }
                     }.allowsHitTesting(false)
-                    legend.padding(10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    if mode == .video {
+                        legend.padding(Space.s).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator.opacity(mode == .video ? 0 : 0.6)))
             }
             .aspectRatio(CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
             .frame(maxHeight: 520)
             timeline
             controls
         }
-        .onAppear { installObserver(); seek(to: replay.events["release"]?.frame ?? currentFrame) }
+        .onAppear {
+            installObserver()
+            if figureBounds == nil { figureBounds = StickFigureReplay.bounds(pose: pose, replay: replay) }
+            seek(to: seekRequest ?? replay.events["release"]?.frame ?? currentFrame)
+            seekRequest = nil
+        }
         .onDisappear { removeObserver(); player.pause() }
         .onChange(of: seekRequest) { _, frame in
             if let frame { seek(to: frame); seekRequest = nil }
         }
+        .onChange(of: mode) { _, _ in pause(); seek(to: currentFrame) }
+        .task(id: mode == .animation && playing) {
+            // Animation playback runs on its own clock, at the chosen rate.
+            guard mode == .animation, playing else { return }
+            while !Task.isCancelled {
+                guard let clock else { return }
+                let frame = clock.frame + Int((Date().timeIntervalSince(clock.start) * replay.fps * Double(rate)).rounded())
+                if frame >= replay.frame_count - 1 { currentFrame = replay.frame_count - 1; playing = false; return }
+                currentFrame = frame
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
     }
 
     // MARK: overlay legend and controls
+    private var showMenu: some View {
+        Menu {
+            Toggle("Skeleton", isOn: $showSkeleton).disabled(mode == .animation)
+            Toggle("Drag-free model", isOn: $showModel)
+            Toggle("Full bag path", isOn: $showTrail)
+        } label: {
+            Label("Show", systemImage: "eye")
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Choose what is drawn over the replay")
+    }
+
     private var legend: some View {
         VStack(alignment: .leading, spacing: 4) {
             legendRow(Rectangle().fill(measuredInk).frame(width: 22, height: 3), "Measured bag path")
@@ -90,7 +149,7 @@ struct ThrowReplayView: View {
             }.frame(height: 26)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(replay.orderedEvents, id: \.key) { item in
+                    ForEach(replay.orderedEvents.filter { Self.chipEvents.contains($0.key) }, id: \.key) { item in
                         Button { seek(to: item.event.frame) } label: {
                             HStack(spacing: 5) {
                                 Circle().fill(eventColor(item.key)).frame(width: 8, height: 8)
@@ -106,27 +165,33 @@ struct ThrowReplayView: View {
         }
     }
 
+    /// Event chips (spec §3.3): backswing, peak wrist speed, release, apex, first contact.
+    static let chipEvents: Set<String> = ["peak_backswing", "peak_wrist_speed", "release", "apex", "first_contact"]
+
     private var controls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.m) {
             Button { step(-1) } label: { Image(systemName: "backward.frame.fill") }.help("Previous frame")
+                .accessibilityLabel("Previous frame")
             Button { togglePlay() } label: { Image(systemName: playing ? "pause.fill" : "play.fill").frame(width: 18) }
                 .keyboardShortcut(.space, modifiers: []).help("Play / pause (space)")
+                .accessibilityLabel(playing ? "Pause" : "Play")
             Button { step(1) } label: { Image(systemName: "forward.frame.fill") }.help("Next frame")
+                .accessibilityLabel("Next frame")
             Picker("Speed", selection: $rate) {
                 Text("¼×").tag(Float(0.25)); Text("½×").tag(Float(0.5)); Text("1×").tag(Float(1))
             }.pickerStyle(.segmented).frame(width: 130).labelsHidden()
             Text("Frame \(currentFrame) · \(relativeTime(currentFrame))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Spacer()
-            Toggle("Skeleton", isOn: $showSkeleton).toggleStyle(.checkbox)
-            Toggle("Model", isOn: $showModel).toggleStyle(.checkbox)
-            Toggle("Full path", isOn: $showTrail).toggleStyle(.checkbox)
         }
-        .onChange(of: rate) { _, value in if playing { player.rate = value } }
+        .onChange(of: rate) { _, value in
+            if playing && mode == .video { player.rate = value }
+            if playing && mode == .animation { clock = (Date(), currentFrame) }
+        }
     }
 
     // MARK: playback
     private var displayedFrame: Int {
-        guard playing else { return currentFrame }
+        guard playing, mode == .video else { return currentFrame }
         return min(max(0, Int((player.currentTime().seconds * replay.fps).rounded())), replay.frame_count - 1)
     }
     private var currentEventKey: String? {
@@ -138,22 +203,30 @@ struct ThrowReplayView: View {
         let ms = 1000 * Double(frame - release) / replay.fps
         return ms == 0 ? "release" : "\(ms > 0 ? "+" : "−")\(number(abs(ms), digits: 0)) ms"
     }
+    private func pause() { player.pause(); playing = false; clock = nil }
     private func seek(to frame: Int) {
-        player.pause(); playing = false
+        pause()
         currentFrame = min(max(0, frame), replay.frame_count - 1)
-        player.seek(to: CMTime(seconds: Double(currentFrame) / replay.fps, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+        if videoURL != nil {
+            player.seek(to: CMTime(seconds: Double(currentFrame) / replay.fps, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+        }
     }
     private func step(_ amount: Int) { seek(to: currentFrame + amount) }
     private func togglePlay() {
-        if playing { player.pause(); playing = false; return }
+        if playing { pause(); return }
         if currentFrame >= replay.frame_count - 2 { seek(to: 0) }
-        player.playImmediately(atRate: rate); playing = true
+        if mode == .video {
+            player.playImmediately(atRate: rate)
+        } else {
+            clock = (Date(), currentFrame)
+        }
+        playing = true
     }
     private func installObserver() {
         guard timeObserver == nil else { return }
         let fps = replay.fps, last = replay.frame_count - 1
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
-            guard playing else { return }
+            guard playing, mode == .video else { return }
             currentFrame = min(max(0, Int((time.seconds * fps).rounded())), last)
             if currentFrame >= last { playing = false }
         }

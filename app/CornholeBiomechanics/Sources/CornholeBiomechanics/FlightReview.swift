@@ -26,8 +26,8 @@ struct PerformanceSummary: Decodable {
 }
 
 /// One explicit review document accompanies the existing immutable tracks/events.
+/// Shown as the "Bag flight" tab of the Fix Tracking sheet; `frame` is the frame chosen in the other tabs.
 struct FlightReviewEditor: View {
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var data: TrialDataController
     let frame: Int
     @State private var contact = ""
@@ -38,6 +38,7 @@ struct FlightReviewEditor: View {
     @State private var source = ""
     @State private var note = ""
     @State private var error: String?
+    @State private var saved = false
     private var isSide: Bool { data.results?.quality.cameraView == "side" }
     private var valid: Bool {
         let eventOK = contact.isEmpty || Int(contact).map { $0 >= 0 && $0 < (data.pose?.frameCount ?? 0) } == true
@@ -52,6 +53,7 @@ struct FlightReviewEditor: View {
         return "Release: needs confirmation"
     }
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             Text("Release → flight → first contact").font(.title2.bold())
             Text("Review one throw from visible hand separation to the first board or ground contact. A bag disappearing is not evidence of landing.").foregroundStyle(.secondary)
@@ -64,7 +66,7 @@ struct FlightReviewEditor: View {
                 Button("Use frame \(frame)") { contact = String(frame) }
                 Button("Clear") { contact = "" }
             }
-            Text("Contact may occur after body follow-through ends. Reopen this panel at the contact frame; review the bag identity through that frame using Bag tracking.").font(.caption).foregroundStyle(.secondary)
+            Text("Contact may occur after body follow-through ends. Pick the contact frame in the Bag tab, then return here; review the bag identity through that frame there too.").font(.caption).foregroundStyle(.secondary)
             Toggle("I verified a fixed, level side camera, approximately perpendicular to the flight plane", isOn: $fixedCamera)
             Text("Leave unchecked if the camera pans, tilts or zooms. A side-view label alone does not validate geometry. When the automatic flight was accepted, its camera motion is already removed and its board scale is kept even if this is unchecked.").font(.caption).foregroundStyle(.secondary)
             DisclosureGroup("Optional release-plane scale") {
@@ -79,11 +81,20 @@ struct FlightReviewEditor: View {
             TextField("Observation notes / uncertainty", text: $note, axis: .vertical)
             if let error { Text(error).foregroundStyle(.orange) }
             HStack {
-                Text("Reanalyze after saving to update all derived results.").font(.caption).foregroundStyle(.secondary)
-                Spacer(); Button("Cancel") { dismiss() }
-                Button("Save review") { save() }.buttonStyle(.borderedProminent).disabled(!valid)
+                if saved {
+                    Label("Saved. Re-analyze with corrections to update the report.", systemImage: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                } else {
+                    Text("Re-analyze after saving to update all derived results.").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Revert") { load(); saved = false; error = nil }
+                Button("Save review") { save() }.disabled(!valid)
             }
-        }.padding(24).frame(width: 680).onAppear { load() }
+        }.padding(24).frame(maxWidth: 760, alignment: .leading)
+        }
+        .onAppear { load() }
+        .onChange(of: contact) { saved = false }
     }
     private func load() {
         guard let directory = data.analysisURL else { return }
@@ -116,42 +127,7 @@ struct FlightReviewEditor: View {
                 try JSONSerialization.data(withJSONObject: scale, options: [.prettyPrinted, .sortedKeys]).write(to: scaleURL, options: .atomic)
             } else if FileManager.default.fileExists(atPath: scaleURL.path) { try FileManager.default.removeItem(at: scaleURL) }
             try Data("{\"reason\":\"flight_review_changed\"}".utf8).write(to: directory.appendingPathComponent("needs_reanalysis.json"), options: .atomic)
-            dismiss()
+            error = nil; saved = true
         } catch { self.error = error.localizedDescription }
-    }
-}
-
-struct FlightPathPanel: View {
-    let flight: FlightSummary?
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Bag flight").font(.title2.weight(.semibold))
-            if let flight {
-                HStack {
-                    Text("Release → first contact: \(number(flight.time_of_flight_seconds, digits: 2)) s").font(.headline)
-                    Spacer()
-                    Text("One frame = \(number(flight.frame_interval_seconds * 1000)) ms").font(.caption).foregroundStyle(.secondary)
-                }
-                Text(flight.message).font(.callout).foregroundStyle(.secondary)
-                if !flight.trajectory.isEmpty {
-                    Canvas { context, size in
-                        let samples = flight.trajectory.filter { $0.x != nil && $0.y != nil }
-                        let xs = samples.compactMap(\.x), ys = samples.compactMap(\.y)
-                        let minX = xs.min() ?? 0, maxX = xs.max() ?? 1
-                        let minY = ys.min() ?? 0, maxY = ys.max() ?? 1
-                        let scale = min((size.width-40)/max(maxX-minX,1), (size.height-40)/max(maxY-minY,1))
-                        var path = Path(); var penDown = false
-                        for p in flight.trajectory {
-                            guard let x = p.x, let y = p.y else { penDown = false; continue }
-                            let point = CGPoint(x: 20+(x-minX)*scale, y: 20+(y-minY)*scale)
-                            if penDown { path.addLine(to: point) } else { path.move(to: point); penDown = true }
-                            context.fill(Path(ellipseIn: CGRect(x: point.x-2,y: point.y-2,width:4,height:4)), with: .color(.accentColor))
-                        }
-                        context.stroke(path, with: .color(.accentColor), lineWidth: 1.5)
-                    }.frame(height: 230).background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
-                    Text("Reviewed centroids · equal image scale on both axes · gaps remain gaps · not a reconstructed world trajectory").font(.caption).foregroundStyle(.secondary)
-                }
-            } else { Text("In Throws, review the bag, confirm release, then use Flight & scale to mark first contact. Reanalyze to connect the events.").foregroundStyle(.secondary) }
-        }
     }
 }

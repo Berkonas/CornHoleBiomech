@@ -151,30 +151,51 @@ struct RangeBar: View {
 
 // MARK: - Metric tile
 
+/// Plus-or-minus next to a tile value: a standard error from the fit, or the metric's noise floor.
+struct MetricUncertainty: Equatable {
+    enum Kind: String { case standardError = "standard error", noiseFloor = "noise floor" }
+    let value: Double
+    let kind: Kind
+}
+
 /// Headline label, monospaced value with unit, reliability glyph, and the value against the athlete's history.
+/// An unreliable value is withheld ("—") and its reason shown.
 struct MetricTile: View {
     let row: CoachMetricRow
     let history: [Double]
     var target: ClosedRange<Double>? = nil
+    var uncertainty: MetricUncertainty? = nil
     var seek: ((Int) -> Void)? = nil
+    @State private var showsInfo = false
 
-    init(row: CoachMetricRow, history: [Double], target: ClosedRange<Double>? = nil, seek: ((Int) -> Void)? = nil) {
-        self.row = row; self.history = history; self.target = target; self.seek = seek
+    init(row: CoachMetricRow, history: [Double], target: ClosedRange<Double>? = nil,
+         uncertainty: MetricUncertainty? = nil, seek: ((Int) -> Void)? = nil) {
+        self.row = row; self.history = history; self.target = target; self.uncertainty = uncertainty; self.seek = seek
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                 Text(row.label).font(.headline).lineLimit(2)
                 Spacer(minLength: Space.xs)
                 if isFlagged { ReliabilityGlyph(status: row.status).help(row.statusText) }
+                Button { showsInfo.toggle() } label: { Image(systemName: "info.circle") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                    .help("About \(row.label.lowercased())")
+                    .accessibilityLabel("About \(row.label)")
+                    .popover(isPresented: $showsInfo, arrowEdge: .bottom) { info }
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                Text(row.value.map { number($0, digits: digits) } ?? "—").font(.title.monospacedDigit())
-                if row.value != nil, !row.unit.isEmpty { Text(row.unit).font(.callout).foregroundStyle(.secondary) }
+                Text(value.map { number($0, digits: digits) } ?? "—").font(.title.monospacedDigit())
+                if value != nil, !row.unit.isEmpty { Text(row.unit).font(.callout).foregroundStyle(.secondary) }
+                if value != nil, let uncertainty {
+                    Text("± \(number(uncertainty.value, digits: uncertaintyDigits))").font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .help("± \(uncertainty.kind.rawValue)")
+                }
             }
             if !history.isEmpty || target != nil {
-                RangeBar(model: RangeBarModel(values: history, current: row.value, target: target))
+                RangeBar(model: RangeBarModel(values: history, current: value, target: target))
             }
             if isFlagged {
                 Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -182,7 +203,7 @@ struct MetricTile: View {
             HStack {
                 if let (q1, q3) = RangeBarModel(values: history, current: nil, target: nil).quartiles {
                     Text("Usual \(number(q1, digits: digits))–\(number(q3, digits: digits))").monospacedDigit()
-                } else if row.value == nil && !isFlagged {
+                } else if value == nil && !isFlagged {
                     Text(row.statusText)
                 }
                 Spacer()
@@ -200,13 +221,35 @@ struct MetricTile: View {
         .help(row.definition)
     }
 
+    private var info: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text(row.label).font(.headline)
+            Text(row.definition).fixedSize(horizontal: false, vertical: true)
+            if let uncertainty {
+                Text("± is the \(uncertainty.kind.rawValue): \(number(uncertainty.value, digits: uncertaintyDigits)) \(row.unit)")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            HStack(spacing: Space.xs) {
+                ReliabilityGlyph(status: row.status)
+                Text(row.statusText)
+            }.font(.callout)
+            ForEach(row.reasons, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+        }
+        .padding(Space.l)
+        .frame(width: 300, alignment: .leading)
+    }
+
     /// Only caution / unreliable measurements carry a glyph and a reason; reliable ones stay quiet.
     private var isFlagged: Bool { row.status == "caution" || row.status == "unreliable" }
 
+    /// The value shown: withheld when the measurement failed its reliability rules.
+    private var value: Double? { row.status == "unreliable" ? nil : row.value.flatMap { $0.isFinite ? $0 : nil } }
+
     private var digits: Int {
-        guard let value = row.value else { return 1 }
+        guard let value else { return 1 }
         return abs(value) >= 100 ? 0 : abs(value) >= 10 || row.unit == "°" ? 0 : abs(value) >= 1 ? 1 : 2
     }
+    private var uncertaintyDigits: Int { max(digits, (uncertainty?.value ?? 1) < 1 ? 2 : 1) }
 }
 
 /// Reliability status always carries a glyph as well as a colour.
