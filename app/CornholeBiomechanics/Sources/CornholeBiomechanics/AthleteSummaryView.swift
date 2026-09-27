@@ -214,7 +214,7 @@ struct AthleteSummaryContent: View {
         if total == 0 {
             // Nothing to summarise: every section would need the same first step.
             EmptyState("No Throws Yet", symbol: "video.badge.plus",
-                       message: "Import side-view videos of \(athleteName ?? "this athlete")'s throws. The summary compares them once they are analysed.",
+                       message: "Import side-view videos of \(athleteName ?? "this athlete")'s throws. The summary compares them once they are analyzed.",
                        action: actions.canEdit ? ("Import Videos", actions.importVideos) : nil)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -229,8 +229,8 @@ struct AthleteSummaryContent: View {
                 if analysed == 0 {
                     // Every section needs the same first step, so it is asked once.
                     if !loading {
-                        Card("Analyse a throw to start", symbol: "waveform.path.ecg",
-                             subtitle: "Scoring, coach focus, the throw comparison, consistency and the release map fill in as throws are analysed.") {
+                        Card("Analyze a throw to start",
+                             subtitle: "Scoring, coach focus, the throw comparison, consistency and the release map fill in as throws are analyzed.") {
                             notAnalysedEmpty
                         }
                     }
@@ -256,7 +256,7 @@ struct AthleteSummaryContent: View {
     }
 
     private var subtitle: String {
-        return "\(total) \(total == 1 ? "throw" : "throws") · \(analysed) analysed · \(results) with a result"
+        return "\(total) \(total == 1 ? "throw" : "throws") · \(analysed) analyzed · \(results) with a result"
     }
 
     // MARK: Empty states
@@ -275,8 +275,8 @@ struct AthleteSummaryContent: View {
     /// No analysed throw yet: analyse one (or, with every video missing, nothing to press).
     private var notAnalysedEmpty: some View {
         sectionEmpty("waveform.path.ecg", actions.analyzeFirst == nil
-                     ? "No throw has been analysed yet, and the videos need relinking first (throw list → Locate / Relink Video…)."
-                     : "No throw has been analysed yet.",
+                     ? "No throw has been analyzed yet, and the videos need relinking first (throw list → Locate / Relink Video…)."
+                     : "No throw has been analyzed yet.",
                      action: actions.analyzeFirst)
     }
 
@@ -314,7 +314,7 @@ struct AthleteSummaryContent: View {
                     let missing = dashboard.performance.counts?["unknown"] ?? 0
                     if missing > 0 {
                         HStack(spacing: Space.s) {
-                            Text("\(missing) analysed \(missing == 1 ? "throw has" : "throws have") no result yet.").foregroundStyle(.secondary)
+                            Text("\(missing) analyzed \(missing == 1 ? "throw has" : "throws have") no result yet.").foregroundStyle(.secondary)
                             if let record = actions.recordResults { Button("Record Results", action: record).buttonStyle(.link) }
                         }
                         .font(.caption)
@@ -355,7 +355,7 @@ struct AthleteSummaryContent: View {
             if let dashboard {
                 Text(dashboard.headline).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 if analysed < minimumThrowsToJudge {
-                    Label("With fewer than \(minimumThrowsToJudge) analysed throws the summary does not call anything unusual yet.",
+                    Label("With fewer than \(minimumThrowsToJudge) analyzed throws the summary does not call anything unusual yet.",
                           systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 }
@@ -393,7 +393,7 @@ struct AthleteSummaryContent: View {
     // MARK: Throw comparison
 
     private var tableCard: some View {
-        Card("Throw comparison", symbol: "tablecells", subtitle: "One row per analysed throw. Click a column title to sort.") {
+        Card("Throw comparison", symbol: "tablecells", subtitle: "One row per analyzed throw. Click a column title to sort.") {
             ThrowComparisonTable(rows: rows, open: open)
         }
     }
@@ -449,7 +449,7 @@ struct AthleteSummaryContent: View {
             Card("Release map", symbol: "square.grid.3x3.fill",
                  subtitle: "Where a drag-free bag would first land for each speed and angle, at this athlete's typical release height (\(number(p.releaseHeight, digits: 2)) m) and \(distance).") {
                 SuccessMap(params: .constant(p), throws: releases, interactive: false)
-                Text("Crosshair: this athlete's typical release (median \(number(p.speed, digits: 1)) m/s at \(number(p.angleDegrees, digits: 0))°). \(releases.count) of \(analysed) analysed throws had speed, angle and height measured reliably.")
+                Text("Crosshair: this athlete's typical release (median \(number(p.speed, digits: 1)) m/s at \(number(p.angleDegrees, digits: 0))°). \(releases.count) of \(analysed) analyzed throws had speed, angle and height measured reliably.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         } else {

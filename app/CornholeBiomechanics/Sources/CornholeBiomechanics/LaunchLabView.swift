@@ -160,7 +160,7 @@ struct LaunchLabContent: View {
                 if !athleteSelected {
                     Text("Select an athlete in the sidebar to start from their measured throws.")
                 } else if measured.isEmpty {
-                    Text("This athlete has no analysed throws with release speed, angle and height in metres yet.")
+                    Text("This athlete has no analyzed throws with release speed, angle and height in metres yet.")
                 } else if let source, source.params == params {
                     Text("From \(source.label)").lineLimit(1)
                 }

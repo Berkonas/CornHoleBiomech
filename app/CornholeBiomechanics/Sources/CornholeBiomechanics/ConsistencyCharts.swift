@@ -98,6 +98,7 @@ struct ElbowConsistencyChart: View {
                 }
             }
             .chartXScale(domain: 0...100)
+            .chartXAxis { AxisMarks(preset: .aligned, values: [0, 25, 50, 75, 100]) }
             .chartYScale(domain: curves.domain)
             .chartXAxisLabel("Movement cycle (% from start to end of the throw)", alignment: .center)
             .chartYAxisLabel("Elbow angle (°)", position: .leading)
