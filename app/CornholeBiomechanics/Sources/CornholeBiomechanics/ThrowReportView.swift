@@ -306,6 +306,8 @@ struct ThrowReportContent: View {
     @Binding var currentFrame: Int
     @Binding var seekRequest: Int?
     var actions = ThrowReportActions()
+    /// Scientific details start closed (spec §3.6); visual review opens them.
+    @State var showsDetails = false
 
     /// The eight headline numbers (spec §1.3): three release, five body.
     static let releaseKeys: [(key: String, label: String, unit: String)] = [
@@ -470,7 +472,7 @@ struct ThrowReportContent: View {
             }
             Card("Body", symbol: "figure.disc.sports", subtitle: "The arm and trunk around release.") {
                 tiles(Self.bodyKeys, group: "Body")
-                Text("Grey dots: this athlete's other throws; blue box: their usual middle half; black mark: this throw. Angles are measured in the camera's view.")
+                Text("Grey dots: this athlete's other throws; shaded box: their usual middle half; tall mark: this throw. Angles are measured in the camera's view.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -539,7 +541,7 @@ struct ThrowReportContent: View {
 
     private var scientificDetails: some View {
         Card {
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: $showsDetails) {
                 VStack(alignment: .leading, spacing: Space.xl) {
                     metricsTable
                     qualitySection
@@ -605,7 +607,7 @@ struct ThrowReportContent: View {
                     ForEach(TrustStrip.stages, id: \.self) { stage in
                         GridRow {
                             Text(TrustStrip.title(stage)).font(.callout.weight(.medium))
-                            Text("GOOD when: \(TrustStrip.rule(stage))").font(.callout).foregroundStyle(.secondary)
+                            Text(TrustStrip.rule(stage)).font(.callout).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }

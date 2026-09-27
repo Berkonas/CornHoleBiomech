@@ -62,6 +62,10 @@ final class VisualQATests: XCTestCase {
             try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
                                           currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil)),
                        "throw_report_narrow", width: 820, height: 4200)
+            try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: data, videoURL: nil, videoAvailable: false,
+                                          currentFrame: .constant(replay.events["release"]?.frame ?? 0), seekRequest: .constant(nil),
+                                          showsDetails: true),
+                       "throw_report_details", width: 1180, height: 5200)
         }
         for name in ["dashboard", "demo_dashboard"] {
             if let dashboard = AthleteDashboard.load(dir.appendingPathComponent("\(name).json")) {

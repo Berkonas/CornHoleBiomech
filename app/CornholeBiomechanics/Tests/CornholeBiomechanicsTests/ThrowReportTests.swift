@@ -44,3 +44,12 @@ final class ThrowReportTests: XCTestCase {
         XCTAssertEqual(series.points.first { $0.series == "Elbow angle" }?.ms ?? .nan, -40, accuracy: 1e-9)
     }
 }
+
+final class VerdictCardTests: XCTestCase {
+    func testAtMostThreeRowsKeepingOneOfEachKind() {
+        let items = [Verdict.Item(kind: "fix", text: "a"), Verdict.Item(kind: "fix", text: "b"),
+                     Verdict.Item(kind: "good", text: "c"), Verdict.Item(kind: "note", text: "d")]
+        XCTAssertEqual(VerdictCard.shown(items).map(\.text), ["a", "c", "d"])
+        XCTAssertEqual(VerdictCard.shown(Array(items.prefix(2))).map(\.text), ["a", "b"])
+    }
+}

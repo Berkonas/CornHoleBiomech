@@ -21,7 +21,7 @@ struct VerdictCard: View {
                         .accessibilityAddTraits(.isHeader)
                     if !verdict.items.isEmpty {
                         VStack(alignment: .leading, spacing: Space.s) {
-                            ForEach(verdict.items.prefix(3)) { item in row(item) }
+                            ForEach(Self.shown(verdict.items)) { item in row(item) }
                         }
                     }
                     if let physics = verdict.physics {
@@ -80,6 +80,17 @@ struct VerdictCard: View {
         } else {
             content
         }
+    }
+
+    /// At most three rows: the first of each kind present (work on, data note, went well), then the rest in order.
+    static func shown(_ items: [Verdict.Item]) -> [Verdict.Item] {
+        var picked: [Verdict.Item] = []
+        for kind in ["fix", "note", "good"] {
+            if let first = items.first(where: { $0.kind == kind }) { picked.append(first) }
+        }
+        for item in items where picked.count < 3 && !picked.contains(where: { $0.id == item.id }) { picked.append(item) }
+        let ids = Set(picked.prefix(3).map(\.id))
+        return items.filter { ids.contains($0.id) }
     }
 
     static func style(_ kind: String) -> (title: String, symbol: String, color: Color) {

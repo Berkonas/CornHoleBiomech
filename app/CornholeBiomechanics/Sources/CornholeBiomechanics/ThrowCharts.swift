@@ -154,7 +154,8 @@ struct JointAngleChart: View {
             .chartLegend(.hidden)
             .chartXScale(domain: window)
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
-            .chartYAxisLabel("Angle (°)")
+            .chartYAxisLabel("Angle (°)", position: .leading)
+            .chartYScale(domain: 0...max(180, (points.map(\.value).max() ?? 0) + 10))
             .seekOnClick(timeline, seek)
             .frame(height: 220)
             .accessibilityLabel("Elbow angle and trunk inclination in degrees against time from release")
@@ -205,7 +206,7 @@ struct WristSpeedChart: View {
             }
             .chartXScale(domain: timeline.window)
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
-            .chartYAxisLabel("Wrist speed (arm lengths/s)")
+            .chartYAxisLabel("Wrist speed (arm lengths/s)", position: .leading)
             .seekOnClick(timeline, seek)
             .frame(height: 220)
             .accessibilityLabel("Wrist speed in arm lengths per second against time from release")
@@ -270,6 +271,16 @@ struct FlightChartData: Equatable {
     let heightAboveFloor: Bool
 
     var unit: String { metres ? "m" : "px" }
+
+    /// Tight axis domains: from the smaller of 0 and the data to the data's far edge, 5 % padding.
+    var xDomain: ClosedRange<Double> { Self.domain((measured + model + board).map(\.x) + [0]) }
+    var yDomain: ClosedRange<Double> { Self.domain((measured + model + board).map(\.y) + [0]) }
+    private static func domain(_ values: [Double]) -> ClosedRange<Double> {
+        let finite = values.filter(\.isFinite)
+        guard let lo = finite.min(), let hi = finite.max(), hi > lo else { return 0...1 }
+        let pad = 0.05 * (hi - lo)
+        return (lo < 0 ? lo - pad : 0)...(hi + pad)
+    }
     var xTitle: String { "Forward from release (\(unit))" }
     var yTitle: String { heightAboveFloor ? "Height above floor (m)" : "Rise above release (\(unit))" }
 
@@ -332,8 +343,8 @@ struct FlightChart: View {
             }
             .chartXAxisLabel(data.xTitle, alignment: .center)
             .chartYAxisLabel(data.yTitle)
-            .chartXScale(domain: .automatic(includesZero: true))
-            .chartYScale(domain: .automatic(includesZero: true))
+            .chartXScale(domain: data.xDomain)
+            .chartYScale(domain: data.yDomain)
             .frame(height: 220)
             .accessibilityLabel("Bag flight side view, \(data.measured.count) measured points")
             HStack(spacing: Space.l) {
