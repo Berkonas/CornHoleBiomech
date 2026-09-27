@@ -32,8 +32,8 @@ extension MeasuredRelease {
         }
     }
 
-    /// Reads results.json for each source off the main actor; keeps throws whose release speed, angle and
-    /// height are all measured and not unreliable. Cancellation stops between files.
+    /// Reads results.json for each source off the main actor; keeps current (not out-of-date) throws whose
+    /// release speed, angle and height are all measured and usable. Cancellation stops between files.
     static func read(_ sources: [Source]) async -> [MeasuredRelease] {
         await Task.detached(priority: .userInitiated) {
             var releases: [MeasuredRelease] = []
@@ -50,11 +50,13 @@ extension MeasuredRelease {
         await read(sources(athleteID: athleteID, store: store))
     }
 
-    private static func read(_ source: Source) -> MeasuredRelease? {
-        guard let metrics = CoachMetricsDocument.load(source.results) else { return nil }
+    static func read(_ source: Source) -> MeasuredRelease? {
+        // An out-of-date analysis (needs_reanalysis.json beside results.json) is not plotted.
+        let marker = source.results.deletingLastPathComponent().appendingPathComponent("needs_reanalysis.json")
+        guard !FileManager.default.fileExists(atPath: marker.path),
+              let metrics = CoachMetricsDocument.load(source.results) else { return nil }
         func value(_ key: String) -> Double? {
-            guard let row = metrics.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
-            return v
+            metrics.coach_metrics[key]?.usableValue
         }
         guard let speed = value("bag_release_speed_m_s"), let angle = value("bag_release_angle_deg"),
               let height = value("bag_release_height_m") else { return nil }

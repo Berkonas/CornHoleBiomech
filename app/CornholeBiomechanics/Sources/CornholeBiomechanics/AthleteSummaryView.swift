@@ -439,6 +439,12 @@ struct AthleteSummaryContent: View {
                                  distanceToBoard: measured ?? LaunchLabContent.defaultParameters.distanceToBoard), measured != nil)
     }
 
+    /// "; 2 out-of-date throws are not plotted" when some analyses need re-analysis, else "".
+    static func staleNote(_ rows: [SummaryThrowRow]) -> String {
+        let stale = rows.filter(\.isStale).count
+        return stale == 0 ? "" : "; \(stale) out-of-date \(stale == 1 ? "throw is" : "throws are") not plotted"
+    }
+
     @ViewBuilder private var releaseMapCard: some View {
         let releases = rows.compactMap(\.release)
         if let typical = Self.typicalRelease(releases) {
@@ -449,7 +455,7 @@ struct AthleteSummaryContent: View {
             Card("Release map", symbol: "square.grid.3x3.fill",
                  subtitle: "Where a drag-free bag would first land for each speed and angle, at this athlete's typical release height (\(number(p.releaseHeight, digits: 2)) m) and \(distance).") {
                 SuccessMap(params: .constant(p), throws: releases, interactive: false)
-                Text("Crosshair: this athlete's typical release (median \(number(p.speed, digits: 1)) m/s at \(number(p.angleDegrees, digits: 0))°). \(releases.count) of \(analysed) analyzed throws had speed, angle and height measured reliably.")
+                Text("Crosshair: this athlete's typical release (median \(number(p.speed, digits: 1)) m/s at \(number(p.angleDegrees, digits: 0))°). \(releases.count) of \(analysed) analyzed throws had speed, angle and height measured reliably\(Self.staleNote(rows)).")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         } else {

@@ -29,7 +29,8 @@ final class AnalysisService: ObservableObject {
     @Published var errorMessage: String?
     private var activeProcess: Process?
     private var cancelled = false
-    private(set) var activeTrialID: UUID?
+    /// The throw being analysed (published so a report can reload when its own run starts or ends).
+    @Published private(set) var activeTrialID: UUID?
 
     /// `selectWhenDone`: show the throw's report afterwards if the user is still looking at this throw or its athlete.
     func analyze(trial: Trial, store: ProjectStore, backend: String? = nil, selectWhenDone: Bool = true) async {

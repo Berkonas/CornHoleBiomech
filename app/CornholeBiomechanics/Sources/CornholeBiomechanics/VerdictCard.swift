@@ -8,6 +8,10 @@ struct VerdictCard: View {
     /// Frame to show for a metric key, when the metric has one.
     var frameFor: (String) -> Int? = { _ in nil }
     var seek: (Int) -> Void = { _ in }
+    /// Rebuilds the summary from the saved results (no re-analysis); nil when the throw has no measurements
+    /// to summarise, so only a re-analysis can help.
+    var refresh: (() -> Void)? = nil
+    var canRefresh = true
     @State private var showsMore = false
 
     var body: some View {
@@ -36,13 +40,21 @@ struct VerdictCard: View {
                     }
                 }
             } else {
-                Label {
-                    VStack(alignment: .leading, spacing: Space.xs) {
-                        Text("No verdict yet").font(.headline)
-                        Text("Re-analyze this throw with the current version to get a plain-English summary.")
-                            .font(.callout).foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: Space.m) {
+                    Label {
+                        VStack(alignment: .leading, spacing: Space.xs) {
+                            Text("No verdict yet").font(.headline)
+                            Text(Self.missingText(canRefresh: refresh != nil))
+                                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    } icon: { Image(systemName: "text.bubble").foregroundStyle(.secondary) }
+                    if let refresh {
+                        Spacer(minLength: Space.m)
+                        Button("Refresh Summary", systemImage: "arrow.clockwise", action: refresh)
+                            .disabled(!canRefresh)
+                            .help("Rebuild this throw's summary from its saved measurements (the video is not analyzed again)")
                     }
-                } icon: { Image(systemName: "text.bubble").foregroundStyle(.secondary) }
+                }
             }
         }
     }
@@ -90,13 +102,20 @@ struct VerdictCard: View {
         }
     }
 
+    /// Why there is no verdict and what fixes it.
+    static func missingText(canRefresh: Bool) -> String {
+        canRefresh
+            ? "This throw's summary was made before verdicts existed. Refresh it to get a plain-English verdict from the saved measurements; the video is not analyzed again."
+            : "This analysis has no measurements to summarize. Re-analyze the throw to get a plain-English verdict."
+    }
+
     /// Where the board distance in the physics check came from, in plain words.
     static func distanceNote(_ physics: Verdict.Physics) -> String {
         let distance = "\(number(physics.distance_m, digits: 1)) m"
         switch physics.distance_source {
         case "measured": return "Flight checked against the board \(distance) away, measured in this video."
         case "athlete_median": return "Flight checked against the board at \(distance), this athlete's usual measured distance."
-        default: return "Flight checked against the board at \(distance), the assumed regulation distance."
+        default: return "Flight checked against the board at \(distance), the assumed distance set in Settings (not measured in this video)."
         }
     }
 }

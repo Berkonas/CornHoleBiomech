@@ -79,6 +79,15 @@ struct CoachMetricRow: Decodable, Identifiable {
                        event: nil, frame: nil, status: "not_measured", reasons: [], value: nil, exploratory: nil, noise_floor: nil)
     }
 
+    /// Statuses whose value must never be used (same rule as Python `verdict._usable`).
+    static let unusableStatuses: Set<String> = ["unreliable", "unavailable"]
+
+    /// The value when it may be used (not unreliable or unavailable, finite); nil otherwise.
+    var usableValue: Double? {
+        guard !Self.unusableStatuses.contains(status), let value, value.isFinite else { return nil }
+        return value
+    }
+
     var statusText: String {
         switch status {
         case "reliable": "Reliable"

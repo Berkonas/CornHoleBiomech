@@ -65,11 +65,8 @@ struct ThrowReportData {
     var targets: [String: ClosedRange<Double>] = [:]
     var allMetrics: [CoachMetricRow] = []
 
-    /// Usable (not unreliable, finite) value of a coach metric.
-    func value(_ key: String) -> Double? {
-        guard let row = coach?.coach_metrics[key], row.status != "unreliable", let v = row.value, v.isFinite else { return nil }
-        return v
-    }
+    /// Usable (not unreliable or unavailable, finite) value of a coach metric.
+    func value(_ key: String) -> Double? { coach?.coach_metrics[key]?.usableValue }
 
     /// Fill the derived fields (hole windows, chart series, table rows) from the loaded documents.
     mutating func derive() {
@@ -170,7 +167,7 @@ struct LaunchFitSummary: Equatable {
                 guard let document = CoachMetricsDocument.load(source.url) else { continue }
                 var row: [String: Double] = [:]
                 for key in keys {
-                    if let metric = document.coach_metrics[key], metric.status != "unreliable", let v = metric.value, v.isFinite { row[key] = v }
+                    if let v = document.coach_metrics[key]?.usableValue { row[key] = v }
                 }
                 out[source.id] = row
             }
@@ -186,6 +183,8 @@ struct ThrowReportActions {
     var canEdit = true
     var setScore: (ScoreCategory?) -> Void = { _ in }
     var reanalyze: () -> Void = {}
+    /// Rebuild insights.json (verdict, consistency) from the saved results; no pose re-run.
+    var refreshSummary: () -> Void = {}
     var fixTracking: () -> Void = {}
     var trim: () -> Void = {}
     var locateVideo: () -> Void = {}
@@ -211,10 +210,10 @@ struct ThrowReportView: View {
     @State private var seekRequest: Int?
     @State private var sheet: ReportSheet?
     @State private var confirmsDelete = false
-    /// An analysis of this throw is running (started here or elsewhere): refresh when it ends.
-    @State private var watchingRun = false
     /// Insights could not be refreshed because the worker was busy: refresh when it is free.
     @State private var pendingRefresh = false
+    /// insights.json predates the verdict and was rebuilt once in this view (never loops).
+    @State private var triedVerdictRefresh = false
     @State private var loadedOnce = false
 
     private enum ReportSheet: String, Identifiable { case fixTracking, trim, edit; var id: String { rawValue } }
@@ -227,14 +226,16 @@ struct ThrowReportView: View {
                            currentFrame: $replayFrame, seekRequest: $seekRequest, actions: actions)
             .navigationTitle(trial.displayName)
             .toolbar { toolbar }
-            .task(id: trial.id) { await refresh() }
-            .task(id: trial.athleteID) { await loadHistory() }
+            // Keyed on this throw's analysis state, not on isRunning transitions: a batch ends one run and
+            // starts the next in the same main-actor turn, so onChange(isRunning) never sees `false`.
+            .task(id: reloadKey) { await refresh(); await loadHistory() }
             .onChange(of: analysis.isRunning) { _, running in
-                if running {
-                    if analysis.activeTrialID == trial.id { watchingRun = true }
-                } else if watchingRun || pendingRefresh {
-                    watchingRun = false; pendingRefresh = false
-                    Task { await refresh(); await loadHistory() }
+                guard !running else { return }
+                let refreshNow = pendingRefresh
+                pendingRefresh = false
+                Task {
+                    if refreshNow { await refresh() }
+                    await loadHistory()
                 }
             }
             .sheet(item: $sheet, onDismiss: {
@@ -254,6 +255,16 @@ struct ThrowReportView: View {
     }
 
     private var busy: Bool { analysis.isRunning }
+
+    /// Changes when this throw is (re)analysed, starts or stops being the throw the worker is analysing,
+    /// or moves to another athlete.
+    private var reloadKey: String {
+        Self.reloadKey(trial: trial, analysingThis: analysis.activeTrialID == trial.id)
+    }
+
+    static func reloadKey(trial: Trial, analysingThis: Bool) -> String {
+        "\(trial.id)|\(trial.athleteID)|\(trial.analysisRelativePath ?? "")|\(trial.analysisStatus)|\(analysingThis)"
+    }
 
     /// Progress when the worker is analysing this throw (not while it only refreshes insights).
     private var progress: ReportProgress? {
@@ -294,6 +305,7 @@ struct ThrowReportView: View {
                 do { try store.setScore(score, for: trial) } catch { store.errorMessage = error.localizedDescription }
             },
             reanalyze: reanalyze,
+            refreshSummary: { if !analysis.isRunning { Task { await refresh(force: true) } } },
             fixTracking: { if !analysis.isRunning { sheet = .fixTracking } },
             trim: { if !analysis.isRunning { sheet = .trim } },
             locateVideo: { store.locateAndRelinkVideo(for: trial) },
@@ -333,12 +345,22 @@ struct ThrowReportView: View {
     }
 
     /// Show the saved results at once; re-run the insights step (moved from the old Results page) only when
-    /// insights.json is missing or older than its inputs, then reload.
-    private func refresh() async {
+    /// insights.json is missing, older than its inputs or written before verdicts existed (or when `force`),
+    /// then reload.
+    private func refresh(force: Bool = false) async {
         guard trial.analysisRelativePath != nil else { report = ThrowReportData(); return }
         loadFiles()
-        guard insightsNeedRefresh() else { return }
-        guard !analysis.isRunning else { pendingRefresh = true; return }
+        var needed = force || insightsNeedRefresh()
+        if !needed, !triedVerdictRefresh, Self.lacksVerdict(report) {
+            triedVerdictRefresh = true
+            needed = true
+        }
+        guard needed else { return }
+        guard !analysis.isRunning else {
+            // A run of this throw reloads through `reloadKey` when it ends; anything else waits for the worker.
+            if analysis.activeTrialID != trial.id { pendingRefresh = true }
+            return
+        }
         refreshing = true; failure = nil
         defer { refreshing = false }
         do {
@@ -346,6 +368,13 @@ struct ThrowReportView: View {
             guard store.selectedTrialID == trial.id else { return }
             loadFiles()
         } catch { failure = error.localizedDescription }
+    }
+
+    /// insights.json from before the verdict existed, for a current analysis that has coach metrics:
+    /// rebuilding insights (seconds) adds the verdict without re-running pose tracking.
+    static func lacksVerdict(_ data: ThrowReportData) -> Bool {
+        data.insight != nil && data.insight?.verdict == nil && data.staleReason == nil
+            && !(data.coach?.coach_metrics.isEmpty ?? true)
     }
 
     /// Insights depend on this throw's results, the library's outcomes (project.json) and the athlete's other throws.
@@ -452,7 +481,9 @@ struct ThrowReportContent: View {
                     replayCard
                 } else {
                     VerdictCard(verdict: data.insight?.verdict,
-                                frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 })
+                                frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
+                                refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
+                                canRefresh: actions.canEdit && !loading)
                     replayCard
                     keyNumbers
                     ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
@@ -630,7 +661,8 @@ struct ThrowReportContent: View {
         guard let physics = data.insight?.verdict?.physics else {
             return "Grey dots: this athlete's other throws. — means not measured or not reliable enough to show."
         }
-        let board = physics.distance_source == "assumed" ? "the assumed regulation distance" : "\(number(physics.distance_m, digits: 1)) m to the board"
+        let board = physics.distance_source == "assumed"
+            ? "the \(number(physics.distance_m, digits: 1)) m distance assumed in Settings" : "\(number(physics.distance_m, digits: 1)) m to the board"
         return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board). Grey dots: this athlete's other throws."
     }
 
@@ -676,7 +708,7 @@ struct ThrowReportContent: View {
                 Table(rows) {
                     TableColumn("Metric") { row in Text(row.label).help(row.label) }.width(min: 150, ideal: 180)
                     TableColumn("Value") { row in
-                        Text(row.status == "unreliable" ? "—" : formatValue(row.value, unit: row.unit)).monospacedDigit()
+                        Text(formatValue(row.usableValue, unit: row.unit)).monospacedDigit()
                     }.width(min: 80, ideal: 100)
                     TableColumn("Uncertainty") { row in
                         Text(uncertainty(row).map { "± \(number($0.value, digits: $0.value >= 10 ? 0 : $0.value < 1 ? 2 : 1)) (\($0.kind == .standardError ? "SE" : "noise"))" } ?? "—")

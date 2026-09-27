@@ -258,8 +258,8 @@ struct MetricTile: View {
     /// Only caution / unreliable measurements carry a glyph and a reason; reliable ones stay quiet.
     private var isFlagged: Bool { row.status == "caution" || row.status == "unreliable" }
 
-    /// The value shown: withheld when the measurement failed its reliability rules.
-    private var value: Double? { row.status == "unreliable" ? nil : row.value.flatMap { $0.isFinite ? $0 : nil } }
+    /// The value shown: withheld when the measurement failed its reliability rules or is unavailable.
+    private var value: Double? { row.usableValue }
 
     private var digits: Int {
         guard let value else { return 1 }

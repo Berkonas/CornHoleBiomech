@@ -70,9 +70,10 @@ struct SummaryThrowRow: Identifiable, Equatable, Sendable {
         return ["GOOD": 0, "WARNING": 1, "POOR": 2][worstGrade ?? ""] ?? -1
     }
 
-    /// Release in metres for the success map, when speed, angle and height were all measured.
+    /// Release in metres for the success map, when speed, angle and height were all measured and the
+    /// analysis is current (an out-of-date throw's numbers are not plotted).
     var release: MeasuredRelease? {
-        guard let speed, let angle, let height else { return nil }
+        guard !isStale, let speed, let angle, let height else { return nil }
         return MeasuredRelease(id: id, label: label, speed: speed, angle: angle, height: height, score: score, distance: distance)
     }
 }
@@ -98,7 +99,7 @@ extension SummaryThrowRow {
         if let metrics = CoachMetricsDocument.load(results)?.coach_metrics {
             for column in ThrowComparisonTable.columns {
                 guard let metric = metrics[column.key] else { continue }
-                if metric.status != "unreliable", let value = metric.value, value.isFinite {
+                if let value = metric.usableValue {
                     row.values[column.key] = value
                 } else {
                     row.withheld[column.key] = metric.reasons.first ?? metric.statusText
@@ -158,7 +159,10 @@ struct ThrowComparisonTable: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Throw", value: \.number) { row in Text(row.label).lineLimit(1).help(row.label) }
+                TableColumn("Throw", value: \.number) { row in
+                    Text(row.label).lineLimit(1).foregroundStyle(row.isStale ? .secondary : .primary)
+                        .help(row.isStale ? "\(row.label): out of date, left out of the Median · SD and the release map" : row.label)
+                }
                     .width(min: 80, ideal: 90)
                 TableColumn("Result", value: \.resultPoints) { row in ResultBadge(score: row.score) }
                     .width(min: 60, ideal: 70)
@@ -179,7 +183,7 @@ struct ThrowComparisonTable: View {
             // Header plus every row (about 25 pt each with the result badge), up to 16 rows before scrolling.
             .frame(height: min(CGFloat(rows.count) * 25 + 36, 436))
             footer
-            Text("Double-click a throw to open its report. — = not measured or not reliable enough to show (hover for the reason). Angles are in the camera's view.")
+            Text("Double-click a throw to open its report. — = not measured or not reliable enough to show (hover for the reason). Greyed throws are out of date and left out of Median · SD. Angles are in the camera's view.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -188,6 +192,7 @@ struct ThrowComparisonTable: View {
         TableColumn(column.unit.isEmpty ? column.title : "\(column.title) (\(column.unit))", value: column.sortValue) { row in
             if let value = row[keyPath: column.value] {
                 Text(number(value, digits: column.digits)).monospacedDigit()
+                    .foregroundStyle(row.isStale ? .secondary : .primary)
             } else {
                 Text("—").foregroundStyle(.secondary)
                     .help(row.withheld[column.key] ?? "Not measured")
@@ -213,10 +218,16 @@ struct ThrowComparisonTable: View {
         ForEach(Self.columns, id: \.key) { column in
             HStack(spacing: Space.xs) {
                 Text(column.title).foregroundStyle(.secondary)
-                Text(Self.footerText(rows.compactMap { $0[keyPath: column.value] }, column: column))
+                Text(Self.footerText(Self.footerValues(rows, column: column), column: column))
             }
             .fixedSize()
         }
+    }
+
+    /// One column's values for the footer: out-of-date throws stay in the table (greyed) but are left out of
+    /// the statistics until they are re-analyzed.
+    static func footerValues(_ rows: [SummaryThrowRow], column: Column) -> [Double] {
+        rows.filter { !$0.isStale }.compactMap { $0[keyPath: column.value] }
     }
 
     /// "7.8 · 0.58 m/s (n 9)"; below `minimumThrowsToJudge` values the SD is withheld:

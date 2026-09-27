@@ -117,3 +117,88 @@ final class NoPoseBagEditingTests: XCTestCase {
         XCTAssertFalse(FlightReviewEditor.isValidContact("80", frameCount: nil))
     }
 }
+
+/// Final-review fixes: report reload key, old insights without a verdict, the shared usable-value rule,
+/// and out-of-date throws in the athlete summary.
+final class FinalReviewFixTests: XCTestCase {
+    private func metricsDocument(_ rows: [String: (Double, String)]) throws -> CoachMetricsDocument {
+        let metrics = rows.mapValues { ["label": "x", "unit": "", "group": "Release", "definition": "", "status": $0.1,
+                                        "reasons": [String](), "value": $0.0] as [String: Any] }
+        let data = try JSONSerialization.data(withJSONObject: ["coach_metrics": metrics])
+        return try JSONDecoder().decode(CoachMetricsDocument.self, from: data)
+    }
+
+    func testReloadKeyChangesWhenThisThrowsAnalysisStartsOrFinishes() {
+        var trial = Trial(athleteID: UUID(), sourceVideoRelativePath: "videos/a.mov", originalFilename: "a.mov",
+                          cameraView: .side, throwingSide: .right, targetDirection: .leftToRight)
+        let idle = ThrowReportView.reloadKey(trial: trial, analysingThis: false)
+        let running = ThrowReportView.reloadKey(trial: trial, analysingThis: true)
+        XCTAssertNotEqual(idle, running, "the run of this throw starting must reload the page")
+        trial.analysisRelativePath = "analysis/a"
+        trial.analysisStatus = "Analyzed"
+        let done = ThrowReportView.reloadKey(trial: trial, analysingThis: false)
+        XCTAssertNotEqual(done, running, "the run finishing must reload the page even inside a batch")
+        XCTAssertNotEqual(done, idle, "a never-analysed throw that is now analysed must reload")
+    }
+
+    func testInsightsWithoutVerdictAreRefreshedNotReanalysed() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "insights", withExtension: "json", subdirectory: "Fixtures"))
+        var data = ThrowReportData()
+        data.insight = try JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: url))
+        XCTAssertNil(data.insight?.verdict, "fixture is a pre-verdict insights.json")
+        XCTAssertFalse(ThrowReportView.lacksVerdict(data), "no coach metrics: a refresh cannot add a verdict")
+        data.coach = try metricsDocument(["bag_release_speed_m_s": (7.8, "reliable")])
+        XCTAssertTrue(ThrowReportView.lacksVerdict(data))
+        data.staleReason = "corrections_changed"
+        XCTAssertFalse(ThrowReportView.lacksVerdict(data), "an out-of-date analysis needs re-analysis, not a refresh")
+        XCTAssertTrue(VerdictCard.missingText(canRefresh: true).contains("Refresh"))
+        XCTAssertFalse(VerdictCard.missingText(canRefresh: true).contains("Re-analyze"))
+        XCTAssertTrue(VerdictCard.missingText(canRefresh: false).contains("Re-analyze"))
+    }
+
+    func testUnavailableValuesAreNotUsedLikePython() throws {
+        let document = try metricsDocument(["bag_release_speed_m_s": (7.8, "unavailable"), "bag_release_angle_deg": (40, "caution"),
+                                            "bag_release_height_m": (0.9, "unreliable")])
+        XCTAssertNil(document.coach_metrics["bag_release_speed_m_s"]?.usableValue)
+        XCTAssertEqual(document.coach_metrics["bag_release_angle_deg"]?.usableValue, 40)
+        XCTAssertNil(document.coach_metrics["bag_release_height_m"]?.usableValue)
+        var data = ThrowReportData()
+        data.coach = document
+        XCTAssertNil(data.value("bag_release_speed_m_s"))
+    }
+
+    func testStaleThrowsAreLeftOutOfFooterStatsAndReleaseMap() throws {
+        func row(_ n: Int, _ speed: Double, stale: Bool) -> SummaryThrowRow {
+            var r = SummaryThrowRow(id: UUID(), number: n, label: "Throw \(n)", score: nil,
+                                    values: [SummaryThrowRow.speedKey: speed, SummaryThrowRow.angleKey: 40, SummaryThrowRow.heightKey: 0.9])
+            r.isStale = stale
+            return r
+        }
+        let rows = [row(1, 7, stale: false), row(2, 8, stale: false), row(3, 20, stale: true)]
+        XCTAssertEqual(ThrowComparisonTable.footerValues(rows, column: ThrowComparisonTable.columns[0]), [7, 8])
+        XCTAssertEqual(rows.compactMap(\.release).count, 2)
+        XCTAssertEqual(AthleteSummaryContent.staleNote(rows), "; 1 out-of-date throw is not plotted")
+        XCTAssertEqual(AthleteSummaryContent.staleNote(Array(rows.prefix(2))), "")
+    }
+
+    func testSummaryRowAndMeasuredReleaseSkipUnavailableAndStale() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func metric(_ value: Double, _ status: String) -> [String: Any] {
+            ["label": "x", "unit": "", "group": "Release", "definition": "", "status": status, "reasons": [String](), "value": value]
+        }
+        let results: [String: Any] = ["coach_metrics": [
+            "bag_release_speed_m_s": metric(7.8, "reliable"), "bag_release_angle_deg": metric(41, "reliable"),
+            "bag_release_height_m": metric(0.9, "reliable"), "elbow_angle_deg_at_release": metric(150, "unavailable")]]
+        let resultsURL = folder.appendingPathComponent("results.json")
+        try JSONSerialization.data(withJSONObject: results).write(to: resultsURL)
+        let row = SummaryThrowRow.read(.init(id: UUID(), number: 1, label: "Throw 1", score: nil, analysisURL: folder))
+        XCTAssertNil(row.elbow)
+        XCTAssertNotNil(row.withheld["elbow_angle_deg_at_release"])
+        let source = MeasuredRelease.Source(id: UUID(), label: "Throw 1", score: nil, results: resultsURL)
+        XCTAssertNotNil(MeasuredRelease.read(source))
+        try Data("{\"reason\":\"corrections_changed\"}".utf8).write(to: folder.appendingPathComponent("needs_reanalysis.json"))
+        XCTAssertNil(MeasuredRelease.read(source), "an out-of-date throw is not a mark on the map")
+    }
+}
