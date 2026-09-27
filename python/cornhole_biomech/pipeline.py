@@ -52,7 +52,7 @@ from .models import BoardPoint, CorrectionSet, EventValue, PoseSequence, TrialCo
 from .normalization import normalized_event_timing, resample_curve
 from .outcomes import outcome_summary
 from .pose import analyze_pose, _version
-from .sports2d_adapter import Sports2DAdapter
+from .sports2d_adapter import BYSTANDERS_FILENAME, THROWER_SELECTION_METHOD, Sports2DAdapter
 from .quality import UNCHECKED_RELEASE_ONSET, quality_summary
 from .serialization import canonical_hash, json_ready, write_json
 from .statistics import grouped_summary, relationship
@@ -300,8 +300,18 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
     return pooled
 
 
+def _bystander_boxes(output: Path, sequence: PoseSequence, video) -> dict[int, list[list[float]]] | None:
+    """Pose-tracked bystander boxes written by the Sports2D adapter for this video, if any."""
+    if sequence.backend != "sports2d":
+        return None
+    saved = _load_json(output / "sports2d" / BYSTANDERS_FILENAME, None)
+    if not saved or saved.get("video_sha256") != video.sha256:
+        return None
+    return {int(f): boxes for f, boxes in saved.get("boxes_xyxy_px", {}).items()}
+
+
 def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], context: TrialContext,
-                      output: Path) -> dict[str, Any]:
+                      output: Path, bystanders: dict[int, list[list[float]]] | None = None) -> dict[str, Any]:
     """Run automatic flight detection with the body scale and wrist from this clip's pose.
 
     The cached `auto_flight.json` is reused while its revision, video, clicked board corners
@@ -309,6 +319,10 @@ def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], c
     scene-vision helper was missing is stale once the helper is found, so a later-installed helper
     is used; `scene_helper_present` records whether the helper existed when the cache was written
     (so a mask failure with the helper present is not retried on every reanalysis).
+    `pose_inputs` hashes the wrist track, arm length and bystander boxes the search used, so a
+    changed pose (e.g. the thrower picked instead of a bystander) recomputes the flight.
+    A result refused for memory (`memory_limited`) is never reused, so a trimmed clip or a
+    larger machine gets a real search.
     """
     from .auto_bag import auto_track_bag
     from .geometry import robust_segment_length
@@ -318,20 +332,25 @@ def _automatic_flight(video, filtered: np.ndarray, landmarks: tuple[str, ...], c
     scene = (cached or {}).get("scene")
     masks_retry = (isinstance(scene, dict) and scene.get("masks_status") != "measured"
                    and not cached.get("scene_helper_present") and find_binary() is not None)
-    if (cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256
-            and cached.get("board_corners") == corners and not masks_retry):
-        return cached
     lookup = {name: index for index, name in enumerate(landmarks)}
     side = context.throwing_side
     shoulder, elbow, wrist = (filtered[:, lookup[f"{side}_{j}"], :] for j in ("shoulder", "elbow", "wrist"))
     arm = robust_segment_length(shoulder, elbow) + robust_segment_length(elbow, wrist)
+    pose_inputs = canonical_hash({"wrist": np.round(wrist, 1), "arm": round(float(arm), 1) if np.isfinite(arm) else None,
+                                  "bystanders": bystanders})
+    if (cached and cached.get("revision") == AUTO_BAG_REVISION and cached.get("video_sha256") == video.sha256
+            and cached.get("board_corners") == corners and cached.get("pose_inputs") == pose_inputs
+            and not masks_retry and not cached.get("memory_limited")):
+        return cached
     helper_present = find_binary() is not None
     result = auto_track_bag(video.path, wrist, arm if np.isfinite(arm) else None, context.target_direction,
                             cache_dir=output, board_corners_px=None if corners is None else corners["corners_px"],
-                            board_corners_frame=None if corners is None else corners.get("reference_frame"))
+                            board_corners_frame=None if corners is None else corners.get("reference_frame"),
+                            bystander_boxes=bystanders)
     result["scene_helper_present"] = helper_present
     result["video_sha256"] = video.sha256
     result["board_corners"] = corners
+    result["pose_inputs"] = pose_inputs
     write_json(output / "auto_flight.json", result)
     return result
 
@@ -695,6 +714,7 @@ def analyze_trial(
         "device": device,
         "backend_version": _version("sports2d" if backend == "sports2d" else "rtmlib" if backend == "rtmpose" else "mediapipe"),
         "model_configuration": config.get("sports2d") if backend == "sports2d" else None,
+        "person_selection": THROWER_SELECTION_METHOD if backend == "sports2d" and not pose_input else None,
     })
     cache = _load_json(cache_path, {})
     if pose_path.exists() and cache.get("pose_key") == pose_key and not force_pose:
@@ -827,7 +847,8 @@ def analyze_trial(
         previous_points = ((_load_json(output / "auto_flight.json", None) or {}).get("points")
                            if reuse_automatic else None)
         progress("tracking_bag", 0.50, "Finding the bag's flight automatically")
-        auto_flight = _automatic_flight(video, filtered, landmarks, context, output)
+        auto_flight = _automatic_flight(video, filtered, landmarks, context, output,
+                                        _bystander_boxes(output, sequence, video))
         if auto_flight.get("status") == "accepted":
             if not reuse_automatic or json_ready(auto_flight.get("points")) != json_ready(previous_points):
                 bag_track_replaced = reuse_automatic and not automatic_review and bag_raw_path.exists()

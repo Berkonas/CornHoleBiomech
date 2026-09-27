@@ -190,3 +190,17 @@ def tag_people(candidates: list[Candidate], masks: dict[int, np.ndarray]) -> lis
         inside = abs(nearest - c.frame) <= 2 and 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and m[y, x] > 0
         out.append(replace(c, in_person=bool(inside)))
     return out
+
+
+def tag_bystanders(candidates: list[Candidate], boxes: dict[int, list[list[float]]] | None) -> list[Candidate]:
+    """Mark candidates inside a pose-tracked bystander's box (same frame) as in a person.
+
+    Complements the Vision masks, which miss small background people: like a masked
+    candidate, a tagged one cannot seed a flight but can still extend one (the bag
+    may fly in front of a bystander).
+    """
+    if not boxes:
+        return list(candidates)
+    return [replace(c, in_person=True) if any(x0 <= c.x <= x1 and y0 <= c.y <= y1
+                                              for x0, y0, x1, y1 in boxes.get(c.frame, ()))
+            else c for c in candidates]

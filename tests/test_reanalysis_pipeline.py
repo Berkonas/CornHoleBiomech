@@ -44,7 +44,8 @@ def _board_and_flight(true_hfov: float = 62.0):
 def _stub_auto_track_bag(calls, scene=None):
     corners_true, points = _board_and_flight()
 
-    def fake(video_path, wrist, arm, direction, cache_dir=None, board_corners_px=None, board_corners_frame=None):
+    def fake(video_path, wrist, arm, direction, cache_dir=None, board_corners_px=None, board_corners_frame=None,
+             bystander_boxes=None):
         calls.append({"board_corners_px": board_corners_px, "board_corners_frame": board_corners_frame})
         if board_corners_px is not None:
             board = {"status": "found", "corners_px": board_corners_px, "confidence": 1.0, "hole_offset_in": None,
@@ -269,3 +270,55 @@ def test_board_scale_not_promoted_when_phi_not_measured(tmp_path, monkeypatch, n
     assert (manifest["spatial_calibration"] or {}).get("plane") != "board_throw_plane"
     assert any("board scale is not used for release speed" in w and "out of the image plane" in w
                for w in held["warnings"])
+
+
+def test_automatic_flight_cache_is_recomputed_when_the_pose_changes(tmp_path, monkeypatch):
+    # A pose that followed a bystander must not keep feeding its bag flight to the fixed pose.
+    import types
+    import cornhole_biomech.auto_bag as auto_bag
+    import cornhole_biomech.scene as scene
+    from cornhole_biomech.auto_bag import AUTO_BAG_REVISION
+    from cornhole_biomech.pipeline import _automatic_flight
+    calls, seen_boxes = [], []
+    def fake_track(path, wrist, arm, direction, **kwargs):
+        calls.append(float(wrist[0, 0]))
+        seen_boxes.append(kwargs.get("bystander_boxes"))
+        return {"revision": AUTO_BAG_REVISION, "status": "accepted", "scene": {"masks_status": "measured"}}
+    monkeypatch.setattr(auto_bag, "auto_track_bag", fake_track)
+    monkeypatch.setattr(scene, "find_binary", lambda: None)
+    landmarks = ("right_shoulder", "right_elbow", "right_wrist")
+    video = types.SimpleNamespace(path="clip.mov", sha256="v")
+    context = types.SimpleNamespace(throwing_side="right", target_direction="left_to_right")
+    def pose(x):
+        filtered = np.zeros((20, 3, 2)); filtered[:, 0] = [x, 0]; filtered[:, 1] = [x, 30]; filtered[:, 2] = [x, 60]
+        return filtered
+    _automatic_flight(video, pose(3300.0), landmarks, context, tmp_path)
+    _automatic_flight(video, pose(3300.0), landmarks, context, tmp_path)
+    assert calls == [3300.0]                     # same pose: cached flight reused
+    _automatic_flight(video, pose(300.0), landmarks, context, tmp_path)
+    assert calls == [3300.0, 300.0]              # the thrower's pose: recomputed
+    boxes = {3: [[2700.0, 1000.0, 2900.0, 1500.0]]}
+    _automatic_flight(video, pose(300.0), landmarks, context, tmp_path, bystanders=boxes)
+    assert calls == [3300.0, 300.0, 300.0]       # newly known bystanders: recomputed
+    assert seen_boxes[-1] == boxes
+
+
+def test_memory_limited_flight_is_not_reused(tmp_path, monkeypatch):
+    import types
+    import cornhole_biomech.auto_bag as auto_bag
+    import cornhole_biomech.scene as scene
+    from cornhole_biomech.auto_bag import AUTO_BAG_REVISION
+    from cornhole_biomech.pipeline import _automatic_flight
+    calls = []
+    def fake_track(path, wrist, arm, direction, **kwargs):
+        calls.append(1)
+        return {"revision": AUTO_BAG_REVISION, "status": "not_found", "reasons": ["too large"], "memory_limited": True}
+    monkeypatch.setattr(auto_bag, "auto_track_bag", fake_track)
+    monkeypatch.setattr(scene, "find_binary", lambda: None)
+    landmarks = ("right_shoulder", "right_elbow", "right_wrist")
+    video = types.SimpleNamespace(path="clip.mov", sha256="v")
+    context = types.SimpleNamespace(throwing_side="right", target_direction="left_to_right")
+    filtered = np.zeros((20, 3, 2)); filtered[:, 1, 1] = 30; filtered[:, 2, 1] = 60
+    _automatic_flight(video, filtered, landmarks, context, tmp_path)
+    _automatic_flight(video, filtered, landmarks, context, tmp_path)
+    assert len(calls) == 2

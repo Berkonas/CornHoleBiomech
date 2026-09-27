@@ -25,6 +25,7 @@ and trajectory-rectification stages, without a trained network):
 """
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -218,6 +219,31 @@ def _merge_fragments(blobs: list[tuple[float, float, int]], merge_px: float) -> 
         area = sum(b[2] for b in group)
         merged.append((sum(b[0] * b[2] for b in group) / area, sum(b[1] * b[2] for b in group) / area, area))
     return merged
+
+
+FRAME_MEMORY_FRACTION = 0.45   # decoded clip may use at most this share of physical RAM
+
+
+def frame_memory_check(video_path: str, fraction: float = FRAME_MEMORY_FRACTION) -> str | None:
+    """Reason to skip automatic tracking when the decoded clip would not fit in memory, else None.
+
+    The search holds every decoded BGR frame (w x h x 3 bytes each): a 280-frame 4K clip is
+    7.0 GB, and the whole analysis peaked at 12.4 GB on a 16 GB Mac. Refusing up front keeps
+    a long 4K clip from freezing the computer; trimming or 1080p recording brings it in budget.
+    """
+    capture = cv2.VideoCapture(str(video_path))
+    width, height, count = (capture.get(p) for p in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT,
+                                                        cv2.CAP_PROP_FRAME_COUNT))
+    capture.release()
+    try:
+        ram = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        return None
+    need = width * height * 3 * count
+    if ram <= 0 or need <= fraction * ram:
+        return None
+    return (f"The clip is too large to search automatically on this computer ({need / 1e9:.1f} GB of decoded "
+            f"frames; limit {fraction * ram / 1e9:.1f} GB). Trim it to the throw in Prepare Video, or record at 1080p.")
 
 
 def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
@@ -914,7 +940,8 @@ def _mark_predicted_basis(suggested: dict[str, Any] | None, from_predicted: bool
 def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
                    target_direction: str, preferred_release: int | None = None,
                    cache_dir: Path | None = None, board_corners_px: list | None = None,
-                   board_corners_frame: int | None = None) -> dict[str, Any]:
+                   board_corners_frame: int | None = None,
+                   bystander_boxes: dict[int, list[list[float]]] | None = None) -> dict[str, Any]:
     """Detect every flight in a clip and pick the one for this trial.
 
     `points` are raw video pixels, the same system as the pose landmarks, manual
@@ -935,15 +962,19 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     in which case the board is still detected and reported).
     """
     started = time.perf_counter()
+    too_large = frame_memory_check(video_path)
+    if too_large:
+        return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": [too_large], "flights": [],
+                "memory_limited": True}
     frames, fps = read_frames(video_path)
     if len(frames) < 5:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": ["The clip is too short."], "flights": []}
     candidates, to_prev = detect_moving_blobs_in_frames(frames)
-    from .scene import person_masks, tag_people   # scene imports Candidate from here
+    from .scene import person_masks, tag_bystanders, tag_people   # scene imports Candidate from here
     height, width = frames[0].shape[:2]
     masks_info = (person_masks(video_path, cache_dir, (width, height)) if cache_dir is not None
                   else {"status": "unavailable", "reason": "No cache directory for person masks.", "masks": {}})
-    candidates = tag_people(candidates, masks_info["masks"])
+    candidates = tag_bystanders(tag_people(candidates, masks_info["masks"]), bystander_boxes)
     flights = find_flights(candidates, fps, target_direction, arm_length_px, wrist, to_prev=to_prev)
     summary = [{"status": f["status"], "first_frame": f["fit"]["first_frame"], "last_frame": f["fit"]["last_frame"],
                 "inliers": f["fit"]["inliers"], "reasons": f["reasons"]} for f in flights]
@@ -1058,6 +1089,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
         "board": board_payload, "landing": landing, "suggested_outcome": suggested,
         "scene": {"masks_status": masks_info["status"], "masks_reason": masks_info.get("reason"),
                   "masks_empty_frames": masks_info.get("empty_frames"),
+                  "bystander_box_frames": len(bystander_boxes or {}),
                   "plate_samples": scene_info["plate_samples"]},
         "width": width, "height": height,
         "event_precision_frames": 1,

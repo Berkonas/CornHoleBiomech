@@ -8,7 +8,7 @@ This document collects, in one place, the methods and every equation the system 
 
 | Item | Value | Where defined |
 |---|---|---|
-| Measurement method version | `METHOD_VERSION = "2026.09.24-scene-b"` | `cornhole_biomech/__init__.py` |
+| Measurement method version | `METHOD_VERSION = "2026.09.27-thrower"` | `cornhole_biomech/__init__.py` |
 | Python package | 0.6.1 | `cornhole_biomech/__init__.py` |
 | Pose software | Sports2D 0.8.34 (pinned), RTMPose via RTMLib/ONNX Runtime on CPU, model `body_with_feet` (HALPE-26 incl. heel/toe points), mode `balanced` | `sports2d_adapter.py`, `config.py` |
 | Automatic bag tracker | `auto_motion_parabola_v13_near_contact_surface_point` | `auto_bag.py` |
@@ -68,7 +68,7 @@ Affine rather than similarity was chosen because, with a moving hand-held camera
 
 ### 1.4 Pose estimation and preprocessing
 
-1. **Estimation.** Sports2D 0.8.34 runs RTMPose (HALPE-26 keypoints incl. heels/toes), one person, `highest_likelihood` person ordering, CPU/ONNX Runtime. Sports2D's own likelihood thresholds are set to 0 so that the app — not the upstream tool — decides which points are usable; its metric/3D/IK features are disabled.
+1. **Estimation.** Sports2D 0.8.34 runs RTMPose (HALPE-26 keypoints incl. heels/toes), CPU/ONNX Runtime. **Choosing the thrower.** Sports2D tracks every person it detects; the app keeps the person with the largest $\text{coverage}\times\text{median body diagonal}$ (fraction of frames tracked × median keypoint bounding-box diagonal, px), because the protocol films the thrower as the nearest, steadily visible body. Sports2D's own highest-likelihood choice is not used: motion blur lowers the thrower's keypoint confidence, so a still bystander can out-score them (pilot clip "playe1 - 7": a bystander by the board at half the thrower's height won on confidence). The choice, runner-up ratio and every candidate are recorded in `provenance.json`. Sports2D's own likelihood thresholds are set to 0 so that the app — not the upstream tool — decides which points are usable; its metric/3D/IK features are disabled.
 2. **Processing order** (fixed): raw estimates → manual corrections (never overwrite raw) → confidence masking (landmark confidence $< 0.35$ becomes missing) → short-gap linear interpolation (gaps ≤ 3 frames; longer gaps stay missing) → coordinate filtering → angles/paths → differentiation. Coordinates are filtered *before* angles or derivatives.
 3. **Filter.** 4th-order Butterworth low-pass, **6 Hz** design cutoff, applied forward and backward (`scipy.signal.sosfiltfilt`, second-order sections) on each contiguous finite run. The cutoff is capped at $0.45\,\text{fps}$ (below Nyquist). Runs shorter than $\max(9,\ 3(2n_{\text{sos}}+1)) = 15$ samples are left unfiltered with a warning.
 4. **Cutoff choice by residual analysis.** Winter's residual method (`scripts/residual_analysis.py`, §3.6) on the throwing-side shoulder, elbow and wrist of two real 60 fps clips (12 signals) gave optimal cutoffs with a median of **5.5 Hz (range 3.5–7.5 Hz)**; the wrist was highest (6–7.5 Hz). 6 Hz is therefore supported but may slightly flatten wrist-speed peaks. It is a pilot setting to be re-checked on each new session.
@@ -76,7 +76,7 @@ Affine rather than similarity was chosen because, with a moving hand-held camera
 
 ### 1.5 Person masks and background plate
 
-A Swift helper (`scene_vision`) runs Apple Vision `VNGeneratePersonSegmentationRequest` (quality `.accurate`) on every second frame and caches masks by video hash. The **background plate** is the per-pixel median of stabilised frames with athlete pixels treated as missing. Bag candidates are found by comparing each frame with the plate warped to that frame (plus camera-compensated three-frame differencing); candidates inside a person mask cannot seed a flight (a swinging arm is not the bag). If masks are unavailable the pipeline falls back to unmasked tracking and says so; masks are never required for a result.
+A Swift helper (`scene_vision`) runs Apple Vision `VNGeneratePersonSegmentationRequest` (quality `.accurate`) on every second frame and caches masks by video hash. The **background plate** is the per-pixel median of stabilised frames with athlete pixels treated as missing. Bag candidates are found by comparing each frame with the plate warped to that frame (plus camera-compensated three-frame differencing); candidates inside a person mask cannot seed a flight (a swinging arm is not the bag). Apple Vision's mask covers only the prominent (near) person, so **background people** are also boxed from the pose detector: every tracked person except the thrower gets a per-frame box (keypoint extent padded by 0.15 × body height, held through detector dropouts of ≤ 10 frames), and candidates inside a box are treated like masked ones — they cannot start a flight but can extend one, since the bag may fly in front of a bystander. If masks are unavailable the pipeline falls back to unmasked tracking and says so; masks are never required for a result.
 
 ### 1.6 Bag detection, segmentation and tracking
 

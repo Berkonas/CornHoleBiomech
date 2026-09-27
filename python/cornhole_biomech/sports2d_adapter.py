@@ -25,6 +25,8 @@ from .serialization import write_json
 from .video import VideoMetadata, file_sha256
 
 PINNED_VERSION = "0.8.34"
+BYSTANDERS_FILENAME = "bystanders.json"
+THROWER_SELECTION_METHOD = "largest_steadily_tracked_body_v1"
 NAME_MAP = {f"{side}{joint}": f"{long}_{joint.lower()}"
             for side, long in (("L", "left"), ("R", "right"))
             for joint in ("Shoulder", "Elbow", "Wrist", "Hip", "Knee", "Ankle")}
@@ -54,7 +56,7 @@ def build_config(video: str | Path, output: str | Path, settings: dict[str, Any]
     updates = {
         "base": {"video_input": [str(Path(video).resolve())], "video_dir": "",
                  "result_dir": str(Path(output).resolve()), "nb_persons_to_detect": 1,
-                 "person_ordering_method": engine.get("person_ordering_method", "highest_likelihood"),
+                 "person_ordering_method": engine.get("person_ordering_method", "largest_size"),
                  "visible_side": ["none"], "time_range": [], "load_trc_px": "",
                  "show_realtime_results": False, "save_vid": True, "save_img": False,
                  "save_pose": True, "calculate_angles": True, "save_angles": True},
@@ -156,6 +158,82 @@ def read_mot(path: str | Path) -> dict[str, np.ndarray]:
     return dict(zip(columns, data.T))
 
 
+def choose_thrower(x: np.ndarray, y: np.ndarray, scores: np.ndarray) -> dict[str, Any]:
+    """Pick the thrower among every person Sports2D tracked (frames, persons, keypoints).
+
+    The protocol films the thrower closest to the camera for the whole clip, so the
+    thrower is the largest steadily tracked body: score = fraction of frames
+    tracked x median body diagonal. Sports2D's highest-likelihood rule is not used:
+    motion blur lowers the thrower's keypoint confidence, so a still bystander can
+    out-score them (clip "playe1 - 7": 19.1 vs 18.05 at half the body height).
+    """
+    x, y, scores = (np.asarray(a, float) for a in (x, y, scores))
+    tracked = np.isfinite(x).sum(axis=2) >= max(1, x.shape[2] // 2)
+    candidates = []
+    for person in range(x.shape[1]):
+        rows = tracked[:, person]
+        if not rows.any():
+            continue
+        px, py = x[rows, person], y[rows, person]
+        diagonal = float(np.median(np.hypot(np.nanmax(px, 1) - np.nanmin(px, 1),
+                                            np.nanmax(py, 1) - np.nanmin(py, 1))))
+        coverage = float(rows.mean())
+        candidates.append({"person": person, "coverage": round(coverage, 3),
+                           "body_diagonal_px": round(diagonal, 1),
+                           "mean_confidence": round(float(np.nanmean(scores[rows, person])), 3),
+                           "median_x_px": round(float(np.nanmedian(px)), 1),
+                           "score": coverage * diagonal})
+    candidates.sort(key=lambda c: -c["score"])
+    ratio = candidates[1]["score"] / candidates[0]["score"] if len(candidates) > 1 and candidates[0]["score"] > 0 else 0.0
+    return {"method": THROWER_SELECTION_METHOD,
+            "person": candidates[0]["person"] if candidates else None,
+            "runner_up_ratio": round(ratio, 3), "candidates": candidates}
+
+
+def bystander_boxes(x: np.ndarray, y: np.ndarray, thrower: int, pad: float = 0.15,
+                    hold_frames: int = 10) -> dict[int, list[list[float]]]:
+    """Per-frame [x0, y0, x1, y1] boxes around every tracked person except the thrower.
+
+    Apple Vision's person mask covers the prominent (near) person only, so walkers in
+    the background stay unmasked and their motion can seed a false bag flight. The pose
+    detector does find them; these boxes let the bag search treat them like masked people.
+    Boxes are padded by `pad` x body height (keypoints sit inside the silhouette) and held
+    over detector dropouts of up to `hold_frames` frames. A box lying mostly (> half its area)
+    on the thrower's own keypoint box is dropped for that frame: it is a fragment of the
+    thrower's track (an ID switch) or someone hidden behind them, and must not stop the bag
+    from seeding at the hand.
+    """
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    frames = x.shape[0]
+    tracked = np.isfinite(x).sum(axis=2) >= max(1, x.shape[2] // 2)
+    thrower_box = {f: (np.nanmin(x[f, thrower]), np.nanmin(y[f, thrower]), np.nanmax(x[f, thrower]), np.nanmax(y[f, thrower]))
+                   for f in range(frames) if tracked[f, thrower]}
+
+    def on_thrower(f: int, box: list[float]) -> bool:
+        if f not in thrower_box:
+            return False
+        tx0, ty0, tx1, ty1 = thrower_box[f]
+        overlap = max(0.0, min(box[2], tx1) - max(box[0], tx0)) * max(0.0, min(box[3], ty1) - max(box[1], ty0))
+        return overlap > 0.5 * (box[2] - box[0]) * (box[3] - box[1])
+
+    boxes: dict[int, list[list[float]]] = {}
+    for person in range(x.shape[1]):
+        if person == thrower:
+            continue
+        last, last_frame = None, None
+        for f in range(frames):
+            if tracked[f, person]:
+                x0, x1 = np.nanmin(x[f, person]), np.nanmax(x[f, person])
+                y0, y1 = np.nanmin(y[f, person]), np.nanmax(y[f, person])
+                margin = pad * (y1 - y0)
+                last, last_frame = [round(float(v), 1) for v in (x0 - margin, y0 - margin, x1 + margin, y1 + margin)], f
+            elif last is None or f - last_frame > hold_frames:
+                continue
+            if not on_thrower(f, last):
+                boxes.setdefault(f, []).append(last)
+    return boxes
+
+
 def elbow_included_from_sports2d(flexion: np.ndarray | float) -> np.ndarray:
     """Sports2D's signed flexion -> unsigned included angle (straight = 180°)."""
     return 180.0 - np.abs((np.asarray(flexion, float) + 180.0) % 360.0 - 180.0)
@@ -208,13 +286,16 @@ class Sports2DAdapter:
         selected = snapshot.get("selected_persons")
         if selected is None or not len(selected):
             raise RuntimeError("Sports2D did not find a trackable person. Use a clear recording with the full throwing arm visible.")
-        person = int(selected[0])
+        sports2d_person = int(selected[0])
         names = snapshot.get("new_keypoints_names")
         try:
-            x = np.asarray(snapshot["all_frames_X_homog"], float)[:, person, :]
-            y = np.asarray(snapshot["all_frames_Y_homog"], float)[:, person, :]
-            conf = np.asarray(snapshot["all_frames_scores_homog"], float)[:, person, :]
-        except (IndexError, TypeError, KeyError) as error:
+            everyone = [np.asarray(snapshot[k], float) for k in
+                        ("all_frames_X_homog", "all_frames_Y_homog", "all_frames_scores_homog")]
+            thrower = choose_thrower(*everyone)
+            person = sports2d_person if thrower["person"] is None else thrower["person"]
+            x, y, conf = (a[:, person, :] for a in everyone)
+            others = bystander_boxes(everyone[0], everyone[1], person)
+        except (IndexError, TypeError, KeyError, ValueError) as error:
             raise RuntimeError("Sports2D raw-confidence export contract changed; analysis stopped without substituting confidence.") from error
         frames = []
         for i in range(len(x)):
@@ -256,13 +337,18 @@ class Sports2DAdapter:
                     "rtmlib_version": importlib.metadata.version("rtmlib"),
                     "configuration": cfg, "model_files": model_files, "device": device,
                     "analyzed_at": utc_now(), "selected_person_index": person,
-                    "raw_contract": "Sports2D tracked pre-interpolation pixels/confidence; upstream detection and person rejection still apply",
+                    "sports2d_selected_person_index": sports2d_person,
+                    "person_selection": thrower,
+                    "raw_contract": "Sports2D tracked pre-interpolation pixels/confidence for the person chosen by person_selection; upstream detection still applies",
                     "confidence_threshold": settings["confidence_threshold"],
                     "calibration": "uncalibrated_image_plane; metric scale, C3D and IK disabled",
                     "trc_unit_repairs": unit_repairs,
                     "export_notes": "TRC coordinates are uncalibrated pixels (zero Z), not meters. Original upstream headers are preserved as .trc.original. Use the cornhole annotated.mp4 for frame-complete overlays; the upstream diagnostic video can omit the last frame.",
                     "outputs": [str(p.relative_to(output)) for p in output.rglob('*') if p.is_file()]}
         write_json(output / "provenance.json", metadata)
+        write_json(output / BYSTANDERS_FILENAME, {"method": "pose_tracked_people_except_thrower_v1",
+                                                  "video_sha256": video.sha256, "thrower_person_index": person,
+                                                  "boxes_xyxy_px": {str(f): b for f, b in sorted(others.items())}})
         return PoseSequence(1, video.fps, video.width, video.height, len(frames), "sports2d",
                             f"{cfg['pose']['pose_model']}-{cfg['pose']['mode']}",
                             info["version"], frames, model_files.get("pose_model", {}).get("sha256"), metadata)

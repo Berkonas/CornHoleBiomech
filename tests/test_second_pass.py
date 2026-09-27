@@ -179,11 +179,12 @@ def test_adapter_public_api_raw_confidence_exports_and_failure_cleanup(tmp_path,
     package=types.ModuleType('Sports2D');package.__path__=[]
     api=types.ModuleType('Sports2D.Sports2D');engine=types.ModuleType('Sports2D.process');engine.__file__=__file__
     def process_fun(cfg):
-        all_frames_X_homog=np.ones((3,1,8))*50
-        all_frames_Y_homog=np.ones((3,1,8))*80
-        all_frames_scores_homog=np.ones((3,1,8))*.2
+        # Person 1 is a small, confident bystander Sports2D would pick; person 0 is the thrower.
+        all_frames_X_homog=np.stack((np.ones((3,8))*50,np.ones((3,8))*90),1)
+        all_frames_Y_homog=np.stack((np.tile(np.linspace(20,80,8),(3,1)),np.tile(np.linspace(60,70,8),(3,1))),1)
+        all_frames_scores_homog=np.stack((np.ones((3,8))*.2,np.ones((3,8))*.9),1)
         new_keypoints_names=['LShoulder','RShoulder','LElbow','RElbow','LWrist','RWrist','LHip','RHip']
-        selected_persons=[0];pose_tracker=None
+        selected_persons=[1];pose_tracker=None
         if failure=='engine':raise ValueError('deliberate test failure')
         if failure!='missing_exports':
             d=Path(cfg['base']['result_dir'])
@@ -202,6 +203,8 @@ def test_adapter_public_api_raw_confidence_exports_and_failure_cleanup(tmp_path,
         result=Sports2DAdapter().analyze(video,tmp_path/'out',merged_config(),lambda *a:None)
         assert result.frames[0].landmarks['right_wrist'].confidence==.2
         assert result.frames[0].landmarks['right_wrist'].x==50
+        provenance=json.loads((tmp_path/'out/provenance.json').read_text())
+        assert provenance['selected_person_index']==0 and provenance['sports2d_selected_person_index']==1
         assert result.backend=='sports2d' and result.frame_count==3
         assert (tmp_path/'out/provenance.json').exists()
         assert (tmp_path/'out/configuration.json').exists()
@@ -247,3 +250,75 @@ def test_compatibility_uses_method_version_not_source_hash():
     assert compatible_key(trial,a)==compatible_key(trial,b)
     assert compatible_key(trial,a)!=compatible_key(trial,c)
     assert compatible_key(trial,legacy)!=compatible_key(trial,a)
+
+
+def test_thrower_is_the_largest_steadily_tracked_person_not_the_most_confident():
+    # Clip "playe1 - 7": a still bystander by the board out-scored the blurred
+    # thrower on confidence (19.1 vs 18.05) at half the thrower's body height.
+    from cornhole_biomech.sports2d_adapter import choose_thrower
+    frames,kpts=100,8
+    X=np.full((frames,3,kpts),np.nan);Y=np.full((frames,3,kpts),np.nan);S=np.full((frames,3,kpts),np.nan)
+    X[:,0]=np.linspace(250,350,kpts);Y[:,0]=np.linspace(1150,1840,kpts);S[:,0]=.8    # thrower
+    X[:,1]=np.linspace(3300,3340,kpts);Y[:,1]=np.linspace(1180,1520,kpts);S[:,1]=.9  # bystander
+    X[:10,2]=np.linspace(1000,1400,kpts);Y[:10,2]=np.linspace(600,1900,kpts);S[:10,2]=.9  # brief passer-by
+    choice=choose_thrower(X,Y,S)
+    assert choice['person']==0
+    assert [c['person'] for c in choice['candidates']][:2]==[0,1]
+    assert choice['runner_up_ratio']<.6
+
+
+def test_thrower_choice_needs_a_tracked_person():
+    from cornhole_biomech.sports2d_adapter import choose_thrower
+    empty=np.full((5,2,4),np.nan)
+    assert choose_thrower(empty,empty,empty)['person'] is None
+
+
+def test_bystander_boxes_cover_everyone_but_the_thrower_and_bridge_short_dropouts():
+    from cornhole_biomech.sports2d_adapter import bystander_boxes
+    frames,kpts=30,4
+    X=np.full((frames,2,kpts),np.nan);Y=np.full((frames,2,kpts),np.nan)
+    X[:,0]=[100,120,110,105];Y[:,0]=[500,700,600,800]              # thrower
+    X[:,1]=[2800,2840,2820,2810];Y[:,1]=[1100,1200,1300,1400]      # bystander, 300 px tall
+    X[10:13,1]=np.nan                                             # 3-frame detector dropout
+    X[20:,1]=np.nan                                               # walked out of view
+    boxes=bystander_boxes(X,Y,thrower=0,hold_frames=4)
+    assert all(len(boxes[f])==1 for f in range(20))               # dropout bridged
+    assert all(f not in boxes for f in range(25,30))              # not held forever
+    x0,y0,x1,y1=boxes[0][0]
+    assert x0<2800 and x1>2840 and y0<1100 and y1>1400            # padded around the keypoints
+    assert x1<3000 and y0>1000
+
+
+def test_candidates_inside_a_bystander_box_cannot_seed():
+    from cornhole_biomech.auto_bag import Candidate
+    from cornhole_biomech.scene import tag_bystanders
+    boxes={5:[[2700.0,1000.0,2900.0,1500.0]]}
+    tagged=tag_bystanders([Candidate(5,2800,1200,40),Candidate(5,1500,900,40),Candidate(6,2800,1200,40)],boxes)
+    assert [c.in_person for c in tagged]==[True,False,False]
+
+
+def test_bystander_box_on_the_thrower_is_dropped():
+    # A fragment of the thrower's own track (ID switch) must not mask the hand at release.
+    from cornhole_biomech.sports2d_adapter import bystander_boxes
+    frames,kpts=10,4
+    X=np.full((frames,3,kpts),np.nan);Y=np.full((frames,3,kpts),np.nan)
+    X[:,0]=[100,300,200,150];Y[:,0]=[500,900,700,800]              # thrower
+    X[:,1]=[120,280,200,160];Y[:,1]=[520,880,700,790]              # thrower fragment
+    X[:,2]=[2800,2840,2820,2810];Y[:,2]=[1100,1200,1300,1400]      # real bystander
+    boxes=bystander_boxes(X,Y,thrower=0)
+    assert all(len(boxes[f])==1 and boxes[f][0][0]>2000 for f in range(frames))
+
+
+def test_clip_too_large_for_memory_is_refused_before_decoding(monkeypatch):
+    import cornhole_biomech.auto_bag as auto_bag
+    class FakeCapture:
+        def __init__(self,path):pass
+        def get(self,prop):return {3:3840.0,4:2160.0,7:369.0}[prop]
+        def release(self):pass
+    monkeypatch.setattr(auto_bag.cv2,'VideoCapture',FakeCapture)
+    monkeypatch.setattr(auto_bag.os,'sysconf',lambda name:{'SC_PHYS_PAGES':4*1024**2,'SC_PAGE_SIZE':4096}[name])  # 16 GiB
+    monkeypatch.setattr(auto_bag,'read_frames',lambda path:(_ for _ in ()).throw(AssertionError('decoded anyway')))
+    result=auto_bag.auto_track_bag('clip.mov',None,None,'left_to_right')
+    assert result['status']=='not_found' and result['memory_limited']
+    assert '9.2 GB' in result['reasons'][0] and 'Prepare Video' in result['reasons'][0]
+    assert auto_bag.frame_memory_check('clip.mov',fraction=0.9) is None     # fits a larger budget

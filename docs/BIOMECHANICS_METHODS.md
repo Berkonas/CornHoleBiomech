@@ -325,7 +325,7 @@ athlete pixels treated as missing, in the release frame's coordinate system. Bag
 detection compares each frame against the plate warped to that frame (in addition to the existing
 three-frame differencing), which suppresses static bystanders, static reflections and camera-shake
 "motion" that three-frame differencing alone cannot distinguish from a moving bag. Candidates
-inside a person mask cannot seed a flight (a swinging arm is not the bag).
+inside a person mask cannot seed a flight (a swinging arm is not the bag). Because the Vision mask misses small background people, the Sports2D adapter also writes `sports2d/bystanders.json`: per-frame boxes (keypoint extent + 0.15 × body height, held ≤ 10 frames over dropouts) around every pose-tracked person except the thrower (chosen as the largest steadily tracked body, `choose_thrower`). Candidates inside a box are tagged `in_person` (`scene.tag_bystanders`): they cannot seed but may extend a flight. `auto_flight.json` is recomputed when the wrist track, arm length or bystander boxes change.
 
 ### 18.3 Board detection
 

@@ -8,7 +8,7 @@ from typing import Any
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 1,
-    "sports2d": {"pose_model": "body_with_feet", "mode": "balanced", "person_ordering_method": "highest_likelihood", "export_filter": "butterworth"},
+    "sports2d": {"pose_model": "body_with_feet", "mode": "balanced", "person_ordering_method": "largest_size", "export_filter": "butterworth"},
     "confidence_threshold": 0.35,
     "max_interpolation_gap_frames": 3,
     "filter": {
