@@ -189,6 +189,7 @@ struct AthleteSummaryContent: View {
 
     private var total: Int { throwCount ?? rows.count }
     private var analysed: Int { rows.count }
+    private var results: Int { resultCount ?? rows.filter { $0.score != nil }.count }
 
     var body: some View {
         if total == 0 {
@@ -226,7 +227,6 @@ struct AthleteSummaryContent: View {
     }
 
     private var subtitle: String {
-        let results = resultCount ?? rows.filter { $0.score != nil }.count
         return "\(total) \(total == 1 ? "throw" : "throws") · \(analysed) analysed · \(results) with a result"
     }
 
@@ -264,9 +264,13 @@ struct AthleteSummaryContent: View {
 
     private var scoringCard: some View {
         Card("Scoring", symbol: "target", subtitle: "Where the bags ended up, from the results recorded on each throw.") {
-            if let dashboard {
+            if analysed > 0, results == 0 || dashboard?.throws_with_outcome == 0 {
+                // Results are the missing input whether or not the summary has been built.
+                sectionEmpty("hand.tap", "No results recorded yet. Open each throw and click Hole, Board or Miss — one click per throw.",
+                             action: actions.recordResults.map { ("Record Results", $0) })
+            } else if let dashboard {
                 let sports = dashboard.performance.sports
-                if dashboard.throws_with_outcome == 0 || sports?.bags ?? 0 == 0 {
+                if sports?.bags ?? 0 == 0 {
                     sectionEmpty("hand.tap", "No results recorded yet. Open each throw and click Hole, Board or Miss — one click per throw.",
                                  action: actions.recordResults.map { ("Record Results", $0) })
                 } else {

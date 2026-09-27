@@ -136,7 +136,7 @@ struct ReleaseProfileStrips: View {
             HStack(spacing: Space.l) {
                 legendMark(.throughHole, "Hole"); legendMark(.onBoard, "Board"); legendMark(.offBoard, "Miss"); legendMark(nil, "No result")
                 HStack(spacing: Space.xs) {
-                    RoundedRectangle(cornerRadius: 2).fill(athleteInk.opacity(0.22)).frame(width: 18, height: 8)
+                    RoundedRectangle(cornerRadius: 2).fill(athleteInk.opacity(0.3)).frame(width: 18, height: 8)
                     Text("Middle half of throws, line = median")
                 }
             }
@@ -155,7 +155,7 @@ struct ReleaseProfileStrips: View {
     private func strip(_ row: AthleteDashboard.Profile) -> some View {
         Chart {
             RectangleMark(xStart: .value(row.label, row.q25), xEnd: .value(row.label, row.q75), yStart: .value("", 0.2), yEnd: .value("", 0.8))
-                .foregroundStyle(athleteInk.opacity(0.22))
+                .foregroundStyle(athleteInk.opacity(0.3))
             RuleMark(x: .value(row.label, row.median), yStart: .value("", 0.1), yEnd: .value("", 0.9))
                 .foregroundStyle(athleteInk).lineStyle(StrokeStyle(lineWidth: 2))
             ForEach(row.values) { value in
