@@ -66,9 +66,10 @@ def quality_summary(
         ) & finite_required
         if float(np.mean(np.any(boundary, axis=1))) > 0.10:
             warnings.append("Required landmarks frequently touch the image boundary; the person or throwing arm may be cropped.")
-    if fps < 30:
+    # Nominal rates: phones record "60 fps" as 59.94 (60000/1001) and "30 fps" as 29.97, which must not warn.
+    if fps < 29.5:
         warnings.append("Frame rate is below 30 fps; event timing and peak velocity are not reliable.")
-    elif fps < 60:
+    elif fps < 59.5:
         warnings.append("Frame rate is below the recommended 60 fps; release timing is coarsely sampled.")
     if camera_view != "side":
         warnings.append("This is not a Side view; primary Stage 1 reference scoring is not recommended.")

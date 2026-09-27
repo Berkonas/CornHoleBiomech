@@ -67,3 +67,20 @@ def test_quality_warns_when_required_points_are_cropped_and_confidence_is_poor()
     assert "cropped" in warnings
     assert "below 30 fps" in warnings
     assert "not a Side view" in warnings
+
+
+def test_quality_frame_rate_warnings_use_nominal_rates():
+    landmarks = ("right_shoulder", "right_elbow", "right_wrist", "left_hip", "right_hip")
+    raw = np.full((20, len(landmarks), 2), [50.0, 50.0])
+    confidence = np.full((20, len(landmarks)), 0.9)
+    mask = np.zeros((20, len(landmarks)), bool)
+
+    def warnings(fps):
+        result = quality_summary(raw, confidence, raw, mask, mask, landmarks, fps=fps, width=100, height=100,
+                                 camera_view="side", confidence_threshold=0.35, throwing_side="right")
+        return " ".join(result["warnings"])
+
+    assert "fps" not in warnings(59.94)          # 60000/1001, a phone's "60 fps"
+    assert "recommended 60 fps" in warnings(29.97)
+    assert "below 30 fps" not in warnings(29.97)
+    assert "below 30 fps" in warnings(24)
