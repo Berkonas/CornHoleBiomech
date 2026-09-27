@@ -94,3 +94,26 @@ final class ReportStateTests: XCTestCase {
         XCTAssertEqual(ThrowReportContent.staleText("bag_seed_changed"), "The bag track was corrected after this analysis.")
     }
 }
+
+final class NoPoseBagEditingTests: XCTestCase {
+    /// Without pose_raw.json the bag and flight editors take the clip geometry from replay.json,
+    /// so a first-contact frame can still be saved.
+    @MainActor func testGeometryFromReplayEnablesFirstContactWithoutPose() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nopose-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let replay = """
+        {"fps": 60, "frame_count": 120, "width": 1920, "height": 1080, "coordinates": "release_frame_pixels",
+         "measured": [], "filtered": [], "model": [], "after_contact": [], "events": {}, "grades": {}}
+        """
+        try Data(replay.utf8).write(to: dir.appendingPathComponent("replay.json"))
+        let data = TrialDataController()
+        data.load(analysisURL: dir)
+        XCTAssertNil(data.pose)
+        XCTAssertEqual(data.geometry, VideoGeometry(width: 1920, height: 1080, frameCount: 120, fps: 60))
+        XCTAssertTrue(FlightReviewEditor.isValidContact("80", frameCount: data.geometry?.frameCount))
+        XCTAssertTrue(FlightReviewEditor.isValidContact("", frameCount: data.geometry?.frameCount))
+        XCTAssertFalse(FlightReviewEditor.isValidContact("120", frameCount: data.geometry?.frameCount))
+        XCTAssertFalse(FlightReviewEditor.isValidContact("80", frameCount: nil))
+    }
+}

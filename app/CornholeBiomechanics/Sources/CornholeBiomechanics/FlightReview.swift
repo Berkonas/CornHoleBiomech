@@ -41,11 +41,16 @@ struct FlightReviewEditor: View {
     @State private var saved = false
     private var isSide: Bool { data.results?.quality.cameraView == "side" }
     private var valid: Bool {
-        let eventOK = contact.isEmpty || Int(contact).map { $0 >= 0 && $0 < (data.pose?.frameCount ?? 0) } == true
+        let eventOK = Self.isValidContact(contact, frameCount: data.geometry?.frameCount)
         let scaleOK = !useScale || (isSide && fixedCamera && !source.trimmingCharacters(in: .whitespaces).isEmpty &&
             Double(knownLength).map { $0.isFinite && $0 > 0 } == true && Double(pixelLength).map { $0.isFinite && $0 > 1 } == true)
         return eventOK && scaleOK
     }
+    /// Blank (unseen) or a frame inside the clip. Frame count comes from `data.geometry`, which exists without a pose file.
+    static func isValidContact(_ text: String, frameCount: Int?) -> Bool {
+        text.isEmpty || Int(text).map { $0 >= 0 && $0 < (frameCount ?? 0) } == true
+    }
+
     private var releaseStatus: String {
         guard let release = data.events?.events["release"] else { return "Release: needs confirmation" }
         if let manual = release.manualFrame { return "Release: frame \(manual) (manual)" }
