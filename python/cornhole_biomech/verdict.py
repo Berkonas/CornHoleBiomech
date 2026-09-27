@@ -3,12 +3,15 @@
 Two independent checks, both stated in plain words and both reproducible:
 
 1. Physics (drag-free point mass, zones.landing): with this throw's measured release speed v,
-   angle θ and height h, and the measured release-to-board distance d (regulation 7.7 m when the
-   board was not measured), where would the bag first land? The speed that reaches the hole
+   angle θ and height h, and the measured release-to-board distance d (else the athlete's median
+   measured distance, else the Settings distance, default 7.7 m, labelled "assumed"), where would
+   the bag first land? The speed that reaches the hole
    centre at the same θ and h is v*; Δv = v − v*. ∂x/∂v (central difference, ±0.05 m/s) converts
    a speed error into metres of landing error.
 2. Personal (within-athlete): the throw's value against the athlete's other throws, flagged only
-   when |value − median| > max(noise floor, 1.5 · IQR/1.349) and at least 5 other throws exist.
+   when |value − median| > max(noise floor, 1.5 · IQR/1.349) and at least 5 other throws have a usable
+   value. The headline counts only flags it can name (non-exploratory metrics in BODY_WORDS), and says
+   "within the usual range" only when at least one such metric was actually compared.
 
 Associations only; the text never claims a body variable caused the landing.
 """
