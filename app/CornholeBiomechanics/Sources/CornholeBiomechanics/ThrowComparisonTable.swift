@@ -207,13 +207,14 @@ struct ThrowComparisonTable: View {
         }
     }
 
-    /// "7.8 · 0.58 m/s"; "7.8 m/s" with one value; "—" with none.
+    /// "7.8 · 0.58 m/s (n 9)"; below `minimumThrowsToJudge` values the SD is withheld:
+    /// "7.8 m/s · SD —, too few (n 2)"; "—" with none. n differs by column because unreliable values are left out.
     static func footerText(_ values: [Double], column: Column) -> String {
         guard let stats = MedianSD.of(values) else { return "—" }
         let unit = column.unit == "°" ? "°" : column.unit.contains("÷") ? "" : " \(column.unit)"
         let median = number(stats.median, digits: column.digits)
-        guard let sd = stats.sd else { return median + unit }
-        return "\(median) · \(number(sd, digits: column.digits + 1))\(unit)"
+        guard stats.n >= minimumThrowsToJudge, let sd = stats.sd else { return "\(median)\(unit) · SD —, too few (n \(stats.n))" }
+        return "\(median) · \(number(sd, digits: column.digits + 1))\(unit) (n \(stats.n))"
     }
 }
 

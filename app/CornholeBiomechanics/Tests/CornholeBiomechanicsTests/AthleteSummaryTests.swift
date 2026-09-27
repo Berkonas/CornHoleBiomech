@@ -21,12 +21,18 @@ final class AthleteSummaryTests: XCTestCase {
         XCTAssertNil(MedianSD.of([.infinity]))
     }
 
-    func testFooterTextShowsMedianDotSDWithUnit() {
-        let speed = ThrowComparisonTable.columns[0], angle = ThrowComparisonTable.columns[1], tempo = ThrowComparisonTable.columns[5]
-        XCTAssertEqual(ThrowComparisonTable.footerText([7, 8, 9], column: speed), "8.0 · 1.00 m/s")
-        XCTAssertEqual(ThrowComparisonTable.footerText([30, 40], column: angle), "35 · 7.1°")
-        XCTAssertEqual(ThrowComparisonTable.footerText([1.8], column: tempo), "1.80")
+    func testFooterTextShowsMedianDotSDWithUnitAndN() {
+        let speed = ThrowComparisonTable.columns[0], angle = ThrowComparisonTable.columns[1]
+        XCTAssertEqual(ThrowComparisonTable.footerText([7, 8, 9, 7.5, 8.5], column: speed), "8.0 · 0.79 m/s (n 5)")
+        XCTAssertEqual(ThrowComparisonTable.footerText([30, 40, 30, 40, 35, 35], column: angle), "35 · 4.5° (n 6)")
         XCTAssertEqual(ThrowComparisonTable.footerText([], column: speed), "—")
+    }
+
+    func testFooterTextWithholdsSDBelowTheMinimum() {
+        let speed = ThrowComparisonTable.columns[0], tempo = ThrowComparisonTable.columns[5]
+        XCTAssertEqual(ThrowComparisonTable.footerText([7, 9], column: speed), "8.0 m/s · SD —, too few (n 2)")
+        XCTAssertEqual(ThrowComparisonTable.footerText([1.8], column: tempo), "1.80 · SD —, too few (n 1)")
+        XCTAssertEqual(ThrowComparisonTable.footerText([7, 8, 9, 10], column: speed), "8.5 m/s · SD —, too few (n 4)")
     }
 
     func testRowReadsReliableValuesWithholdsUnreliableAndFindsGrades() throws {
