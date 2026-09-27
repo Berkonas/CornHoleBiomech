@@ -160,8 +160,15 @@ def release_compensation(rows: list[dict[str, Any]], settings, permutations: int
     elif ratio < 0.9 and share > 0.95:
         message = (f"Speed and angle errors add up: predicted landing spread {observed:.2f} m versus {expected:.2f} m "
                    "at random pairing. Faster throws also tend to be launched in the direction that lengthens them.")
-    else:
+    elif 0.9 <= ratio <= 1.1:
         message = "No clear compensation between release speed and angle (spread close to random pairing)."
+    elif ratio > 1.1:
+        # Tighter than random pairing on average, but a random pairing matches it too often to rule out chance.
+        message = (f"No clear compensation between release speed and angle: a random pairing of the same speeds and "
+                   f"angles was as tight {share:.0%} of the time, too often to rule out chance.")
+    else:
+        message = ("No clear pattern between release speed and angle: the spread as thrown is wider than at random "
+                   "pairing, but not beyond chance.")
     return {"n": len(usable), "status": "estimated", "observed_spread_m": observed, "random_pairing_spread_m": expected,
             "ratio": ratio, "chance_as_tight": share, "message": message,
             "method": "Drag-free first-contact distance; release speed permuted across throws (Müller & Sternad 2004)."}

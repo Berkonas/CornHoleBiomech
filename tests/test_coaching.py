@@ -91,3 +91,18 @@ def test_evidence_chain_and_dashboard_without_outcomes():
                                                    "release": "GOOD"}], [])
     assert dash["priorities"] == [] and "Record hole" in dash["headline"]
     assert dash["trust"]["overall"]["bag"] == "POOR"
+
+
+def test_compensation_message_names_chance_when_tighter_but_not_significant():
+    rng = np.random.default_rng(0)
+    rows = []
+    for i in range(8):
+        from cornhole_biomech.zones import speed_to_hole
+        angle = 40 + rng.normal(0, 4)
+        speed = (speed_to_hole(angle, 0.9, ZoneSettings()) or 7.0) + rng.normal(0, 0.35)
+        rows.append({"trial_id": f"T{i}", "bag_release_speed_m_s": speed, "bag_release_angle_deg": angle,
+                     "bag_release_height_m": 0.9})
+    out = release_compensation(rows, ZoneSettings(), permutations=200)
+    assert out["ratio"] > 1.1 and out["chance_as_tight"] >= 0.05
+    # Not "spread close to random pairing": the spreads differ, chance just cannot be ruled out.
+    assert "close to random" not in out["message"] and "rule out chance" in out["message"]
