@@ -8,7 +8,7 @@ struct SettingsView: View {
         TabView(selection: $tab) {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }.tag("general")
-            AnalysisSettingsView(embedded: true)
+            AnalysisSettingsView()
                 .tabItem { Label("Analysis", systemImage: "waveform.path.ecg") }.tag("analysis")
             LibrarySettings()
                 .tabItem { Label("Library", systemImage: "externaldrive") }.tag("library")

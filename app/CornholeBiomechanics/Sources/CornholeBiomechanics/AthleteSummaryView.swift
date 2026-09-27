@@ -14,28 +14,43 @@ struct AthleteSummaryView: View {
     @State private var dashboard: AthleteDashboard?
     @State private var rows: [SummaryThrowRow] = []
     @State private var consistency: TrialInsights.Consistency?
-    @State private var failure: String?
+    /// The last dashboard rebuild failed (kept until the next rebuild attempt).
+    @State private var rebuildFailure: String?
+    /// The saved dashboard exists but could not be decoded (re-checked on every load).
+    @State private var readFailure: String?
+    /// Preparing the consistency data failed (cleared once consistency loads).
+    @State private var consistencyFailure: String?
     @State private var loading = false
     /// Inputs key of the last automatic dashboard rebuild, so a failing rebuild is not retried in a loop.
     @State private var autoRefreshedKey: String?
+    /// Bumped to reload; every load runs through the one `.task(id:)`, so loads never overlap.
+    @State private var reloadToken = 0
+    /// The next load rebuilds the dashboard even when it looks current (Refresh).
+    @State private var forceNextRebuild = false
 
     var body: some View {
         AthleteSummaryContent(dashboard: dashboard, rows: rows, consistency: consistency, open: open,
                               athleteName: athlete?.displayName ?? "Athlete", throwCount: trials.count,
                               resultCount: trials.filter { $0.outcome?.scoreCategory != nil }.count,
-                              loading: loading, failure: failure, actions: actions)
+                              loading: loading, failure: rebuildFailure ?? readFailure ?? consistencyFailure, actions: actions)
             .navigationTitle(athlete?.displayName ?? "Summary")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await load(forceDashboard: true) } }
+                    Button("Refresh", systemImage: "arrow.clockwise") { reload(rebuild: true) }
                         .help("Rebuild this athlete's summary from the latest analyses and results")
                         .disabled(analysis.isRunning || analysedTrials.isEmpty)
                 }
             }
-            .task(id: reloadKey) { await load(forceDashboard: false) }
+            .task(id: "\(reloadKey)#\(reloadToken)") { await load() }
             .onChange(of: analysis.isRunning) { _, running in
-                if !running { Task { await load(forceDashboard: false) } }
+                if !running { reload() }
             }
+    }
+
+    /// Restarts the load task (cancelling one in flight).
+    private func reload(rebuild: Bool = false) {
+        if rebuild { forceNextRebuild = true }
+        reloadToken += 1
     }
 
     private var athlete: Athlete? { store.project?.athletes.first { $0.id == athleteID } }
@@ -64,13 +79,13 @@ struct AthleteSummaryView: View {
                 (label: "Analyze \(trial.displayName)", run: { analyze(trial) })
             },
             recordResults: unscored.map { trial in { open(trial.id) } },
-            refresh: { Task { await load(forceDashboard: true) } },
+            refresh: { reload(rebuild: true) },
             prepareConsistency: newestAnalysed.map { trial in
                 {
                     Task {
-                        do { try await analysis.refreshInsights(trial: trial, store: store) }
-                        catch { failure = error.localizedDescription }
-                        await load(forceDashboard: false)
+                        do { try await analysis.refreshInsights(trial: trial, store: store); consistencyFailure = nil }
+                        catch { consistencyFailure = "The throw-to-throw comparison could not be prepared: \(error.localizedDescription)" }
+                        reload()
                     }
                 }
             })
@@ -82,7 +97,7 @@ struct AthleteSummaryView: View {
         Task { await analysis.analyze(trial: trial, store: store) }
     }
 
-    private func load(forceDashboard: Bool) async {
+    private func load() async {
         let sources = trials.enumerated().compactMap { index, trial -> SummaryThrowRow.Source? in
             store.analysisURL(for: trial).map {
                 SummaryThrowRow.Source(id: trial.id, number: index + 1, label: trial.displayName,
@@ -96,6 +111,7 @@ struct AthleteSummaryView: View {
         guard !Task.isCancelled else { return }
         rows = loadedRows
         consistency = loadedConsistency
+        if loadedConsistency != nil { consistencyFailure = nil }
 
         guard let root = store.projectURL else { dashboard = nil; return }
         let url = root.appendingPathComponent("dashboards/\(athleteID.uuidString).json")
@@ -103,16 +119,16 @@ struct AthleteSummaryView: View {
         let inputsKey = Self.modificationKey(inputs)
         let stale = Self.isOlder(url, than: inputs)
         let auto = stale && autoRefreshedKey != inputsKey
-        if !sources.isEmpty, !analysis.isRunning, forceDashboard || auto {
+        if !sources.isEmpty, !analysis.isRunning, forceNextRebuild || auto {
+            forceNextRebuild = false
             autoRefreshedKey = inputsKey
-            failure = nil
-            do { try await analysis.refreshDashboard(athleteID: athleteID, store: store) }
-            catch { failure = "The summary could not be rebuilt: \(error.localizedDescription)" }
+            do { try await analysis.refreshDashboard(athleteID: athleteID, store: store); rebuildFailure = nil }
+            catch { rebuildFailure = "The summary could not be rebuilt: \(error.localizedDescription)" }
         }
+        guard !Task.isCancelled else { return }
         dashboard = AthleteDashboard.load(url)
-        if dashboard == nil, failure == nil, FileManager.default.fileExists(atPath: url.path) {
-            failure = "The summary file could not be read. Press Refresh to rebuild it."
-        }
+        readFailure = dashboard == nil && FileManager.default.fileExists(atPath: url.path)
+            ? "The summary file could not be read. Press Refresh to rebuild it." : nil
     }
 
     /// Consistency from the most recently written insights.json among the athlete's throws.
@@ -187,6 +203,9 @@ struct AthleteSummaryContent: View {
         scores = Dictionary(rows.compactMap { row in row.score.map { (row.id, $0) } }, uniquingKeysWith: { a, _ in a })
     }
 
+    /// Below this many bags with a result the scoring tiles are labelled an early estimate.
+    static let fewBags = 4
+
     private var total: Int { throwCount ?? rows.count }
     private var analysed: Int { rows.count }
     private var results: Int { resultCount ?? rows.filter { $0.score != nil }.count }
@@ -256,6 +275,11 @@ struct AthleteSummaryContent: View {
         sectionEmpty("rectangle.3.group", "The summary has not been built yet.", action: ("Build Summary", actions.refresh))
     }
 
+    /// More analysed throws unblock this: analyse one already imported, else import more.
+    private var moreThrowsAction: (label: String, run: () -> Void) {
+        actions.analyzeFirst ?? ("Import Videos", actions.importVideos)
+    }
+
     @ViewBuilder private var dashboardEmpty: some View {
         if analysed == 0 { notAnalysedEmpty } else { noDashboardEmpty }
     }
@@ -275,6 +299,11 @@ struct AthleteSummaryContent: View {
                                  action: actions.recordResults.map { ("Record Results", $0) })
                 } else {
                     tiles(sports)
+                    if let bags = sports?.bags, bags < Self.fewBags {
+                        Label("Few bags — early estimate. \(bags) \(bags == 1 ? "bag has" : "bags have") a result; one more hole or miss moves these numbers a lot.",
+                              systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                     let missing = dashboard.performance.counts?["unknown"] ?? 0
                     if missing > 0 {
                         HStack(spacing: Space.s) {
@@ -334,7 +363,7 @@ struct AthleteSummaryContent: View {
                     DisclosureGroup("Observed differences, not yet advice (\(dashboard.observed_differences.count))") {
                         VStack(alignment: .leading, spacing: Space.s) {
                             ForEach(dashboard.observed_differences) { difference in
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: Space.xs) {
                                     Text(difference.sentence ?? difference.label).font(.callout).fixedSize(horizontal: false, vertical: true)
                                     if let why = difference.why_not_a_priority, !why.isEmpty {
                                         Text("Not advice yet: not \(why.map(PriorityRow.checkName).joined(separator: ", ").lowercased()).")
@@ -376,7 +405,7 @@ struct AthleteSummaryContent: View {
             } else if let consistency {
                 sectionEmpty("chart.line.flattrend.xyaxis",
                              "\(consistency.message) (\(consistency.n) so far.)",
-                             action: ("Import Videos", actions.importVideos))
+                             action: moreThrowsAction)
             } else {
                 sectionEmpty("chart.line.flattrend.xyaxis", "The throw-to-throw comparison has not been prepared yet.",
                              action: actions.prepareConsistency.map { ("Prepare Comparison", $0) })
@@ -389,7 +418,7 @@ struct AthleteSummaryContent: View {
                 dashboardEmpty
             } else {
                 sectionEmpty("chart.dots.scatter", "No measure was reliable on enough throws to compare yet.",
-                             action: ("Import Videos", actions.importVideos))
+                             action: moreThrowsAction)
             }
         }
     }
@@ -517,7 +546,7 @@ private struct PriorityRow: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.card))
     }
 
     private var checks: some View {

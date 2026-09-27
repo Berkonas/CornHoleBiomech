@@ -206,6 +206,16 @@ struct SuccessMap: View {
     }
 
     @State private var canvasSize: CGSize = .zero
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Fill opacity per zone: the hole window clearly visible, the board a tint, off barely there.
+    static func opacity(_ zone: LandingZone, dark: Bool) -> Double {
+        switch zone {
+        case .hole: dark ? 0.70 : 0.62
+        case .board: dark ? 0.30 : 0.30
+        case .off: dark ? 0.16 : 0.12
+        }
+    }
 
     // MARK: Geometry
 
@@ -246,15 +256,18 @@ struct SuccessMap: View {
         let plot = plotRect(size)
         let columns = SuccessMapGrid.columns, rows = SuccessMapGrid.rows
         let cellW = plot.width / CGFloat(columns), cellH = plot.height / CGFloat(rows)
-        // Opaque cells composited once at 55 % so neighbouring cells never double up into seams.
-        var cells = ctx
-        cells.opacity = 0.55
-        cells.drawLayer { layer in
-            for (column, runs) in grid.runs.enumerated() {
-                for run in runs {
-                    let rect = CGRect(x: plot.minX + CGFloat(column) * cellW, y: plot.maxY - CGFloat(run.lastRow + 1) * cellH,
-                                      width: cellW + 0.5, height: CGFloat(run.lastRow - run.firstRow + 1) * cellH + 0.5)
-                    layer.fill(Path(rect), with: .color(run.zone.color))
+        // One layer per zone: opaque cells composited once at the zone's opacity, so neighbouring cells never
+        // double up into seams. The hole window is strong; board and off stay calm so the target stands out.
+        for zone in LandingZone.allCases {
+            var cells = ctx
+            cells.opacity = Self.opacity(zone, dark: colorScheme == .dark)
+            cells.drawLayer { layer in
+                for (column, runs) in grid.runs.enumerated() {
+                    for run in runs where run.zone == zone {
+                        let rect = CGRect(x: plot.minX + CGFloat(column) * cellW, y: plot.maxY - CGFloat(run.lastRow + 1) * cellH,
+                                          width: cellW + 0.5, height: CGFloat(run.lastRow - run.firstRow + 1) * cellH + 0.5)
+                        layer.fill(Path(rect), with: .color(zone.color))
+                    }
                 }
             }
         }

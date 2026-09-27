@@ -96,14 +96,6 @@ final class ProjectStore: ObservableObject {
         project?.trials.first { $0.id == selectedTrialID }
     }
 
-    var selectedReferenceSet: ReferenceSet? {
-        project?.referenceSets.first { $0.id == selectedReferenceSetID }
-    }
-
-    var analyzedTrials: [Trial] {
-        project?.trials.filter { analysisState(for: $0).isAvailable } ?? []
-    }
-
     func createProject() {
         let panel = NSSavePanel()
         panel.title = "Choose a Visible Athlete Library Folder"
@@ -275,34 +267,6 @@ final class ProjectStore: ObservableObject {
         try updateTrial(updated)
     }
 
-    func setReference(_ isReference: Bool, for trial: Trial) throws {
-        guard var value = project, value.trials.contains(where: { $0.id == trial.id }) else {
-            throw ProjectStoreError.recordNotFound("throw")
-        }
-        if isReference {
-            var setIndex = value.referenceSets.firstIndex { $0.name == "Coach-selected references" && $0.scope == .global }
-            if setIndex == nil {
-                value.referenceSets.append(ReferenceSet(name: "Coach-selected references"))
-                setIndex = value.referenceSets.indices.last
-            }
-            if let setIndex, !value.referenceSets[setIndex].trialIDs.contains(trial.id) {
-                value.referenceSets[setIndex].trialIDs.append(trial.id)
-            }
-        } else {
-            for index in value.referenceSets.indices {
-                value.referenceSets[index].trialIDs.removeAll { $0 == trial.id }
-            }
-            if value.sessions != nil {
-                for index in value.sessions!.indices {
-                    value.sessions![index].referenceTrialIDs.removeAll { $0 == trial.id }
-                }
-            }
-        }
-        synchronizeReferenceFlags(in: &value)
-        project = value
-        try save()
-    }
-
     @discardableResult
     func addReferenceSet(
         name: String,
@@ -325,16 +289,6 @@ final class ProjectStore: ObservableObject {
         selectedReferenceSetID = set.id
         try save()
         return set
-    }
-
-    func updateReferenceSet(_ changed: ReferenceSet) throws {
-        guard var value = project, let index = value.referenceSets.firstIndex(where: { $0.id == changed.id }) else {
-            throw ProjectStoreError.recordNotFound("reference set")
-        }
-        value.referenceSets[index] = changed
-        synchronizeReferenceFlags(in: &value)
-        project = value
-        try save()
     }
 
     func assign(_ trial: Trial, to referenceSet: ReferenceSet) throws {
@@ -361,28 +315,6 @@ final class ProjectStore: ObservableObject {
         synchronizeReferenceFlags(in: &value)
         project = value
         try save()
-    }
-
-    func deleteReferenceSet(_ referenceSet: ReferenceSet) throws {
-        guard var value = project else { throw ProjectStoreError.noOpenProject }
-        value.referenceSets.removeAll { $0.id == referenceSet.id }
-        synchronizeReferenceFlags(in: &value)
-        project = value
-        try save()
-        if selectedReferenceSetID == referenceSet.id { selectedReferenceSetID = project?.referenceSets.first?.id }
-        notice = "Deleted the reference set. Source throws and videos were preserved."
-    }
-
-    func deleteSession(_ session: RecordingSession) throws {
-        guard var value = project else { throw ProjectStoreError.noOpenProject }
-        value.sessions?.removeAll { $0.id == session.id }
-        for index in value.trials.indices where value.trials[index].sessionID == session.id {
-            value.trials[index].sessionID = nil
-        }
-        project = value
-        try save()
-        if selectedSessionID == session.id { selectedSessionID = nil }
-        notice = "Deleted the session record. Its throws and videos were preserved."
     }
 
     func deleteAnalysis(for trial: Trial) throws {
@@ -591,14 +523,6 @@ final class ProjectStore: ObservableObject {
         let previous = project
         project?.trials[index] = changed
         do { try save() } catch { project = previous; throw error }
-    }
-
-    /// Automatic bag-flight result for a throw: "accepted", "needs_review", "not_found", or nil if not run.
-    func flightStatus(for trial: Trial) -> String? {
-        guard let url = analysisURL(for: trial)?.appendingPathComponent("auto_flight.json"),
-              let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object["status"] as? String
     }
 
     /// Record only the observed bag value, keeping any other outcome details.

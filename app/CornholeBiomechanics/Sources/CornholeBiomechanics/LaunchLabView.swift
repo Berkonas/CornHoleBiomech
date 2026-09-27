@@ -195,7 +195,7 @@ struct LaunchLabContent: View {
         let model = LaunchModel(params), hit = model.landing(), zone = model.zone()
         let apex = params.vy > 0 ? params.releaseHeight + params.vy * params.vy / (2 * LaunchModel.gravity) : params.releaseHeight
         return HStack(alignment: .top, spacing: Space.l) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text("Outcome").font(.caption).foregroundStyle(.secondary)
                 Label(zone.label, systemImage: zone.symbol).font(.title3.weight(.semibold)).foregroundStyle(zone.color)
                 Text(hit.kind.rawValue).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
@@ -217,9 +217,9 @@ struct LaunchLabContent: View {
     }
 
     private func readout(_ title: String, _ value: String, _ unit: String, note: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                 Text(value).font(.title3.weight(.semibold)).monospacedDigit()
                 if !unit.isEmpty { Text(unit).font(.caption).foregroundStyle(.secondary) }
             }
@@ -244,9 +244,9 @@ struct LaunchLabContent: View {
                     subtitle: "How far first contact moves for a small change in each release value, holding the others (central differences).") {
             HStack(alignment: .top, spacing: Space.xl) {
                 ForEach(items, id: \.0) { item in
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         Text(item.0).font(.headline)
-                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                             Text(item.2.map { number($0, digits: 1) } ?? "—").font(.title.weight(.semibold)).monospacedDigit()
                             if item.2 != nil { Text("cm").font(.callout).foregroundStyle(.secondary) }
                         }
@@ -280,7 +280,7 @@ struct LaunchLabContent: View {
             .font(.system(.body, design: .serif).italic())
             .padding(Space.m)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: Space.s))
             VStack(alignment: .leading, spacing: Space.xs) {
                 bullet("First contact is where the path first meets the floor, the front face, or the sloped deck (regulation board: 48 in deck, 3 in front, 12 in back, 6 in hole centred 9 in from the back).")
                 bullet("Hole window: first contact on the deck from 45 cm short of the hole centre to its far edge — bags landing a little short usually slide in. On the board: elsewhere on the deck, or up to 30 cm short of it. Both allowances are stated assumptions, the same as the Python zone report.")
@@ -311,7 +311,7 @@ private struct ParameterRow: View {
     let commit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                 Text(title)
                 Spacer()

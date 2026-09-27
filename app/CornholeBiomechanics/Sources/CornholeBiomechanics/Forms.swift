@@ -105,16 +105,13 @@ struct ImportTrialForm: View {
 
 struct AnalysisSettingsView: View {
     @EnvironmentObject private var store: ProjectStore
-    @Environment(\.dismiss) private var dismiss
     @State private var settings = AnalysisSettings()
     @EnvironmentObject private var analysis: AnalysisService
     @State private var engineStatus = "Checking local analysis engines…"
-    /// Shown inside the Settings window: no sheet title, no Cancel, and Save keeps the window open.
-    var embedded = false
 
+    /// The Settings window's Analysis tab: Save keeps the window open, Revert discards edits.
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if !embedded { Text("Advanced Analysis").font(.title2.weight(.semibold)) }
+        VStack(alignment: .leading, spacing: Space.l) {
             Text("These values are saved in every analysis manifest. Reanalyze a corrected trial to update derived kinematics.")
                 .foregroundStyle(.secondary)
             Text(engineStatus).font(.callout).foregroundStyle(.secondary)
@@ -151,17 +148,15 @@ struct AnalysisSettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                if embedded {
-                    Button("Revert") { settings = store.project?.analysisSettings ?? AnalysisSettings() }
-                        .disabled(settings == (store.project?.analysisSettings ?? AnalysisSettings()))
-                } else { Button("Cancel") { dismiss() } }
+                Button("Revert") { settings = store.project?.analysisSettings ?? AnalysisSettings() }
+                    .disabled(settings == (store.project?.analysisSettings ?? AnalysisSettings()))
                 Button("Save") {
-                    do { try store.updateSettings(settings); if !embedded { dismiss() } }
+                    do { try store.updateSettings(settings) }
                     catch { store.errorMessage = error.localizedDescription }
                 }.buttonStyle(.borderedProminent)
-                    .disabled(store.project == nil || (embedded && settings == (store.project?.analysisSettings ?? AnalysisSettings())))
+                    .disabled(store.project == nil || settings == (store.project?.analysisSettings ?? AnalysisSettings()))
             }
-        }.padding(24).frame(width: 620)
+        }.padding(Space.xl).frame(width: 620)
         .onAppear { settings = store.project?.analysisSettings ?? AnalysisSettings() }
         .onChange(of: store.project?.id) { settings = store.project?.analysisSettings ?? AnalysisSettings() }
         .task {

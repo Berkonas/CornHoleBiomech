@@ -142,7 +142,16 @@ struct ThrowComparisonTable: View {
         Column(key: "swing_tempo_ratio", title: "Tempo", unit: "back ÷ forward", digits: 2, value: \.tempo),
     ]
 
-    private var sorted: [SummaryThrowRow] { rows.sorted(using: sortOrder) }
+    private var sorted: [SummaryThrowRow] { Self.sorted(rows, by: sortOrder) }
+
+    /// Rows in the table's order. Throws without a value in the sorted column ("—") stay last whether
+    /// the column is ascending or descending.
+    static func sorted(_ rows: [SummaryThrowRow], by order: [KeyPathComparator<SummaryThrowRow>]) -> [SummaryThrowRow] {
+        let ordered = rows.sorted(using: order)
+        guard let primary = order.first,
+              let column = columns.first(where: { primary.keyPath == $0.sortValue as PartialKeyPath<SummaryThrowRow> }) else { return ordered }
+        return ordered.filter { $0[keyPath: column.value] != nil } + ordered.filter { $0[keyPath: column.value] == nil }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {

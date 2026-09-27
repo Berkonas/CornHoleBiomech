@@ -252,8 +252,8 @@ struct VideoPoseEditor: View {
     }
     /// The frame actually on screen: read from the player while playing, else the inspected frame.
     private var displayedFrame: Int {
-        guard player.timeControlStatus == .playing, let pose = data.geometry else { return currentFrame }
-        return min(max(0, Int((player.currentTime().seconds * pose.fps).rounded())), max(0, pose.frameCount - 1))
+        guard player.timeControlStatus == .playing, let video = data.geometry else { return currentFrame }
+        return min(max(0, Int((player.currentTime().seconds * video.fps).rounded())), max(0, video.frameCount - 1))
     }
     private func step(_ amount: Int) { frameBinding.wrappedValue = Double(min(max(0, currentFrame + amount), max(0, (data.geometry?.frameCount ?? 1) - 1))) }
     private func installTimeObserver() {
@@ -276,8 +276,8 @@ private struct LandmarkCoordinateEditor: View {
     @State private var y = ""
     private var point: (Double, Double)? {
         guard let px = Double(x), let py = Double(y), px.isFinite, py.isFinite,
-              let pose = data.geometry, (0...Double(pose.width)).contains(px),
-              (0...Double(pose.height)).contains(py) else { return nil }
+              let video = data.geometry, (0...Double(video.width)).contains(px),
+              (0...Double(video.height)).contains(py) else { return nil }
         return (px, py)
     }
     var body: some View {
@@ -314,7 +314,7 @@ private struct BagCoordinateEditor: View {
 
     private var point: (Double, Double)? {
         guard let px = Double(x), let py = Double(y), px.isFinite, py.isFinite,
-              let pose = data.geometry, (0...Double(pose.width)).contains(px), (0...Double(pose.height)).contains(py)
+              let video = data.geometry, (0...Double(video.width)).contains(px), (0...Double(video.height)).contains(py)
         else { return nil }
         return (px, py)
     }
@@ -351,8 +351,8 @@ private struct BagOverlay: View {
     let availableSize: CGSize
 
     var body: some View {
-        if let pose = data.geometry {
-            let rect = videoRect(width: Double(pose.width), height: Double(pose.height))
+        if let video = data.geometry {
+            let rect = videoRect(width: Double(video.width), height: Double(video.height))
             Canvas { context, _ in
                 var trail = Path(); var previous: Int?
                 for sample in data.bagTrack?.samples ?? [] where sample.frameIndex <= frame {
@@ -360,15 +360,15 @@ private struct BagOverlay: View {
                     let point = corrected.map { BagTrackDocument.Centroid(x:$0.x,y:$0.y,confidence:nil) }
                         ?? sample.effectiveCentroid
                     guard let point else { previous = nil; continue }
-                    let p = CGPoint(x:rect.minX+rect.width*point.x/Double(pose.width), y:rect.minY+rect.height*point.y/Double(pose.height))
+                    let p = CGPoint(x:rect.minX+rect.width*point.x/Double(video.width), y:rect.minY+rect.height*point.y/Double(video.height))
                     if previous == sample.frameIndex-1 { trail.addLine(to:p) } else { trail.move(to:p) }
                     previous = sample.frameIndex
                 }
                 context.stroke(trail, with:.color(.cyan.opacity(0.75)), lineWidth:2)
             }.allowsHitTesting(false)
             if let point = data.bagPoint(frame: frame) {
-            let location = CGPoint(x: rect.minX + rect.width * point.x / Double(pose.width),
-                                   y: rect.minY + rect.height * point.y / Double(pose.height))
+            let location = CGPoint(x: rect.minX + rect.width * point.x / Double(video.width),
+                                   y: rect.minY + rect.height * point.y / Double(video.height))
             ZStack {
                 Circle().stroke(.black.opacity(0.8), lineWidth: 5).frame(width: 22, height: 22)
                 Circle().stroke(color, lineWidth: 3).frame(width: 22, height: 22)

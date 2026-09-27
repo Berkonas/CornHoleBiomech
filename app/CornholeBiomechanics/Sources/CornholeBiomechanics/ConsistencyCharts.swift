@@ -30,6 +30,8 @@ struct ElbowCurves: Equatable {
     struct BandPoint: Identifiable, Equatable {
         var id: Double { x }
         var x: Double, mean: Double, low: Double, high: Double
+        /// Run of consecutive finite samples; the band and mean line break between runs.
+        var segment = 0
     }
 
     var lines: [Point] = []
@@ -51,9 +53,14 @@ struct ElbowCurves: Equatable {
         let mean = consistency.curves["elbow_angle_deg"]?.mean.scalars
         let sd = consistency.curves["elbow_angle_deg"]?.sd.scalars
         if let mean, let sd {
-            band = tau.enumerated().compactMap { i, t in
-                guard let m = mean[safe: i] ?? nil, let s = sd[safe: i] ?? nil, m.isFinite, s.isFinite else { return nil }
-                return BandPoint(x: 100 * t, mean: m, low: m - s, high: m + s)
+            var segment = 0, inRun = false
+            for (i, t) in tau.enumerated() {
+                guard let m = mean[safe: i] ?? nil, let s = sd[safe: i] ?? nil, m.isFinite, s.isFinite else {
+                    if inRun { segment += 1; inRun = false }
+                    continue
+                }
+                inRun = true
+                band.append(BandPoint(x: 100 * t, mean: m, low: m - s, high: m + s, segment: segment))
             }
         }
     }
@@ -73,7 +80,7 @@ struct ElbowConsistencyChart: View {
             Chart {
                 ForEach(curves.band) { p in
                     AreaMark(x: .value("Movement cycle (%)", p.x), yStart: .value("Elbow angle (°)", p.low), yEnd: .value("Elbow angle (°)", p.high),
-                             series: .value("Series", "band"))
+                             series: .value("Series", "band#\(p.segment)"))
                         .foregroundStyle(athleteInk.opacity(0.16))
                         .interpolationMethod(.monotone)
                 }
@@ -84,7 +91,7 @@ struct ElbowConsistencyChart: View {
                         .interpolationMethod(.monotone)
                 }
                 ForEach(curves.band) { p in
-                    LineMark(x: .value("Movement cycle (%)", p.x), y: .value("Elbow angle (°)", p.mean), series: .value("Series", "mean"))
+                    LineMark(x: .value("Movement cycle (%)", p.x), y: .value("Elbow angle (°)", p.mean), series: .value("Series", "mean#\(p.segment)"))
                         .foregroundStyle(athleteInk)
                         .lineStyle(StrokeStyle(lineWidth: 3))
                         .interpolationMethod(.monotone)
@@ -145,7 +152,7 @@ struct ReleaseProfileStrips: View {
     }
 
     private func title(_ row: AthleteDashboard.Profile) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             Text(row.label).font(.callout.weight(.medium))
             Text("Typical \(formatValue(row.median, unit: row.unit)) · middle half \(formatRange(row.q25, row.q75, unit: row.unit))")
                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)
@@ -183,7 +190,7 @@ struct ReleaseProfileStrips: View {
             : steady ? ("checkmark.circle.fill", .green, "As steady as the camera can measure")
             : row.consistency == "variable" ? ("arrow.left.and.right.circle.fill", .orange, "Varies more than measurement noise")
             : ("minus.circle", .secondary, row.consistency.prefix(1).uppercased() + row.consistency.dropFirst())
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Space.xs) {
             Label(text, systemImage: symbol).font(.caption.weight(.semibold)).foregroundStyle(color)
             if judged {
                 Text("Spread (SD) \(formatValue(row.sd, unit: row.unit)) · noise \(formatValue(row.noise_floor, unit: row.unit))")

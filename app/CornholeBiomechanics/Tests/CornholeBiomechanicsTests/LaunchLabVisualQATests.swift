@@ -4,11 +4,12 @@ import XCTest
 @testable import CornholeBiomechanics
 
 /// Opt-in rendering of the Launch Lab to PNG for visual review.
-/// Runs only when CORNHOLE_LAUNCH_QA names an output folder.
+/// Runs only when CORNHOLE_LAUNCH_QA (or the shared CORNHOLE_VISUAL_QA) names an output folder.
 final class LaunchLabVisualQATests: XCTestCase {
     @MainActor func testRenderLaunchLab() throws {
-        guard let folder = ProcessInfo.processInfo.environment["CORNHOLE_LAUNCH_QA"] else {
-            throw XCTSkip("Set CORNHOLE_LAUNCH_QA to an output folder to render the Launch Lab.")
+        let environment = ProcessInfo.processInfo.environment
+        guard let folder = environment["CORNHOLE_LAUNCH_QA"] ?? environment["CORNHOLE_VISUAL_QA"] else {
+            throw XCTSkip("Set CORNHOLE_LAUNCH_QA (or CORNHOLE_VISUAL_QA) to an output folder to render the Launch Lab.")
         }
         let dir = URL(fileURLWithPath: folder)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

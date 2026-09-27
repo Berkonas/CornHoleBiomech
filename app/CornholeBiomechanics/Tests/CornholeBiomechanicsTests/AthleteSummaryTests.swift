@@ -100,5 +100,21 @@ final class AthleteSummaryTests: XCTestCase {
         XCTAssertEqual(curves.lines.map(\.x).max(), 100)
         XCTAssertEqual(curves.band.map(\.x), [0, 100], "points without an SD are left out of the band")
         XCTAssertEqual(curves.band.first?.low, 95)
+        XCTAssertEqual(curves.band.map(\.segment), [0, 1], "the band and mean line break at the missing SD")
+    }
+
+    func testMissingValuesSortLastInBothDirections() {
+        func row(_ n: Int, _ speed: Double?) -> SummaryThrowRow {
+            SummaryThrowRow(id: UUID(), number: n, label: "Throw \(n)", score: nil,
+                            values: speed.map { [SummaryThrowRow.speedKey: $0] } ?? [:])
+        }
+        let rows = [row(1, 7.5), row(2, nil), row(3, 8.1), row(4, 6.9)]
+        let column = ThrowComparisonTable.columns[0].sortValue
+        let up = ThrowComparisonTable.sorted(rows, by: [KeyPathComparator(column, order: .forward)])
+        let down = ThrowComparisonTable.sorted(rows, by: [KeyPathComparator(column, order: .reverse)])
+        XCTAssertEqual(up.map(\.number), [4, 1, 3, 2])
+        XCTAssertEqual(down.map(\.number), [3, 1, 4, 2])
+        let byThrow = ThrowComparisonTable.sorted(rows, by: [KeyPathComparator(\SummaryThrowRow.number, order: .reverse)])
+        XCTAssertEqual(byThrow.map(\.number), [4, 3, 2, 1])
     }
 }

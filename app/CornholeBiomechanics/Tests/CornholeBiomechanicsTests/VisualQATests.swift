@@ -96,6 +96,11 @@ final class VisualQATests: XCTestCase {
             try render(AthleteSummaryContent(dashboard: scored.dashboard, rows: scored.rows, consistency: consistency, open: { _ in },
                                              athleteName: dashboard.athlete),
                        "athlete_summary_\(name)_narrow", width: 820, height: 4200)
+            // Only three bags with a result: the scoring tiles carry the early-estimate caption.
+            let fewBags = VisualQATests.withScores(dashboard, rows: rows, limit: 3)
+            try render(AthleteSummaryContent(dashboard: fewBags.dashboard, rows: fewBags.rows, consistency: consistency, open: { _ in },
+                                             athleteName: dashboard.athlete, actions: SummaryActions(recordResults: {})),
+                       "athlete_summary_\(name)_few_bags", width: 1180, height: 900)
         }
         // Edge cases: no throws; throws but none analysed; three analysed throws, no dashboard or results.
         try render(AthleteSummaryContent(dashboard: nil, rows: [], consistency: nil, open: { _ in }, athleteName: "Player 4", throwCount: 0),
@@ -137,11 +142,11 @@ final class VisualQATests: XCTestCase {
     }
 
     /// Synthetic results (hole, board, miss, board, none …) on rows and dashboard, for rendering the scored state.
-    static func withScores(_ dashboard: AthleteDashboard, rows: [SummaryThrowRow]) -> (dashboard: AthleteDashboard, rows: [SummaryThrowRow]) {
+    static func withScores(_ dashboard: AthleteDashboard, rows: [SummaryThrowRow], limit: Int = .max) -> (dashboard: AthleteDashboard, rows: [SummaryThrowRow]) {
         let cycle: [ScoreCategory?] = [.throughHole, .onBoard, .offBoard, .onBoard, nil, .offBoard, .throughHole]
         var scores: [String: ScoreCategory?] = [:]
         let rows = rows.enumerated().map { index, row in
-            var row = row; row.score = cycle[index % cycle.count]; scores[row.id.uuidString] = row.score; return row
+            var row = row; row.score = index < limit ? cycle[index % cycle.count] : nil; scores[row.id.uuidString] = row.score; return row
         }
         var d = dashboard
         for p in d.release_profile.indices {

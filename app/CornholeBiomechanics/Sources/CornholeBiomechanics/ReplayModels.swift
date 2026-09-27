@@ -79,14 +79,6 @@ struct CoachMetricRow: Decodable, Identifiable {
                        event: nil, frame: nil, status: "not_measured", reasons: [], value: nil, exploratory: nil, noise_floor: nil)
     }
 
-    var statusColor: Color {
-        switch status {
-        case "reliable": .green
-        case "caution": .orange
-        case "unreliable": .red
-        default: .secondary
-        }
-    }
     var statusText: String {
         switch status {
         case "reliable": "Reliable"

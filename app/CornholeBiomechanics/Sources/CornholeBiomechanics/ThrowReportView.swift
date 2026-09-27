@@ -550,7 +550,7 @@ struct ThrowReportContent: View {
              subtitle: "Analyze the video to measure the release, the body and the bag's flight.") {
             if videoAvailable, let videoURL {
                 UnanalyzedVideoPreview(url: videoURL).id(videoURL).frame(height: 380)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card))
                 HStack {
                     Button("Analyze Throw", systemImage: "play.fill", action: actions.reanalyze).buttonStyle(.borderedProminent)
                     Button("Trim / Crop…", action: actions.trim).disabled(!canTrim)

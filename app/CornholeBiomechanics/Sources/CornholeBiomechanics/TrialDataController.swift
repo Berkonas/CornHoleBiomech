@@ -13,8 +13,6 @@ final class TrialDataController: ObservableObject {
     @Published private(set) var pose: PoseDocument?
     @Published private(set) var results: AnalysisResults?
     @Published private(set) var normalized: NormalizedDocument?
-    @Published private(set) var comparison: ComparisonDocument?
-    @Published private(set) var relationships: RelationshipDocument?
     @Published private(set) var corrections = CorrectionDocument()
     @Published private(set) var bagTrack: BagTrackDocument?
     @Published private(set) var bagSeed: BagSeedDocument?
@@ -51,14 +49,6 @@ final class TrialDataController: ObservableObject {
         }
     }
 
-    func loadComparison(at url: URL?) {
-        comparison = decode(ComparisonDocument.self, at: url?.appendingPathComponent("comparison.json"))
-    }
-
-    func loadRelationships(at url: URL?) {
-        relationships = decode(RelationshipDocument.self, at: url)
-    }
-
     func effectivePoint(frame: Int, landmark: String) -> PosePoint? {
         if let corrected = corrections.corrections.last(where: { $0.frameIndex == frame && $0.landmark == landmark }) {
             return PosePoint(x: corrected.x, y: corrected.y, confidence: 1)
@@ -93,10 +83,10 @@ final class TrialDataController: ObservableObject {
 
     @discardableResult
     func setBagSeed(frame: Int, bboxXYWH: [Double]) -> Bool {
-        guard let pose = geometry, (0..<pose.frameCount).contains(frame), bboxXYWH.count == 4,
+        guard let video = geometry, (0..<video.frameCount).contains(frame), bboxXYWH.count == 4,
               bboxXYWH.allSatisfy(\.isFinite), bboxXYWH[0] >= 0, bboxXYWH[1] >= 0,
               bboxXYWH[2] > 1, bboxXYWH[3] > 1,
-              bboxXYWH[0]+bboxXYWH[2] <= Double(pose.width), bboxXYWH[1]+bboxXYWH[3] <= Double(pose.height),
+              bboxXYWH[0]+bboxXYWH[2] <= Double(video.width), bboxXYWH[1]+bboxXYWH[3] <= Double(video.height),
               let url = analysisURL?.appendingPathComponent("bag_seed.json") else {
             loadError = "Choose a valid bag rectangle inside an analyzed video frame."; return false
         }

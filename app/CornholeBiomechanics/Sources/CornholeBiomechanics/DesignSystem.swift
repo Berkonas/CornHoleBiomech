@@ -216,9 +216,10 @@ struct MetricTile: View {
                     Text(row.statusText)
                 }
                 Spacer()
-                if let seek, let frame = row.frame {
-                    Button("Show in video", systemImage: "play.circle") { seek(frame) }
-                        .buttonStyle(.link).labelStyle(.titleAndIcon)
+                if seek != nil, row.frame != nil {
+                    // A hint, not a second control: the whole tile is the click target.
+                    Label("Show in video", systemImage: "play.circle").labelStyle(.titleAndIcon)
+                        .accessibilityHidden(true)
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
@@ -293,7 +294,7 @@ struct ResultBadge: View {
         case .offBoard: ("Miss", "xmark", missInk)
         case nil: ("—", "", Color.secondary)
         }
-        HStack(spacing: 3) {
+        HStack(spacing: Space.xs) {
             if !symbol.isEmpty { Image(systemName: symbol).imageScale(.small) }
             Text(text)
         }

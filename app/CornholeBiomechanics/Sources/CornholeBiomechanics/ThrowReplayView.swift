@@ -71,8 +71,8 @@ struct ThrowReplayView: View {
                         legend.padding(Space.s).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator.opacity(mode == .video ? 0 : 0.6)))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+                .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(mode == .video ? 0 : 0.6)))
             }
             .aspectRatio(CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
             .frame(maxHeight: 520)
