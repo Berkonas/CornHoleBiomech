@@ -226,12 +226,22 @@ struct AthleteSummaryContent: View {
                 if loading {
                     HStack(spacing: Space.s) { ProgressView().controlSize(.small); Text("Reading this athlete's throws…").foregroundStyle(.secondary) }
                 }
-                scoringCard
-                focusCard
-                tableCard
-                consistencyCard
-                releaseMapCard
-                researchDetails
+                if analysed == 0 {
+                    // Every section needs the same first step, so it is asked once.
+                    if !loading {
+                        Card("Analyse a throw to start", symbol: "waveform.path.ecg",
+                             subtitle: "Scoring, coach focus, the throw comparison, consistency and the release map fill in as throws are analysed.") {
+                            notAnalysedEmpty
+                        }
+                    }
+                } else {
+                    scoringCard
+                    focusCard
+                    tableCard
+                    consistencyCard
+                    releaseMapCard
+                    researchDetails
+                }
             }
         }
     }
@@ -280,15 +290,12 @@ struct AthleteSummaryContent: View {
         actions.analyzeFirst ?? ("Import Videos", actions.importVideos)
     }
 
-    @ViewBuilder private var dashboardEmpty: some View {
-        if analysed == 0 { notAnalysedEmpty } else { noDashboardEmpty }
-    }
 
     // MARK: Scoring
 
     private var scoringCard: some View {
         Card("Scoring", symbol: "target", subtitle: "Where the bags ended up, from the results recorded on each throw.") {
-            if analysed > 0, results == 0 || dashboard?.throws_with_outcome == 0 {
+            if results == 0 || dashboard?.throws_with_outcome == 0 {
                 // Results are the missing input whether or not the summary has been built.
                 sectionEmpty("hand.tap", "No results recorded yet. Open each throw and click Hole, Board or Miss — one click per throw.",
                              action: actions.recordResults.map { ("Record Results", $0) })
@@ -314,7 +321,7 @@ struct AthleteSummaryContent: View {
                     }
                 }
             } else {
-                dashboardEmpty
+                noDashboardEmpty
             }
         }
     }
@@ -328,10 +335,12 @@ struct AthleteSummaryContent: View {
             ("Bags", sports?.bags.map(String.init) ?? "—", "With a recorded result"),
         ]
         return ViewThatFits(in: .horizontal) {
+            // One row of equal-height tiles whenever five fit (down to the 820 pt layout).
             HStack(alignment: .top, spacing: Space.m) {
-                ForEach(items, id: \.0) { StatTile(label: $0.0, value: $0.1, caption: $0.2).frame(minWidth: 150) }
+                ForEach(items, id: \.0) { StatTile(label: $0.0, value: $0.1, caption: $0.2).frame(minWidth: 130) }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Space.m, alignment: .top)], spacing: Space.m) {
+            .fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: Space.m, alignment: .top)], spacing: Space.m) {
                 ForEach(items, id: \.0) { StatTile(label: $0.0, value: $0.1, caption: $0.2) }
             }
         }
@@ -376,7 +385,7 @@ struct AthleteSummaryContent: View {
                     }
                 }
             } else {
-                dashboardEmpty
+                noDashboardEmpty
             }
         }
     }
@@ -385,11 +394,7 @@ struct AthleteSummaryContent: View {
 
     private var tableCard: some View {
         Card("Throw comparison", symbol: "tablecells", subtitle: "One row per analysed throw. Click a column title to sort.") {
-            if rows.isEmpty {
-                notAnalysedEmpty
-            } else {
-                ThrowComparisonTable(rows: rows, open: open)
-            }
+            ThrowComparisonTable(rows: rows, open: open)
         }
     }
 
@@ -398,9 +403,7 @@ struct AthleteSummaryContent: View {
     private var consistencyCard: some View {
         Card("Consistency", symbol: "waveform.path", subtitle: "How much the movement and the release change from throw to throw.") {
             Text("Elbow angle through the throw").font(.headline)
-            if analysed == 0 {
-                notAnalysedEmpty
-            } else if let curves, !curves.lines.isEmpty {
+            if let curves, !curves.lines.isEmpty {
                 ElbowConsistencyChart(curves: curves, scores: scores)
             } else if let consistency {
                 sectionEmpty("chart.line.flattrend.xyaxis",
@@ -415,7 +418,7 @@ struct AthleteSummaryContent: View {
             if let profile = dashboard?.release_profile, !profile.isEmpty {
                 ReleaseProfileStrips(profile: profile)
             } else if dashboard == nil {
-                dashboardEmpty
+                noDashboardEmpty
             } else {
                 sectionEmpty("chart.dots.scatter", "No measure was reliable on enough throws to compare yet.",
                              action: moreThrowsAction)
@@ -451,12 +454,8 @@ struct AthleteSummaryContent: View {
             }
         } else {
             Card("Release map", symbol: "square.grid.3x3.fill", subtitle: "Throws on the release speed × angle success map.") {
-                if analysed == 0 {
-                    notAnalysedEmpty
-                } else {
-                    sectionEmpty("ruler", "No throw has release speed, angle and height measured reliably in metres yet. Open a throw and check its scale and release in Fix Tracking.",
-                                 action: rows.first.map { row in ("Open \(row.label)", { open(row.id) }) })
-                }
+                sectionEmpty("ruler", "No throw has release speed, angle and height measured reliably in metres yet. Open a throw and check its scale and release in Fix Tracking.",
+                             action: rows.first.map { row in ("Open \(row.label)", { open(row.id) }) })
             }
         }
     }
@@ -472,7 +471,7 @@ struct AthleteSummaryContent: View {
                         TrustCounts(trust: dashboard.trust)
                         CompensationSection(compensation: dashboard.compensation)
                     } else {
-                        dashboardEmpty
+                        noDashboardEmpty
                     }
                 }
                 .padding(.top, Space.m)
@@ -498,7 +497,7 @@ struct StatTile: View {
             Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(2)
         }
         .padding(Space.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(0.6)))
         .accessibilityElement(children: .combine)

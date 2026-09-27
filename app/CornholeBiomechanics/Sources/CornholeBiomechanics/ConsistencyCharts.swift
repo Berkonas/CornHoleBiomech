@@ -101,6 +101,7 @@ struct ElbowConsistencyChart: View {
             .chartYScale(domain: curves.domain)
             .chartXAxisLabel("Movement cycle (% from start to end of the throw)", alignment: .center)
             .chartYAxisLabel("Elbow angle (°)", position: .leading)
+            .chartYAxis { AxisMarks(position: .leading) }
             .chartLegend(.hidden)
             .frame(height: 240)
             .accessibilityLabel("Elbow angle in degrees over the movement cycle for \(curves.throwCount) throws, with their mean and one standard deviation band")
@@ -176,7 +177,7 @@ struct ReleaseProfileStrips: View {
         .chartYScale(domain: 0...1)
         .chartYAxis(.hidden)
         .chartXScale(domain: Self.domain(row))
-        .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+        .chartXAxis { AxisMarks(preset: .aligned, values: .automatic(desiredCount: 4)) }
         .chartXAxisLabel(row.unit.isEmpty ? row.label : "\(row.label) (\(row.unit))", alignment: .center)
         .frame(height: 64)
     }

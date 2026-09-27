@@ -3,18 +3,20 @@ import SwiftUI
 /// GOOD / WARNING / POOR per measurement stage, each with a glyph, and the rule in the tooltip.
 struct TrustStrip: View {
     let grades: [String: String]
+    /// Off where a "Data quality" heading already sits above the strip.
+    var showsTitle = true
     static let stages = ["pose", "bag", "release", "calibration"]
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Text("Data quality").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if showsTitle { Text("Data quality").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             ForEach(Self.stages, id: \.self) { stage in
                 let grade = grades[stage]
                 HStack(spacing: Space.xs) {
                     GradeGlyph(grade: grade)
                     Text("\(Self.title(stage)) \(grade.map { $0.capitalized } ?? "—")").font(.caption)
                 }
-                .padding(.horizontal, Space.s).padding(.vertical, 3)
+                .padding(.horizontal, Space.s).padding(.vertical, Space.xs)
                 .background(gradeColor(grade).opacity(0.1), in: Capsule())
                 .help(Self.rule(stage))
             }

@@ -182,8 +182,10 @@ struct AthleteDashboard: Decodable {
 func formatRange(_ low: Double, _ high: Double, unit: String) -> String {
     let lowText = formatValue(low, unit: unit), highText = formatValue(high, unit: unit)
     let suffix = unit == "°" ? "°" : unit.isEmpty ? "" : " \(unit)"
-    guard !suffix.isEmpty, lowText.hasSuffix(suffix) else { return "\(lowText)–\(highText)" }
-    return "\(lowText.dropLast(suffix.count))–\(highText)"
+    // A dash between negative numbers misreads ("-63–-54"), so negative ranges use "to".
+    let separator = low < 0 || high < 0 ? " to " : "–"
+    guard !suffix.isEmpty, lowText.hasSuffix(suffix) else { return "\(lowText)\(separator)\(highText)" }
+    return "\(lowText.dropLast(suffix.count))\(separator)\(highText)"
 }
 
 func gradeColor(_ grade: String?) -> Color {

@@ -212,8 +212,8 @@ struct SuccessMap: View {
     static func opacity(_ zone: LandingZone, dark: Bool) -> Double {
         switch zone {
         case .hole: dark ? 0.70 : 0.62
-        case .board: dark ? 0.30 : 0.30
-        case .off: dark ? 0.16 : 0.12
+        case .board: dark ? 0.40 : 0.30
+        case .off: 0.12
         }
     }
 

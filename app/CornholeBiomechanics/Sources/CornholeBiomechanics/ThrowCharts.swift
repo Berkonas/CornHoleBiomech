@@ -163,9 +163,11 @@ struct JointAngleChart: View {
             .chartXScale(domain: window)
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
             .chartYAxisLabel("Angle (°)", position: .leading)
+            .chartYAxis { AxisMarks(position: .leading) }
             .chartYScale(domain: Self.domain(points.map(\.value)))
             .seekOnClick(timeline, seek)
             .frame(height: 220)
+            .padding(.top, Space.l)   // room for the event labels above the plot
             .accessibilityLabel("Elbow angle and trunk inclination in degrees against time from release")
             HStack(spacing: Space.l) {
                 ChartLegendItem(color: Self.elbowInk, label: "Elbow angle (180° = straight)")
@@ -215,8 +217,10 @@ struct WristSpeedChart: View {
             .chartXScale(domain: timeline.window)
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
             .chartYAxisLabel("Wrist speed (arm lengths/s)", position: .leading)
+            .chartYAxis { AxisMarks(position: .leading) }
             .seekOnClick(timeline, seek)
             .frame(height: 220)
+            .padding(.top, Space.l)   // room for the event labels above the plot
             .accessibilityLabel("Wrist speed in arm lengths per second against time from release")
             Text("Arm lengths per second, so throws filmed at different distances compare.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -358,7 +362,8 @@ struct FlightChart: View {
                 }
             }
             .chartXAxisLabel(data.xTitle, alignment: .center)
-            .chartYAxisLabel(data.yTitle)
+            .chartYAxisLabel(data.yTitle, position: .leading)
+            .chartYAxis { AxisMarks(position: .leading) }
             .chartXScale(domain: data.xDomain)
             .chartYScale(domain: data.yDomain)
             .frame(height: 220)
@@ -404,6 +409,13 @@ struct TimingStrip: View {
         }
     }
 
+    /// The events' span plus room for the outer labels, so the axis does not run far past the data.
+    static func domain(_ values: [Double]) -> ClosedRange<Double> {
+        guard let lo = values.min(), let hi = values.max(), hi > lo else { return -500...500 }
+        let pad = max(0.12 * (hi - lo), 60)
+        return (lo - pad)...(hi + pad)
+    }
+
     var body: some View {
         let markers = markers
         VStack(alignment: .leading, spacing: Space.s) {
@@ -432,6 +444,8 @@ struct TimingStrip: View {
                 }
                 .chartYAxis(.hidden)
                 .chartYScale(domain: -1...1)
+                .chartXScale(domain: Self.domain(markers.map(\.ms)))
+                .chartXAxis { AxisMarks(preset: .aligned, values: .automatic(desiredCount: 5)) }
                 .chartXAxisLabel(timeAxisTitle, alignment: .center)
                 .seekOnClick(timeline, seek)
                 .frame(height: 150)

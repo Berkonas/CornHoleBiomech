@@ -674,18 +674,18 @@ struct ThrowReportContent: View {
                 Text("No measurements were saved for this throw.").foregroundStyle(.secondary)
             } else {
                 Table(rows) {
-                    TableColumn("Metric") { row in Text(row.label).help(row.label) }.width(min: 150, ideal: 190)
+                    TableColumn("Metric") { row in Text(row.label).help(row.label) }.width(min: 150, ideal: 180)
                     TableColumn("Value") { row in
                         Text(row.status == "unreliable" ? "—" : formatValue(row.value, unit: row.unit)).monospacedDigit()
                     }.width(min: 80, ideal: 100)
                     TableColumn("Uncertainty") { row in
-                        Text(uncertainty(row).map { "± \(number($0.value, digits: $0.value < 1 ? 2 : 1)) (\($0.kind == .standardError ? "SE" : "noise"))" } ?? "—")
+                        Text(uncertainty(row).map { "± \(number($0.value, digits: $0.value >= 10 ? 0 : $0.value < 1 ? 2 : 1)) (\($0.kind == .standardError ? "SE" : "noise"))" } ?? "—")
                             .monospacedDigit().foregroundStyle(.secondary)
-                    }.width(min: 90, ideal: 120)
+                    }.width(min: 90, ideal: 110)
                     TableColumn("Status") { row in
                         HStack(spacing: Space.xs) { ReliabilityGlyph(status: row.status); Text(row.statusText) }
                             .help(row.reasons.joined(separator: " "))
-                    }.width(min: 120, ideal: 170)
+                    }.width(min: 120, ideal: 140)
                     TableColumn("Definition") { row in Text(row.definition).help(row.definition) }
                 }
                 .frame(height: min(CGFloat(rows.count) * 24 + 32, 460))
@@ -699,7 +699,7 @@ struct ThrowReportContent: View {
         VStack(alignment: .leading, spacing: Space.s) {
             section("Data quality")
             if let grades = data.replay?.grades {
-                TrustStrip(grades: grades)
+                TrustStrip(grades: grades, showsTitle: false)
                 Grid(alignment: .leading, horizontalSpacing: Space.l, verticalSpacing: Space.xs) {
                     ForEach(TrustStrip.stages, id: \.self) { stage in
                         GridRow {
@@ -735,20 +735,21 @@ struct ThrowReportContent: View {
                 if let scale = data.scale {
                     GridRow { Text("Scale"); Text("\(number(scale.pixelsPerMeter, digits: 1)) px/m from the \(scale.source)").monospacedDigit() }
                 }
+                if let physics = data.insight?.verdict?.physics {
+                    physicsRows(physics)
+                }
             }
             .font(.callout)
-            if let physics = data.insight?.verdict?.physics {
-                physicsGrid(physics)
-            }
             if let method = data.insight?.verdict?.method {
                 Text(method).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private func physicsGrid(_ physics: Verdict.Physics) -> some View {
-        Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.xs) {
-            GridRow { Text("Physics check").font(.callout.weight(.medium)); Text("") }
+    /// Rows of the launch-fit grid, so both share one label column.
+    @ViewBuilder private func physicsRows(_ physics: Verdict.Physics) -> some View {
+        Group {
+            GridRow { Text("Physics check").font(.callout.weight(.semibold)).gridCellColumns(2).padding(.top, Space.s) }
             GridRow { Text("Board distance"); Text("\(number(physics.distance_m, digits: 2)) m (\(physics.distance_source.replacingOccurrences(of: "_", with: " ")))") }
             GridRow { Text("Predicted first contact"); Text("\(physics.landing.replacingOccurrences(of: "_", with: " ")) · \(physics.zone) zone") }
             if let from = physics.from_hole_m { GridRow { Text("From hole centre"); Text("\(from >= 0 ? "+" : "−")\(number(abs(from), digits: 2)) m along the board") } }
@@ -756,7 +757,7 @@ struct ThrowReportContent: View {
             if let dv = physics.delta_speed_m_s { GridRow { Text("Δv = v − v*"); Text("\(dv >= 0 ? "+" : "−")\(number(abs(dv), digits: 2)) m/s") } }
             if let k = physics.sensitivity_m_per_m_s { GridRow { Text("∂x/∂v"); Text("\(number(k, digits: 2)) m per m/s") } }
         }
-        .font(.callout).monospacedDigit()
+        .monospacedDigit()
     }
 
     private func formatSE(_ value: Double?, unit: String) -> String {

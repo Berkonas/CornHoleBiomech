@@ -65,8 +65,11 @@ struct LaunchLabContent: View {
             }
             sensitivityCard
             Card {
-                DisclosureGroup("Model and assumptions") { assumptions.padding(.top, Space.s) }
-                    .font(.headline)
+                DisclosureGroup {
+                    assumptions.padding(.top, Space.m)
+                } label: {
+                    Label("Model and assumptions", systemImage: "function").font(.title2.weight(.semibold))
+                }
             }
         }
         .onAppear { if animateOnAppear { throwNow() } }
@@ -258,7 +261,7 @@ struct LaunchLabContent: View {
             }
             Group {
                 if let largest {
-                    Text("Here, \(largest.1.replacingOccurrences(of: "per ", with: "")) of \(largest.0.lowercased()) moves first contact \(number(abs(largest.2), digits: 0)) cm — \(abs(largest.2) >= holeDiameter ? "more than" : "\(number(abs(largest.2) / holeDiameter * 100, digits: 0)) % of") the hole's \(number(holeDiameter, digits: 0)) cm diameter.")
+                    Text("Here, \(largest.1.replacingOccurrences(of: "per ", with: "")) of \(largest.0.lowercased()) moves first contact \(number(abs(largest.2), digits: 0)) cm — \(abs(largest.2) >= holeDiameter ? "more than" : "\(number(abs(largest.2) / holeDiameter * 100, digits: 0))% of") the hole's \(number(holeDiameter, digits: 0)) cm diameter.")
                 } else {
                     Text("Sensitivities are computed when the throw and both small changes land on the board.")
                 }

@@ -129,17 +129,19 @@ struct ThrowComparisonTable: View {
         var unit: String
         var digits: Int
         var value: KeyPath<SummaryThrowRow, Double?>
+        /// Ideal width, wide enough for the full column title.
+        var width: CGFloat = 80
         var sortValue: KeyPath<SummaryThrowRow, Double> { \SummaryThrowRow.[sortValue: key] }
     }
 
     /// The six numeric columns, in order (keys as in results.json → coach_metrics).
     static let columns: [Column] = [
-        Column(key: SummaryThrowRow.speedKey, title: "Speed", unit: "m/s", digits: 1, value: \.speed),
-        Column(key: SummaryThrowRow.angleKey, title: "Angle", unit: "°", digits: 0, value: \.angle),
-        Column(key: SummaryThrowRow.heightKey, title: "Height", unit: "m", digits: 2, value: \.height),
-        Column(key: "elbow_angle_deg_at_release", title: "Elbow at release", unit: "°", digits: 0, value: \.elbow),
-        Column(key: "wrist_peak_speed_arm_lengths_s", title: "Peak wrist speed", unit: "arm lengths/s", digits: 1, value: \.wristPeak),
-        Column(key: "swing_tempo_ratio", title: "Tempo", unit: "back ÷ forward", digits: 2, value: \.tempo),
+        Column(key: SummaryThrowRow.speedKey, title: "Speed", unit: "m/s", digits: 1, value: \.speed, width: 90),
+        Column(key: SummaryThrowRow.angleKey, title: "Angle", unit: "°", digits: 0, value: \.angle, width: 76),
+        Column(key: SummaryThrowRow.heightKey, title: "Height", unit: "m", digits: 2, value: \.height, width: 80),
+        Column(key: "elbow_angle_deg_at_release", title: "Elbow at release", unit: "°", digits: 0, value: \.elbow, width: 130),
+        Column(key: "wrist_peak_speed_arm_lengths_s", title: "Peak wrist speed", unit: "arm lengths/s", digits: 1, value: \.wristPeak, width: 200),
+        Column(key: "swing_tempo_ratio", title: "Tempo", unit: "back ÷ forward", digits: 2, value: \.tempo, width: 150),
     ]
 
     private var sorted: [SummaryThrowRow] { Self.sorted(rows, by: sortOrder) }
@@ -157,7 +159,7 @@ struct ThrowComparisonTable: View {
         VStack(alignment: .leading, spacing: Space.s) {
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Throw", value: \.number) { row in Text(row.label).lineLimit(1).help(row.label) }
-                    .width(min: 90, ideal: 120)
+                    .width(min: 80, ideal: 90)
                 TableColumn("Result", value: \.resultPoints) { row in ResultBadge(score: row.score) }
                     .width(min: 60, ideal: 70)
                 numberColumn(Self.columns[0])
@@ -174,7 +176,8 @@ struct ThrowComparisonTable: View {
             } primaryAction: { ids in
                 if let id = ids.first { open(id) }
             }
-            .frame(height: min(CGFloat(rows.count) * 24 + 34, 420))
+            // Header plus every row (about 25 pt each with the result badge), up to 16 rows before scrolling.
+            .frame(height: min(CGFloat(rows.count) * 25 + 36, 436))
             footer
             Text("Double-click a throw to open its report. — = not measured or not reliable enough to show (hover for the reason). Angles are in the camera's view.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -191,7 +194,7 @@ struct ThrowComparisonTable: View {
                     .accessibilityLabel("Not shown: \(row.withheld[column.key] ?? "not measured")")
             }
         }
-        .width(min: 64, ideal: column.key.hasPrefix("wrist") || column.key.hasPrefix("elbow") ? 120 : 84)
+        .width(min: 64, ideal: column.width)
         .alignment(.trailing)
     }
 

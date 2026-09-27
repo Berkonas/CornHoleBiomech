@@ -19,6 +19,16 @@ final class VisualQATests: XCTestCase {
             let hosting = NSHostingView(rootView: root)
             hosting.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            // Hosted in an off-screen window so AppKit-backed views (Table rows) draw. The window is never
+            // key in a test process, so selected controls show their inactive (grey) state.
+            let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: width, height: height),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = hosting.appearance
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            defer { window.orderOut(nil) }
+            hosting.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
             hosting.layoutSubtreeIfNeeded()
             let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
             hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
@@ -82,7 +92,7 @@ final class VisualQATests: XCTestCase {
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             let dashboard = try XCTUnwrap(AthleteDashboard.load(url), "\(name).json did not decode")
             let consistency = (try? JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: dir.appendingPathComponent("insights.json"))))?.consistency
-            let rows = VisualQATests.summaryRows(dashboard)
+            let rows = VisualQATests.summaryRows(dashboard, throwsFolder: dir.appendingPathComponent("summary_throws"))
             try render(AthleteSummaryContent(dashboard: dashboard, rows: rows, consistency: consistency, open: { _ in },
                                              athleteName: dashboard.athlete, showsDetails: true),
                        "athlete_summary_\(name)", width: 1180, height: 3600)
@@ -122,13 +132,29 @@ final class VisualQATests: XCTestCase {
                    "athlete_summary_few", width: 1180, height: 2000)
     }
 
+    /// Table rows read the way the app reads them (results.json, replay.json grades, stale marker) from
+    /// `summary_throws/<trial id>/` when that folder exists; else rebuilt from the dashboard's release profile.
+    static func summaryRows(_ dashboard: AthleteDashboard, throwsFolder: URL) -> [SummaryThrowRow] {
+        let labels = dashboard.trial_labels ?? [:]
+        let ids = labels.keys.sorted { (labels[$0] ?? $0).localizedStandardCompare(labels[$1] ?? $1) == .orderedAscending }
+        let sources = ids.enumerated().compactMap { index, id -> SummaryThrowRow.Source? in
+            let folder = throwsFolder.appendingPathComponent(id)
+            guard let uuid = UUID(uuidString: id), FileManager.default.fileExists(atPath: folder.path) else { return nil }
+            return SummaryThrowRow.Source(id: uuid, number: index + 1, label: labels[id] ?? "Throw \(index + 1)", score: nil, analysisURL: folder)
+        }
+        return sources.isEmpty ? summaryRows(dashboard) : sources.map(SummaryThrowRow.read)
+    }
+
     /// Table rows rebuilt from the dashboard's release profile (one row per trial it lists).
     static func summaryRows(_ dashboard: AthleteDashboard) -> [SummaryThrowRow] {
         var byTrial: [String: [String: Double]] = [:]
         for profile in dashboard.release_profile {
             for value in profile.values { byTrial[value.trial_id, default: [:]][profile.key] = value.value }
         }
-        let ids = (dashboard.trial_labels ?? [:]).keys.sorted { (dashboard.trial_labels?[$0] ?? $0) < (dashboard.trial_labels?[$1] ?? $1) }
+        // "Throw 2" before "Throw 10", as the app numbers throws by recording order.
+        let ids = (dashboard.trial_labels ?? [:]).keys.sorted {
+            (dashboard.trial_labels?[$0] ?? $0).localizedStandardCompare(dashboard.trial_labels?[$1] ?? $1) == .orderedAscending
+        }
         return ids.enumerated().compactMap { index, id in
             guard let uuid = UUID(uuidString: id) else { return nil }
             var row = SummaryThrowRow(id: uuid, number: index + 1, label: dashboard.trial_labels?[id] ?? "Throw \(index + 1)", score: nil,

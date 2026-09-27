@@ -60,4 +60,9 @@ struct Verdict: Decodable {
     var method: String?
 }
 
-func number(_ value: Double?, digits: Int = 1) -> String { value?.formatted(.number.precision(.fractionLength(digits))) ?? "—" }
+/// A value with `digits` decimals, or "—". Values that round to zero never show as "-0".
+func number(_ value: Double?, digits: Int = 1) -> String {
+    guard let value else { return "—" }
+    let text = value.formatted(.number.precision(.fractionLength(digits)))
+    return text.hasPrefix("-") && text.dropFirst().allSatisfy({ "0.,".contains($0) }) ? String(text.dropFirst()) : text
+}

@@ -195,8 +195,9 @@ struct MetricTile: View {
                     .popover(isPresented: $showsInfo, arrowEdge: .bottom) { info }
             }
             HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                Text(value.map { number($0, digits: digits) } ?? "—").font(.title.monospacedDigit())
-                if value != nil, !row.unit.isEmpty { Text(row.unit).font(.callout).foregroundStyle(.secondary) }
+                // Degrees sit on the number (38°); other units follow as smaller secondary text.
+                Text(value.map { number($0, digits: digits) + (row.unit == "°" ? "°" : "") } ?? "—").font(.title.monospacedDigit())
+                if value != nil, !row.unit.isEmpty, row.unit != "°" { Text(row.unit).font(.callout).foregroundStyle(.secondary) }
                 if value != nil, let uncertainty {
                     Text("± \(number(uncertainty.value, digits: uncertaintyDigits))").font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -207,11 +208,12 @@ struct MetricTile: View {
                 RangeBar(model: RangeBarModel(values: history, current: value, target: target))
             }
             if isFlagged {
-                Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 if let (q1, q3) = RangeBarModel(values: history, current: nil, target: nil).quartiles {
-                    Text("Usual \(number(q1, digits: digits))–\(number(q3, digits: digits))").monospacedDigit()
+                    Text("Usual \(Self.range(q1, q3, digits: digits))").monospacedDigit()
                 } else if value == nil && !isFlagged {
                     Text(row.statusText)
                 }
@@ -261,9 +263,20 @@ struct MetricTile: View {
 
     private var digits: Int {
         guard let value else { return 1 }
+        if row.unit == "m" { return 2 }   // centimetre resolution, as in the throw comparison table
         return abs(value) >= 100 ? 0 : abs(value) >= 10 || row.unit == "°" ? 0 : abs(value) >= 1 ? 1 : 2
     }
-    private var uncertaintyDigits: Int { max(digits, (uncertainty?.value ?? 1) < 1 ? 2 : 1) }
+    /// The value's decimals for uncertainties of 1 or more; one decimal more (at most two) below 1.
+    private var uncertaintyDigits: Int {
+        guard let u = uncertainty?.value, u < 1 else { return digits }
+        return digits > 0 ? min(digits + 1, 2) : 1
+    }
+
+    /// "150–158", or "−59 to −54" when a bound is negative (a dash between negatives misreads).
+    static func range(_ low: Double, _ high: Double, digits: Int) -> String {
+        let a = number(low, digits: digits), b = number(high, digits: digits)
+        return low < 0 || high < 0 ? "\(a) to \(b)" : "\(a)–\(b)"
+    }
 }
 
 /// Reliability status always carries a glyph as well as a colour.

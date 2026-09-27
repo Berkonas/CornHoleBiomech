@@ -39,5 +39,10 @@ final class ReplayModelTests: XCTestCase {
         XCTAssertEqual(document.rows(group: "Release").map(\.label), ["Release angle"])
         XCTAssertEqual(formatRange(9.75, 10.18, unit: "arm lengths/s"), "9.8–10.2 arm lengths/s")
         XCTAssertEqual(formatRange(40, 46, unit: "°"), "40–46°")
+        XCTAssertEqual(formatRange(-63, -54, unit: "°"), "-63 to -54°")
+        XCTAssertEqual(formatRange(-2, 2, unit: "°"), "-2 to 2°")
+        XCTAssertEqual(number(-0.2, digits: 0), "0")
+        XCTAssertEqual(number(-0.004, digits: 2), "0.00")
+        XCTAssertEqual(number(-0.6, digits: 0), "-1")
     }
 }
