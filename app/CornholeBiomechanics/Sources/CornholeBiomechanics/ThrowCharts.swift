@@ -104,7 +104,7 @@ private func eventRules(_ timeline: EventTimeline, keys: [(key: String, label: S
         .foregroundStyle(Color.primary.opacity(0.35)).lineStyle(StrokeStyle(lineWidth: 1))
 }
 
-private struct ChartLegendItem: View {
+struct ChartLegendItem: View {
     let color: Color
     let label: String
     var dashed = false

@@ -78,15 +78,86 @@ final class VisualQATests: XCTestCase {
                        "throw_report_details", width: 1180, height: 5200)
         }
         for name in ["dashboard", "demo_dashboard"] {
-            if let dashboard = AthleteDashboard.load(dir.appendingPathComponent("\(name).json")) {
-                try render(ScrollView { DashboardContent(dashboard: dashboard, trials: [], open: { _ in }, recordResults: {}).padding(24) },
-                           name, width: 1100, height: 2300)
-                try render(ScrollView { DashboardContent(dashboard: dashboard, trials: [], open: { _ in }, recordResults: {}).padding(24) },
-                           "\(name)_dark", width: 1100, height: 1300, dark: true)
-            } else if FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(name).json").path) {
-                XCTFail("\(name).json did not decode")
+            let url = dir.appendingPathComponent("\(name).json")
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let dashboard = try XCTUnwrap(AthleteDashboard.load(url), "\(name).json did not decode")
+            let consistency = (try? JSONDecoder.projectDecoder.decode(TrialInsights.self, from: Data(contentsOf: dir.appendingPathComponent("insights.json"))))?.consistency
+            let rows = VisualQATests.summaryRows(dashboard)
+            try render(AthleteSummaryContent(dashboard: dashboard, rows: rows, consistency: consistency, open: { _ in },
+                                             athleteName: dashboard.athlete, showsDetails: true),
+                       "athlete_summary_\(name)", width: 1180, height: 3600)
+            // Same throws with results entered (synthetic), light and dark.
+            let scored = VisualQATests.withScores(dashboard, rows: rows)
+            for dark in [false, true] {
+                try render(AthleteSummaryContent(dashboard: scored.dashboard, rows: scored.rows, consistency: consistency, open: { _ in },
+                                                 athleteName: dashboard.athlete, showsDetails: true),
+                           "athlete_summary_\(name)_scored\(dark ? "_dark" : "")", width: 1180, height: 3600, dark: dark)
+            }
+            try render(AthleteSummaryContent(dashboard: scored.dashboard, rows: scored.rows, consistency: consistency, open: { _ in },
+                                             athleteName: dashboard.athlete),
+                       "athlete_summary_\(name)_narrow", width: 820, height: 4200)
+        }
+        // Edge cases: no throws; throws but none analysed; three analysed throws, no dashboard or results.
+        try render(AthleteSummaryContent(dashboard: nil, rows: [], consistency: nil, open: { _ in }, athleteName: "Player 4", throwCount: 0),
+                   "athlete_summary_empty", width: 1180, height: 700)
+        var actions = SummaryActions()
+        actions.analyzeFirst = ("Analyze Throw 1", {})
+        try render(AthleteSummaryContent(dashboard: nil, rows: [], consistency: nil, open: { _ in }, athleteName: "Player 4", throwCount: 3,
+                                         resultCount: 0, actions: actions, showsDetails: true),
+                   "athlete_summary_unanalysed", width: 1180, height: 1500)
+        let few = (0..<3).map { i in
+            SummaryThrowRow(id: UUID(), number: i + 1, label: "Throw \(i + 1)", score: nil,
+                            values: ["bag_release_speed_m_s": 7.4 + 0.3 * Double(i), "bag_release_angle_deg": 34 + Double(i),
+                                     "bag_release_height_m": 0.82, "swing_tempo_ratio": 1.8],
+                            withheld: ["elbow_angle_deg_at_release": "Elbow hidden behind the trunk at release."],
+                            grades: ["pose": "GOOD", "bag": "WARNING", "release": "GOOD", "calibration": "WARNING"])
+        }
+        try render(AthleteSummaryContent(dashboard: nil, rows: few, consistency: nil, open: { _ in }, athleteName: "Player 4", throwCount: 3,
+                                         actions: SummaryActions(recordResults: {}, prepareConsistency: {})),
+                   "athlete_summary_few", width: 1180, height: 2000)
+    }
+
+    /// Table rows rebuilt from the dashboard's release profile (one row per trial it lists).
+    static func summaryRows(_ dashboard: AthleteDashboard) -> [SummaryThrowRow] {
+        var byTrial: [String: [String: Double]] = [:]
+        for profile in dashboard.release_profile {
+            for value in profile.values { byTrial[value.trial_id, default: [:]][profile.key] = value.value }
+        }
+        let ids = (dashboard.trial_labels ?? [:]).keys.sorted { (dashboard.trial_labels?[$0] ?? $0) < (dashboard.trial_labels?[$1] ?? $1) }
+        return ids.enumerated().compactMap { index, id in
+            guard let uuid = UUID(uuidString: id) else { return nil }
+            var row = SummaryThrowRow(id: uuid, number: index + 1, label: dashboard.trial_labels?[id] ?? "Throw \(index + 1)", score: nil,
+                                      values: byTrial[id] ?? [:], grades: ["pose": "GOOD", "bag": "GOOD", "release": "GOOD", "calibration": "WARNING"])
+            if row.values["elbow_angle_deg_at_release"] == nil { row.withheld["elbow_angle_deg_at_release"] = "Elbow not visible at release." }
+            if index == 2 { row.grades["bag"] = "POOR" }
+            if index == 4 { row.isStale = true }
+            row.distance = 7.4 + 0.05 * Double(index % 3)
+            return row
+        }
+    }
+
+    /// Synthetic results (hole, board, miss, board, none …) on rows and dashboard, for rendering the scored state.
+    static func withScores(_ dashboard: AthleteDashboard, rows: [SummaryThrowRow]) -> (dashboard: AthleteDashboard, rows: [SummaryThrowRow]) {
+        let cycle: [ScoreCategory?] = [.throughHole, .onBoard, .offBoard, .onBoard, nil, .offBoard, .throughHole]
+        var scores: [String: ScoreCategory?] = [:]
+        let rows = rows.enumerated().map { index, row in
+            var row = row; row.score = cycle[index % cycle.count]; scores[row.id.uuidString] = row.score; return row
+        }
+        var d = dashboard
+        for p in d.release_profile.indices {
+            for v in d.release_profile[p].values.indices {
+                d.release_profile[p].values[v].score = (scores[d.release_profile[p].values[v].trial_id] ?? nil)?.rawValue
             }
         }
+        let recorded = rows.compactMap(\.score)
+        let points = recorded.map(\.rawValue).reduce(0, +)
+        func share(_ s: ScoreCategory) -> Double { 100 * Double(recorded.filter { $0 == s }.count) / Double(max(recorded.count, 1)) }
+        d.throws_with_outcome = recorded.count
+        d.performance.sports = AthleteDashboard.Sports(bags: recorded.count, points_per_bag: Double(points) / Double(max(recorded.count, 1)),
+                                                        ppr: 4 * Double(points) / Double(max(recorded.count, 1)),
+                                                        in_percent: share(.throughHole), on_percent: share(.onBoard), off_percent: share(.offBoard))
+        d.performance.counts = ["unknown": rows.count - recorded.count]
+        return (d, rows)
     }
 
     static func csv(_ url: URL) -> [[String: String]] {

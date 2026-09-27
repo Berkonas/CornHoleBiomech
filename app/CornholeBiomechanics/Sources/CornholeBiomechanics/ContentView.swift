@@ -195,45 +195,6 @@ struct LibraryRecoveryView: View {
     }
 }
 
-// Legacy containers still used by views that the throw report / athlete summary tasks replace.
-struct SectionContainer<Content: View>: View {
-    let title: String
-    let subtitle: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.largeTitle.weight(.semibold))
-                    Text(subtitle).font(.title3).foregroundStyle(.secondary)
-                }
-                content
-            }
-            .frame(maxWidth: 1100, alignment: .leading)
-            .padding(28)
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-
-struct ResearchCard<Content: View>: View {
-    let title: String
-    let symbol: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol).font(.headline)
-            content
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.separator.opacity(0.6)))
-    }
-}
-
 struct StatusPill: View {
     let text: String
     var color: Color = .secondary

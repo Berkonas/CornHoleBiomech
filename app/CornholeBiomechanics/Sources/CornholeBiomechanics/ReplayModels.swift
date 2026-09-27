@@ -151,10 +151,15 @@ struct AthleteDashboard: Decodable {
         var n_scored: Int?; var n_miss: Int?; var cliffs_delta: Double?
         var id: String { key }
     }
-    struct Compensation: Decodable { var status: String; var n: Int; var ratio: Double?; var message: String }
+    struct Compensation: Decodable {
+        var status: String; var n: Int; var ratio: Double?; var message: String
+        var observed_spread_m: Double?; var random_pairing_spread_m: Double?; var chance_as_tight: Double?; var method: String?
+    }
     struct Link: Decodable, Identifiable {
         var stage: String; var from: String; var to: String; var n: Int; var rho: Double?; var status: String
         var supported: Bool; var from_label: String; var to_label: String
+        /// Bootstrap 95% CI of ρ, when estimated.
+        var ci: [Double?]?
         var id: String { from + to }
     }
     struct Trust: Decodable { var `throws`: Int; var grades: [String: [String: Int]]; var overall: [String: String]; var reliable_metric_share: Double? }

@@ -883,3 +883,16 @@ struct ImagePoint: Codable, Hashable {
     var y: Double
     var cgPoint: CGPoint { CGPoint(x: x, y: y) }
 }
+
+/// Forward-swing elbow motion summary (results.json → arm_motion).
+struct ArmMotionAnalysis: Codable {
+    var status: String
+    var summaries: [String: Double?]
+    var start_frame: Int?
+    var release_frame: Int?
+    var sample_count: Int
+    var valid_sample_count: Int
+    var coverage: Double?
+    var radius_coverage: Double?
+    var message: String
+}

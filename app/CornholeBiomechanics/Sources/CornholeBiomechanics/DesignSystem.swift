@@ -1,7 +1,16 @@
 import SwiftUI
 
-// Visual system (spec §7). Data inks `scoredInk`, `missInk`, `measuredInk`, `athleteInk` and
-// `modelInk` are defined next to the views that introduced them and reused everywhere.
+// Visual system (spec §7). Data inks are fixed and reused everywhere; `measuredInk` and `modelInk`
+// live next to the replay that introduced them.
+
+// Validated categorical slots 1–2 (dataviz reference palette); rows also carry the group name.
+let scoredInk = Color(red: 0.165, green: 0.471, blue: 0.839)
+let missInk = Color(red: 0.922, green: 0.408, blue: 0.204)
+/// The athlete's own data (curves, IQR bands).
+let athleteInk = Color(red: 0.15, green: 0.51, blue: 0.56)
+
+/// Movement events in order, with coach-facing names.
+let eventNames: [(String, String)] = [("motion_start", "Start"), ("peak_backswing", "Backswing"), ("forward_swing", "Forward swing"), ("release", "Release"), ("peak_follow_through", "Follow-through"), ("motion_end", "End")]
 
 /// Spacing scale: 4 / 8 / 12 / 16 / 24 / 32.
 enum Space {
