@@ -8,7 +8,7 @@ This document collects, in one place, the methods and every equation the system 
 
 | Item | Value | Where defined |
 |---|---|---|
-| Measurement method version | `METHOD_VERSION = "2026.09.27-thrower"` | `cornhole_biomech/__init__.py` |
+| Measurement method version | `METHOD_VERSION = "2026.09.27-working-1080p"` | `cornhole_biomech/__init__.py` |
 | Python package | 0.6.1 | `cornhole_biomech/__init__.py` |
 | Pose software | Sports2D 0.8.34 (pinned), RTMPose via RTMLib/ONNX Runtime on CPU, model `body_with_feet` (HALPE-26 incl. heel/toe points), mode `balanced` | `sports2d_adapter.py`, `config.py` |
 | Automatic bag tracker | `auto_motion_parabola_v13_near_contact_surface_point` | `auto_bag.py` |
@@ -82,9 +82,11 @@ A Swift helper (`scene_vision`) runs Apple Vision `VNGeneratePersonSegmentationR
 
 **Why classical:** learned ball trackers need thousands of labelled frames that do not exist for cornhole bags; a free bag must follow a parabola with downward acceleration $g$, which rejects most clutter without training ([AUTOMATIC_TRACKING.md](AUTOMATIC_TRACKING.md)).
 
+0. **Working resolution** — the search (blob sizes, merge distances, segmentation windows, board detection) was built and validated on 1080p footage, so a taller clip (the 4K Player 1 session) is searched on frames resized to 1080 px high (INTER_AREA) and every pixel result is mapped back to source pixels (with $s = 1080/h$: positions, fit coefficients and accelerations × $1/s$, areas × $1/s^2$, camera transforms' translations × $1/s$, and the board homographies as $S\,H_{\text{plane}}$ and $H_{\text{deck}}\,S^{-1}$ with $S=\mathrm{diag}(1/s,1/s,1)$). At full 4K the bag's difference blob exceeded the 1080p-tuned size limits and fragmented (frame-to-frame centroid jitter 17 px median), so 0/10 Player 1 flights were accepted and 2/10 boards found; at the working resolution 8/10 flights and 10/10 boards, and the decoded frames need 1.7 GB instead of 7 GB (peak memory 3–4 GB instead of 12.4 GB). 1080p clips are searched unchanged.
 1. **Candidates** — difference blobs (fragments within 16 px merged, area-weighted).
 2. **Seeds** — blobs linked frame-to-frame with constant-velocity prediction; short windows fitted with a quadratic; RANSAC over triples as fallback. A seed must move toward the target, curve downward with image "gravity" inside the range implied by the athlete's projected shoulder–wrist length (taken as 0.45–0.90 m, ±25 %), and have small horizontal curvature.
 3. **Growth and trimming** — backward extension stops while the bag is within 0.45 arm lengths of the wrist (still in hand); the end is trimmed where the path breaks from a local parabola of the preceding 15 frames (slide/bounce).
+   **Backfill to the hand.** Detection differences grey levels, so a red bag crossing a wall of similar brightness goes undetected for its first frames of flight. Walking back from the first measured centre, each earlier frame is searched with the colour (LAB) segmentation at the position predicted by a parabola through the nearest six centres, and accepted by the gap-filling rule (within half a bag length of the prediction, typical bag size, outside the hand); the walk stops before the prediction reaches the hand (0.45 arm lengths), after two misses or 0.25 s. Release is then the earliest free-flight centre. On the Player 1 session this recovered 7 frames on throw 3 (release 70 → 63, visually 62–63) and 2 on throw 10 (101 → 99, visually 99–100); throws whose detections already reached the hand are unchanged.
 4. **Acceptance** — a flight is used without review only if **all** gates pass; otherwise it is `needs_review` with every reason listed:
 
 | Gate | Value (code) |

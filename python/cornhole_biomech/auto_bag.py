@@ -36,12 +36,12 @@ import numpy as np
 
 from .background import build_plate
 from .bag import GRAVITY_M_S2, _robust_polynomial
-from .bag_segment import SEGMENT_REVISION, refine_flight, track_after_contact
+from .bag_segment import SEGMENT_REVISION, backfill_to_hand, refine_flight, track_after_contact
 from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v13_near_contact_surface_point"
+AUTO_BAG_REVISION = "auto_motion_parabola_v15_backfill_to_hand"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -222,31 +222,47 @@ def _merge_fragments(blobs: list[tuple[float, float, int]], merge_px: float) -> 
 
 
 FRAME_MEMORY_FRACTION = 0.45   # decoded clip may use at most this share of physical RAM
+# The search (blob sizes, merge distances, segmentation windows, board detection) was built and
+# validated on 1080p footage; larger clips are searched on frames resized to this height and the
+# results mapped back to source pixels. 1080p and smaller clips are searched unchanged.
+WORKING_HEIGHT_PX = 1080
+
+
+def _video_size(video_path: str) -> tuple[float, float, float]:
+    capture = cv2.VideoCapture(str(video_path))
+    size = tuple(capture.get(p) for p in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FRAME_COUNT))
+    capture.release()
+    return size
+
+
+def working_scale(height: float) -> float:
+    """Resize factor from source pixels to the search's working resolution (<= 1)."""
+    return min(1.0, WORKING_HEIGHT_PX / height) if height and height > 0 else 1.0
 
 
 def frame_memory_check(video_path: str, fraction: float = FRAME_MEMORY_FRACTION) -> str | None:
     """Reason to skip automatic tracking when the decoded clip would not fit in memory, else None.
 
-    The search holds every decoded BGR frame (w x h x 3 bytes each): a 280-frame 4K clip is
-    7.0 GB, and the whole analysis peaked at 12.4 GB on a 16 GB Mac. Refusing up front keeps
-    a long 4K clip from freezing the computer; trimming or 1080p recording brings it in budget.
+    The search holds every decoded BGR frame at the working resolution (w x h x 3 bytes each):
+    a 280-frame clip is 1.7 GB at 1080p (7.0 GB if it were kept at 4K, where one analysis
+    peaked at 12.4 GB on a 16 GB Mac). Refusing up front keeps a very long clip from freezing
+    the computer; trimming brings it in budget.
     """
-    capture = cv2.VideoCapture(str(video_path))
-    width, height, count = (capture.get(p) for p in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT,
-                                                        cv2.CAP_PROP_FRAME_COUNT))
-    capture.release()
+    width, height, count = _video_size(video_path)
     try:
         ram = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
     except (ValueError, OSError, AttributeError):
         return None
-    need = width * height * 3 * count
+    scale = working_scale(height)
+    need = round(width * scale) * round(height * scale) * 3 * count
     if ram <= 0 or need <= fraction * ram:
         return None
-    return (f"The clip is too large to search automatically on this computer ({need / 1e9:.1f} GB of decoded "
-            f"frames; limit {fraction * ram / 1e9:.1f} GB). Trim it to the throw in Prepare Video, or record at 1080p.")
+    return (f"The clip is too long to search automatically on this computer ({need / 1e9:.1f} GB of decoded "
+            f"frames; limit {fraction * ram / 1e9:.1f} GB). Trim it to the throw in Prepare Video.")
 
 
-def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
+def read_frames(video_path: str, scale: float = 1.0) -> tuple[list[np.ndarray], float]:
+    """Every frame of the clip, resized by `scale` (INTER_AREA) as it is decoded."""
     capture = cv2.VideoCapture(str(video_path))
     fps = float(capture.get(cv2.CAP_PROP_FPS)) or 30.0
     frames = []
@@ -254,9 +270,50 @@ def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
         ok, frame = capture.read()
         if not ok:
             break
+        if scale != 1.0:
+            frame = cv2.resize(frame, (round(frame.shape[1] * scale), round(frame.shape[0] * scale)),
+                               interpolation=cv2.INTER_AREA)
         frames.append(frame)
     capture.release()
     return frames, fps
+
+
+_LENGTH_KEYS = {"x", "y", "detection_x", "detection_y", "x_px", "y_px", "x_release_frame", "y_release_frame",
+                "coef_x", "coef_y"}
+_AREA_KEYS = {"area_px", "typical_bag_area_px"}
+
+
+def to_source_pixels(value: Any, factor: float, key: str | None = None) -> Any:
+    """Map a search result from working pixels to source pixels (x `factor`, areas x factor²).
+
+    Pixel quantities are named `x`/`y`, `*_px`, `*_px_s2`, `coef_x`/`coef_y` (positions,
+    velocities and accelerations alike); `camera_to_release` transforms keep their linear part
+    and scale their translation; the board's `plane_H` (metres -> pixels) becomes S·H and
+    `deck_H` (pixels -> deck inches) H·S⁻¹. Frame numbers, metres, inches and angles are unchanged.
+    """
+    if isinstance(value, dict):
+        out = {}
+        S = np.diag([factor, factor, 1.0])
+        for k, v in value.items():
+            if k == "camera_to_release" and isinstance(v, dict):
+                out[k] = {f: [[m[0][0], m[0][1], m[0][2] * factor], [m[1][0], m[1][1], m[1][2] * factor]]
+                          for f, m in v.items()}
+            elif k == "plane_H" and v is not None:
+                out[k] = (S @ np.asarray(v, float)).tolist()
+            elif k == "deck_H" and v is not None:
+                out[k] = (np.asarray(v, float) @ np.linalg.inv(S)).tolist()
+            else:
+                out[k] = to_source_pixels(v, factor, k)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [to_source_pixels(v, factor, key) for v in value]
+    if key is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    if key in _AREA_KEYS:
+        return value * factor * factor
+    if key in _LENGTH_KEYS or key.endswith("_px") or key.endswith("_px_s2"):
+        return value * factor
+    return value
 
 
 def reference_chain(to_prev: list[np.ndarray], reference: int) -> dict[int, np.ndarray]:
@@ -942,7 +999,49 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
                    cache_dir: Path | None = None, board_corners_px: list | None = None,
                    board_corners_frame: int | None = None,
                    bystander_boxes: dict[int, list[list[float]]] | None = None) -> dict[str, Any]:
-    """Detect every flight in a clip and pick the one for this trial.
+    """Automatic flight search in source pixels; see `_auto_track_bag_working` for the method.
+
+    Clips taller than WORKING_HEIGHT_PX are searched on resized frames: inputs (wrist, arm
+    length, bystander boxes, clicked corners) are scaled down, every pixel output is mapped
+    back with `to_source_pixels`, and `plate.jpg` is re-saved at source size so corners
+    clicked on it stay in source pixels. On the 4K pilot clips a full-resolution search
+    fragmented the bag (blob sizes tuned on 1080p) and kept 7 GB of frames in memory.
+    """
+    too_large = frame_memory_check(video_path)
+    if too_large:
+        return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": [too_large], "flights": [],
+                "memory_limited": True}
+    width, height, _ = _video_size(video_path)
+    s = working_scale(height)
+    if s == 1.0:
+        return _auto_track_bag_working(video_path, wrist, arm_length_px, target_direction, preferred_release,
+                                       cache_dir, board_corners_px, board_corners_frame, bystander_boxes, 1.0)
+    scaled_boxes = ({f: [[v * s for v in box] for box in boxes] for f, boxes in bystander_boxes.items()}
+                    if bystander_boxes else bystander_boxes)
+    result = _auto_track_bag_working(
+        video_path, None if wrist is None else np.asarray(wrist, float) * s,
+        None if arm_length_px is None else arm_length_px * s, target_direction, preferred_release, cache_dir,
+        None if board_corners_px is None else (np.asarray(board_corners_px, float) * s).tolist(),
+        board_corners_frame, scaled_boxes, s)
+    result = to_source_pixels(result, 1.0 / s)
+    if "width" in result:
+        result["width"], result["height"] = int(width), int(height)
+    plate_path = Path(cache_dir) / "plate.jpg" if cache_dir is not None else None
+    if plate_path is not None and plate_path.exists():
+        plate = cv2.imread(str(plate_path))
+        if plate is not None and plate.shape[0] != int(height):
+            cv2.imwrite(str(plate_path), cv2.resize(plate, (int(width), int(height)), interpolation=cv2.INTER_CUBIC))
+    return result
+
+
+def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_length_px: float | None,
+                   target_direction: str, preferred_release: int | None = None,
+                   cache_dir: Path | None = None, board_corners_px: list | None = None,
+                   board_corners_frame: int | None = None,
+                   bystander_boxes: dict[int, list[list[float]]] | None = None,
+                   scale: float = 1.0) -> dict[str, Any]:
+    """Detect every flight in a clip and pick the one for this trial (in working pixels:
+    source pixels x `scale`; `auto_track_bag` maps the result back).
 
     `points` are raw video pixels, the same system as the pose landmarks, manual
     bag corrections and the video on screen. `stabilized_points` hold the same
@@ -962,11 +1061,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     in which case the board is still detected and reported).
     """
     started = time.perf_counter()
-    too_large = frame_memory_check(video_path)
-    if too_large:
-        return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": [too_large], "flights": [],
-                "memory_limited": True}
-    frames, fps = read_frames(video_path)
+    frames, fps = read_frames(video_path, scale)
     if len(frames) < 5:
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "reasons": ["The clip is too short."], "flights": []}
     candidates, to_prev = detect_moving_blobs_in_frames(frames)
@@ -1011,13 +1106,16 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
     refined = {r["frame"]: r for r in refine_flight(frames, chain, chosen["points"])}
     # Release onset: flight points whose bag centre is still in the hand are not free flight.
     first_detection = int(chosen["fit"]["first_frame"])
+    in_hand_px = IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None
+    # Frames between the hand and the first detection the detector missed (low grey contrast).
+    backfilled = backfill_to_hand(frames, chain, [refined[f] for f in sorted(refined)], wrist, in_hand_px)
+    refined.update({r["frame"]: r for r in backfilled})
     # Every refined frame counts, including gaps the segmentation re-acquired between detections.
     centres = [{"frame": f, "x": refined[f]["x"], "y": refined[f]["y"]} for f in sorted(refined)]
-    in_hand_px = IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None
     onset = held_at_start(centres, wrist, in_hand_px, detection_frames=[p["frame"] for p in chosen["points"]])
     held = onset["held"]
     held_frames = [c["frame"] for c in centres[:held]]
-    if held:
+    if held or centres[held]["frame"] < first_detection:
         chosen = _start_after_hand(chosen, centres[held]["frame"], fps, to_prev)
         refined = {f: r for f, r in refined.items() if f >= chosen["fit"]["first_frame"]}
     fit = chosen["fit"]
@@ -1092,6 +1190,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
                   "bystander_box_frames": len(bystander_boxes or {}),
                   "plate_samples": scene_info["plate_samples"]},
         "width": width, "height": height,
+        "working_scale": scale,
         "event_precision_frames": 1,
         "release_wrist_distance_px": wrist_gap,
         "camera_motion_during_flight_px": motion,
@@ -1102,7 +1201,7 @@ def auto_track_bag(video_path: str, wrist: np.ndarray | None, arm_length_px: flo
                    for c in raw],
         "centroid_method": SEGMENT_REVISION,
         "centroid_sources": {src: sum(1 for r in refined.values() if r["source"] == src)
-                             for src in ("mask", "detection", "reacquired_mask")},
+                             for src in ("mask", "detection", "reacquired_mask", "backfilled_mask")},
         "stabilized_coordinates": "release_frame_pixels_camera_motion_removed",
         "stabilized_points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
         "camera_to_release": camera_to_release,

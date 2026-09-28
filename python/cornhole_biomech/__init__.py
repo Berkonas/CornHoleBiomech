@@ -7,7 +7,7 @@ __version__ = "0.6.1"
 # analysed under different method versions are never pooled or compared.
 # The engine source hash stays in each manifest as provenance, but it is not
 # used for compatibility, so edits to comments or UI code keep old analyses usable.
-METHOD_VERSION = "2026.09.27-thrower"
+METHOD_VERSION = "2026.09.27-working-1080p"
 
 REQUIRED_LANDMARKS = (
     "left_shoulder",

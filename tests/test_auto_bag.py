@@ -327,7 +327,7 @@ def _no_flight_clip(monkeypatch, frame_count=9):
     import cornhole_biomech.auto_bag as ab
     from test_board import pilot_like_corners, render_pilot_board
     frame = render_pilot_board(pilot_like_corners())
-    monkeypatch.setattr(ab, "read_frames", lambda path: ([frame.copy() for _ in range(frame_count)], FPS))
+    monkeypatch.setattr(ab, "read_frames", lambda path, scale=1.0: ([frame.copy() for _ in range(frame_count)], FPS))
     monkeypatch.setattr(ab, "detect_moving_blobs_in_frames",
                         lambda frames: ([], [np.eye(3)[:2] for _ in range(len(frames))]))
     monkeypatch.setattr(ab, "find_flights", lambda *a, **k: [])
@@ -404,7 +404,7 @@ def test_clicked_corners_from_a_frame_outside_the_clip_are_dropped(monkeypatch):
 def test_near_contact_landing_uses_the_predicted_surface_point(monkeypatch):
     import cornhole_biomech.auto_bag as ab
     from cornhole_biomech.auto_bag import AUTO_BAG_REVISION, NEAR_CONTACT_FRAMES
-    assert AUTO_BAG_REVISION == "auto_motion_parabola_v13_near_contact_surface_point"
+    assert AUTO_BAG_REVISION == "auto_motion_parabola_v15_backfill_to_hand"
     decided = _near_contact(monkeypatch, [0, 0, 500.0], 80 + NEAR_CONTACT_FRAMES)
     assert decided["contact"]["surface_point_px"] == [1.0, 2.0]
     assert decided["contact"]["surface_frame"] == 80 + NEAR_CONTACT_FRAMES

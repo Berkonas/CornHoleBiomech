@@ -499,6 +499,10 @@ grade: GOOD ≤ 4 frames, WARNING 5–6). The window widened by construction aft
 release later on 7/21 throws (5 of them by +3 to +4 frames), which is why GOOD's threshold moved
 from 3 to 4 frames rather than being kept fixed.
 
+### 18.8a Working resolution and backfill to the hand (METHOD_VERSION 2026.09.27-working-1080p)
+
+`auto_bag.auto_track_bag` searches clips taller than `WORKING_HEIGHT_PX` (1080) on frames resized by $s = 1080/h$ and maps the result back with `to_source_pixels` (lengths × 1/s, areas × 1/s², `camera_to_release` translations × 1/s, `plane_H` → S·H and `deck_H` → H·S⁻¹ with S = diag(1/s, 1/s, 1)); inputs (wrist, arm length, bystander boxes, clicked corners) are scaled by s, and `plate.jpg` is re-saved at source size so corners clicked on it stay in source pixels. `bag_segment.backfill_to_hand` fills the frames between the hand and the first detection by colour segmentation at parabola-predicted positions (acceptance as for gap re-acquisition; stops before the 0.45-arm-length hand zone, after 2 misses or 15 frames); `centroid_sources.backfilled_mask` counts them. Player 1 4K session: accepted flights 0/10 → 10/10, boards 2/10 → 10/10; the 26 1080p pilot clips are checked against the previous commit in the change log.
+
 ### 18.9 Chain quantities (`chain.py`, `mechanics.py`)
 
 Coordinates are the board's 2D throw plane (§18.3): x horizontal toward the board with the front

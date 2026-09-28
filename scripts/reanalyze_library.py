@@ -33,8 +33,11 @@ def _analyzed_folders(project: dict) -> list[tuple[dict, Path]]:
             if trial.get("analysisRelativePath")]
 
 
-def _analyze_pass(root: Path, project: dict) -> list[str]:
-    """Analyse every already-analysed throw once; return failure messages."""
+def _analyze_pass(root: Path, project: dict, statuses: dict[str, str] | None = None) -> list[str]:
+    """Analyse every throw with an analysis folder once; return failure messages.
+
+    With `statuses`, each throw's outcome ("Analyzed" or "Analysis failed: ...") is recorded by id.
+    """
     failures = []
     for trial, relative_path in _analyzed_folders(project):
         folder = root / relative_path
@@ -42,10 +45,26 @@ def _analyze_pass(root: Path, project: dict) -> list[str]:
         print(f"Analyzing {trial.get('name')} · {trial.get('originalFilename')}", flush=True)
         try:
             analyze_trial(TrialContext(**context), folder, make_annotated_video=False, app_version="cli")
+            if statuses is not None:
+                statuses[trial["id"]] = "Analyzed"
         except Exception as error:  # keep going: one bad clip must not stop the library
             failures.append(f"{trial.get('originalFilename')}: {error}")
             print(f"   failed: {error}", flush=True)
+            if statuses is not None:
+                statuses[trial["id"]] = f"Analysis failed: {error}"
     return failures
+
+
+def _save_statuses(root: Path, statuses: dict[str, str]) -> None:
+    """Write each throw's final analysis status into project.json (atomically)."""
+    path = root / "project.json"
+    project = json.loads(path.read_text())
+    for trial in project["trials"]:
+        if trial["id"] in statuses:
+            trial["analysisStatus"] = statuses[trial["id"]]
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(project, indent=2))
+    temporary.replace(path)
 
 
 def main() -> None:
@@ -67,7 +86,9 @@ def main() -> None:
               f"throw(s), hfov={camera['hfov_deg']}, IQR={iqr}", flush=True)
 
     print("Pass 2/2: re-analysis with the pooled session field of view", flush=True)
-    failures += _analyze_pass(root, project)
+    statuses: dict[str, str] = {}
+    failures += _analyze_pass(root, project, statuses)
+    _save_statuses(root, statuses)
 
     for trial, _ in _analyzed_folders(project):
         try:

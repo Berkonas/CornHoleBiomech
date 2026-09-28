@@ -313,12 +313,14 @@ def test_clip_too_large_for_memory_is_refused_before_decoding(monkeypatch):
     import cornhole_biomech.auto_bag as auto_bag
     class FakeCapture:
         def __init__(self,path):pass
-        def get(self,prop):return {3:3840.0,4:2160.0,7:369.0}[prop]
+        def get(self,prop):return {3:1920.0,4:1080.0,7:1500.0}[prop]
         def release(self):pass
     monkeypatch.setattr(auto_bag.cv2,'VideoCapture',FakeCapture)
     monkeypatch.setattr(auto_bag.os,'sysconf',lambda name:{'SC_PHYS_PAGES':4*1024**2,'SC_PAGE_SIZE':4096}[name])  # 16 GiB
-    monkeypatch.setattr(auto_bag,'read_frames',lambda path:(_ for _ in ()).throw(AssertionError('decoded anyway')))
+    monkeypatch.setattr(auto_bag,'read_frames',lambda path,scale=1.0:(_ for _ in ()).throw(AssertionError('decoded anyway')))
     result=auto_bag.auto_track_bag('clip.mov',None,None,'left_to_right')
     assert result['status']=='not_found' and result['memory_limited']
-    assert '9.2 GB' in result['reasons'][0] and 'Prepare Video' in result['reasons'][0]
+    assert '9.3 GB' in result['reasons'][0] and 'Prepare Video' in result['reasons'][0]
     assert auto_bag.frame_memory_check('clip.mov',fraction=0.9) is None     # fits a larger budget
+    FakeCapture.get=lambda self,prop:{3:3840.0,4:2160.0,7:369.0}[prop]
+    assert auto_bag.frame_memory_check('clip.mov') is None                 # 4K is searched at 1080p: 2.3 GB

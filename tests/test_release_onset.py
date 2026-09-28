@@ -6,6 +6,7 @@ fingers, because the bag's last frames in the hand lie on nearly the same arc as
 and were accepted as flight. The in-hand gate (IN_HAND_ARM_LENGTHS of the wrist) was applied only
 while extending the flight backwards, never to the flight's own first points.
 """
+import cv2
 import numpy as np
 import pytest
 
@@ -83,7 +84,7 @@ def _track_with_flight(monkeypatch, points, wrist, reacquired=()):
     `reacquired` are points the segmentation fills in between detections (not flight points).
     """
     frames = [np.zeros((1080, 1920, 3), np.uint8) for _ in range(120)]
-    monkeypatch.setattr(ab, "read_frames", lambda path: (frames, FPS))
+    monkeypatch.setattr(ab, "read_frames", lambda path, scale=1.0: (frames, FPS))
     monkeypatch.setattr(ab, "detect_moving_blobs_in_frames",
                         lambda fr: ([], [np.eye(3)[:2] for _ in range(len(fr))]))
     run = [p["frame"] for p in points]
@@ -165,3 +166,64 @@ def test_release_can_be_a_frame_the_segmentation_reacquired(monkeypatch):
     assert out["points"][0]["frame"] == TRUE_RELEASE and out["points"][0]["source"] == "reacquired_mask"
     assert out["fit"]["inliers"] == len(detected) - 3
     assert out["release_onset"]["held_frames"] == [TRUE_RELEASE - 3, TRUE_RELEASE - 2, TRUE_RELEASE - 1]
+
+
+def test_4k_clip_is_searched_at_1080p_and_reported_in_source_pixels(monkeypatch):
+    # The same throw filmed at 4K: the caller passes 4K wrist/arm; the search runs on 1080p
+    # frames (the stubs below are working-resolution), and every pixel output comes back x2.
+    points, wrist = _scenario(k_in_hand=3)
+    hd = _track_with_flight(monkeypatch, points, wrist)
+    monkeypatch.setattr(ab, "_video_size", lambda path: (3840.0, 2160.0, 120.0))
+    seen = {}
+    real_read = ab.read_frames
+    monkeypatch.setattr(ab, "read_frames", lambda path, scale=1.0: (seen.setdefault("scale", scale), real_read(path))[1])
+    uhd = ab.auto_track_bag("clip.mov", wrist * 2.0, ARM * 2.0, "left_to_right")
+    assert seen["scale"] == 0.5
+    assert uhd["width"] == 3840 and uhd["height"] == 2160 and uhd["working_scale"] == 0.5
+    assert uhd["release_frame"] == hd["release_frame"] == TRUE_RELEASE          # same onset: inputs were scaled
+    assert uhd["release_onset"]["held_frames"] == hd["release_onset"]["held_frames"]
+    for a, b in zip(hd["points"], uhd["points"]):
+        assert (b["x"], b["y"], b["detection_x"]) == pytest.approx((2 * a["x"], 2 * a["y"], 2 * a["detection_x"]))
+        assert b["area_px"] == pytest.approx(4 * a["area_px"])
+    assert uhd["fit"]["coef_y"] == pytest.approx([2 * v for v in hd["fit"]["coef_y"]])
+    assert uhd["fit"]["vertical_acceleration_px_s2"] == pytest.approx(2 * hd["fit"]["vertical_acceleration_px_s2"])
+    assert uhd["release_onset"]["in_hand_px"] == pytest.approx(2 * hd["release_onset"]["in_hand_px"])
+    assert uhd["typical_bag_area_px"] == pytest.approx(4 * hd["typical_bag_area_px"])
+
+
+def test_source_pixel_mapping_of_board_transforms_and_camera_motion():
+    from cornhole_biomech.auto_bag import to_source_pixels
+    H = np.array([[100.0, 0, 50], [0, 100.0, 20], [0, 0, 1]])        # metres -> working px
+    D = np.linalg.inv(H)                                                # working px -> plane
+    out = to_source_pixels({"plane_H": H.tolist(), "deck_H": D.tolist(), "hfov_deg": 60.0, "phi_deg": 3.0,
+                            "corners_px": [[10.0, 20.0]], "camera_to_release": {"5": [[1.0, 0.01, 3.0], [0.0, 1.0, -4.0]]},
+                            "frame": 7, "plane_xy_m": [1.5, 0.2], "hole_offset_in": 2.0}, 2.0)
+    src = np.array([240.0, 60.0, 1.0])                                   # a source pixel
+    plane = np.asarray(out["deck_H"]) @ src
+    assert plane[:2] / plane[2] == pytest.approx((D @ np.array([120.0, 30.0, 1.0]))[:2])
+    back = np.asarray(out["plane_H"]) @ np.array([0.7, 0.1, 1.0])
+    assert back[:2] / back[2] == pytest.approx(2 * (H @ np.array([0.7, 0.1, 1.0]))[:2])
+    assert out["camera_to_release"]["5"] == [[1.0, 0.01, 6.0], [0.0, 1.0, -8.0]]
+    assert out["corners_px"] == [[20.0, 40.0]]
+    assert (out["frame"], out["plane_xy_m"], out["hfov_deg"], out["hole_offset_in"]) == (7, [1.5, 0.2], 60.0, 2.0)
+
+
+def test_backfill_recovers_the_frames_the_detector_missed_up_to_the_hand():
+    from cornhole_biomech.bag_segment import backfill_to_hand
+    fps, n = 60.0, 50
+    pos = lambda f: (40 + 9.0 * f, 200 - 7.0 * f + 0.12 * f * f)          # the bag's arc (px)
+    frames = []
+    for f in range(n):
+        im = np.full((320, 560, 3), (40, 60, 120), np.uint8)               # brown wall
+        x, y = pos(f)
+        cv2.rectangle(im, (int(x) - 5, int(y) - 5), (int(x) + 5, int(y) + 5), (30, 30, 200), -1)   # red bag
+        frames.append(im)
+    chains = {f: np.eye(3) for f in range(n)}
+    rows = [{"frame": f, "x": pos(f)[0], "y": pos(f)[1], "area_px": 121.0, "source": "mask"} for f in range(20, 32)]
+    wrist = np.array([pos(12)] * n)                                         # hand where the bag was at frame 12
+    back = backfill_to_hand(frames, chains, rows, wrist, in_hand_px=30.0)
+    frames_found = [r["frame"] for r in back]
+    assert frames_found == list(range(frames_found[0], 20)) and frames_found[0] <= 16   # contiguous to the detections
+    assert all(np.hypot(r["x"] - pos(r["frame"])[0], r["y"] - pos(r["frame"])[1]) < 2.0 for r in back)
+    assert all(np.hypot(r["x"] - wrist[0][0], r["y"] - wrist[0][1]) >= 30.0 for r in back)  # never inside the hand
+    assert backfill_to_hand(frames, chains, rows, None, 30.0) == []         # no wrist: no backfill

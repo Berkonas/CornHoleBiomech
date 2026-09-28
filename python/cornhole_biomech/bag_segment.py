@@ -191,6 +191,63 @@ def refine_flight(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray],
     return out
 
 
+def backfill_to_hand(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], rows: list[dict[str, Any]],
+                     wrist: np.ndarray | None, in_hand_px: float | None, max_frames: int = 15,
+                     support: int = 6, max_misses: int = 2) -> list[dict[str, Any]]:
+    """Bag centres in the frames between the hand and the first detection, found by segmentation.
+
+    The detector differences grey levels, so a red bag crossing a wall of similar brightness
+    (brown slats on the 4K pilot clips) goes undetected for its first frames of flight; the
+    colour (LAB) segmentation still separates it. Walking back from the first measured point,
+    each frame is searched at the position predicted by a parabola through the nearest
+    `support` measured centres, and accepted by the gap-filling rule (within half a bag length
+    of the prediction, typical bag size). The walk stops before a prediction reaches the hand
+    (within `in_hand_px` of the wrist: the release rule), after `max_misses` misses in a row, or
+    after `max_frames`. Returns rows (source `backfilled_mask`) in ascending frame order.
+    """
+    measured = [r for r in rows if r.get("source") in ("mask", "detection", "reacquired_mask")]
+    areas = [r["area_px"] for r in measured if r.get("area_px")]
+    if len(measured) < 4 or not areas or wrist is None or not in_hand_px:
+        return []
+    typical_area = float(np.median(areas))
+    bag_length = 2.0 * math.sqrt(typical_area / math.pi)
+    track = [dict(r) for r in measured[:support]]
+    found: list[dict[str, Any]] = []
+    misses = 0
+    for f in range(track[0]["frame"] - 1, max(-1, track[0]["frame"] - 1 - max_frames), -1):
+        near = track[:support]
+        t = np.array([r["frame"] for r in near], float) - f
+        degree = 2 if len(near) >= 4 else 1
+        guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
+                 float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
+        if f >= len(wrist) or not np.isfinite(wrist[f]).all() \
+                or math.hypot(guess[0] - wrist[f][0], guess[1] - wrist[f][1]) < in_hand_px:
+            break
+        seg = segment_bag(frames, chains, f, guess, typical_area)
+        if seg and not seg["touches_window_edge"] and seg["distance_from_prediction_px"] <= 0.5 * bag_length \
+                and math.hypot(seg["x"] - wrist[f][0], seg["y"] - wrist[f][1]) >= in_hand_px:
+            row = {"frame": f, "x": seg["x"], "y": seg["y"], "area_px": seg["area_px"],
+                   "orientation_deg": seg["orientation_deg"], "source": "backfilled_mask",
+                   "detection_x": None, "detection_y": None}
+            found.append(row)
+            track.insert(0, row)
+            misses = 0
+        else:
+            misses += 1
+            if misses >= max_misses:
+                break
+    # A miss between accepted frames leaves a gap; keep only the run touching the detections.
+    found.sort(key=lambda r: r["frame"])
+    run: list[dict[str, Any]] = []
+    expected = measured[0]["frame"] - 1
+    for r in reversed(found):
+        if expected - r["frame"] > 1:
+            break
+        run.insert(0, r)
+        expected = r["frame"] - 1
+    return run
+
+
 def track_after_contact(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], contact: int,
                         start: tuple[float, float], release: int, fps: float, typical_area: float | None,
                         start_velocity: tuple[float, float] = (0.0, 0.0), max_missed: int = 8,
