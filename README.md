@@ -1,104 +1,150 @@
-# Cornhole Biomechanics Lab
+<div align="center">
 
-This Mac app helps you look at how an athlete throws a cornhole bag and how that movement relates to the result. It is a biomechanics course prototype that coaches can explore, not a validated coaching or clinical assessment system.
+# 🎯 Cornhole Biomechanics Lab
 
-You work with athletes and their throws. The app saves your library automatically. You do not need to create a project every time you use it.
+**Turn a phone video of a cornhole throw into release physics, body mechanics and coaching evidence, measured on your own Mac.**
 
-## Open the app
+[![Tests](https://github.com/Berkonas/CornHoleBiomech/actions/workflows/tests.yml/badge.svg)](https://github.com/Berkonas/CornHoleBiomech/actions/workflows/tests.yml)
+![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
+![Swift 6.2](https://img.shields.io/badge/swift-6.2-F05138?logo=swift&logoColor=white)
+![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Double-click **Cornhole Biomechanics Lab.app** in `dist`. Or run `./run_app.sh` from this folder. The item in `dist` links to the runnable build in `~/Library/Application Support/Cornhole Biomechanics Lab/Builds`; keeping it there avoids iCloud Desktop metadata breaking its signature.
+[How it works](#how-it-works) · [Quick start](#quick-start) · [What it measures](#what-it-measures) · [Validation](#how-trustworthy-is-it) · [Docs](#documentation)
 
-On a fresh Mac, run `./setup.sh` once, then `./build_app.sh`. Setup needs internet access for the Python dependencies and pose models. Analysis runs locally; your recordings are not uploaded by the app. This development build needs macOS and the local runtime installed by setup; it is not a standalone signed/notarized installer.
+</div>
 
-## Try it on the pilot clips
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/athlete-summary-dark.png">
+  <img alt="Athlete summary: scoring tiles, coach focus and a sortable throw-by-throw comparison" src="docs/images/athlete-summary.png">
+</picture>
 
-`~/Documents/Cornhole Pilot Library` holds Players 1–3 (26 clips from 17 September), already analyzed. Open it with **File → Choose Athlete Library**. Outcomes are not filled in: record Hole / Board / Miss for each throw with the buttons at the top of **Results**, and the scored-vs-missed analysis and the ACL stats appear. The source clips are in `data/videos`. To build a library from other folders, see `scripts/build_library.py`.
+A native macOS app with a Python science engine, built for **Biomechanics of Human Movement (Fall 2026), Project 1** at Vanderbilt. Coaches import throw videos. The app tracks the athlete's body and the bag automatically, then links **body → release → flight → outcome**. Every number carries its uncertainty and a reliability grade, and the app never fills a missing value with a guess.
 
-## A session in five steps
+> [!NOTE]
+> This is a course research prototype, not a validated clinical or coaching system. All measurements are **projected 2D** from a single side camera. See [limitations](#limitations).
 
-1. Choose **Add Athlete**. Use a participant code if you do not want a name in the data.
-2. Choose **Import Throw** and select **all** of the session's videos at once. Each is copied into the library and analyzed automatically: body tracking, bag flight, release, swing. No clicking through frames is needed.
-3. In **Throws**, a green **Bag ✓ auto** means the bag's flight was found and passed the projectile-physics checks. **Bag: review** means it was not sure. Open that throw, select the bag near release and track it, or mark release and contact in **Flight & scale**.
-4. In **Results**, click **Hole · 3**, **Board · 1** or **Miss · 0** for each throw. Optionally use **Add outcome → Measure on board video** to place the landing in board inches.
-5. Read the **Athlete summary** (result → what differed → next practice → physics check), the release **zones**, and the **scored vs missed** plots. Use **Compare → Trial vs trial** to explain two throws, and **Launch Explorer** to show the athlete how a body change moves the landing.
+---
 
-How the automatic tracking works, and how it did on the pilot clips, is in [AUTOMATIC_TRACKING.md](docs/AUTOMATIC_TRACKING.md). Record with the [session protocol](docs/RECORDING_PROTOCOL.md) for the best results.
+## Highlights
 
-Athlete profiles can be added, edited, or deleted from **Athletes**. Throw management is in **Throws → Manage**. Deletions need confirmation and use recoverable Trash staging. Removing an analysis keeps its video; deleting an athlete removes that profile and its managed data. Your external source recordings are not deleted.
-
-## What the numbers mean
-
-**Results** opens with an **Athlete summary** in three lines:
-- **Result:** how many of this athlete's comparable throws scored.
-- **What differed:** which release variable, if any, separated scored throws (1 or 3 points) from misses (0).
-- **Next practice:** which typical scored throws to review.
-
-The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when there are at least 5 throws in each group, the effect is large (Cliff's δ ≥ 0.474), and it exceeds that variable's measurement noise. The dot plots below the summary show every throw.
-
-**This throw** shows the release angle with its tracking uncertainty, plus the release speed and release height. **Swing** shows the arm angle at release, peak arm swing speed, backswing, tempo (backswing ÷ forward-swing time) and the pendulum drive ratio. The drive ratio is measured arm speed ÷ what gravity alone would give; above 1 means the arm is actively driven.
-
-**ACL stats** give points per round (PPR = 4 × points per bag) and In / On / Off %. **Release zones** show, for release speed, angle and height, the ranges a drag-free bag would need to land in the hole window (green), elsewhere on the board (yellow) or off it (red), around the athlete's own median release. The athlete's throws are marked by their real outcome, together with how often the model agreed. The **physics check** names the release variable whose spread, or off-centre aim, costs this athlete the most. An elbow included angle of 180° means straight in this camera projection. There are no composite 0–100 scores: individual measurements are shown instead.
-
-Bag measurements require separate tracking and frame-by-frame identity review. Unreviewed bag points never contribute to release detection or bag-derived measurements. Release speed and height are reported in meters when a scale exists. The scale comes from either a meter stick held in the throwing plane, or the reviewed bag flight's own fall under gravity (fixed side camera only). See [the methods](docs/FULL_THROW_METHODS.md).
-
-These are not true 3D joint angles, joint forces, torque, muscle activation, or joint loading. Resemblance to a reference throw does not prove better technique. Associations with outcomes do not establish cause and effect. Missing estimates stay missing.
-
-Record with the [session-day protocol](docs/RECORDING_PROTOCOL.md): tripods, the athlete filling most of the frame, a second camera on the board, and a meter stick at the start. Trimming or cropping creates a silent derived clip without changing playback speed. The previous analysis is archived.
-
-## Compare two throws
-
-In **Compare → Trial vs trial**, choose two throws from the same athlete. You get:
-- a one-sentence explanation;
-- a table of release differences next to the athlete's usual throw-to-throw spread;
-- both bag flights overlaid from their release points, on equal axis scales;
-- synchronized body curves and video.
-
-## Launch Explorer
-
-**Body swing** mode animates a stick figure. Change the arm angle at release, backswing, swing speed, step, knee bend or body height, and watch the pendulum swing, release and flight update. The panel shows how far each change moves the landing. **Release values** mode is the direct angle/speed/height model.
-
-**Coach Dashboard** summarizes one athlete: points, release profile and consistency, what differed on better throws (coaching priorities pass a five-part evidence gate; other differences are shown as observations, not advice), the body → release → flight → outcome evidence chain, and data trust. **Throw Replay** plays the measured throw over the video (measured path solid, drag-free model dashed, release / apex / first contact / rest pins) with every metric linked to its frame. See [COACHING_SYSTEM.md](docs/COACHING_SYSTEM.md) and, for what has been checked, [LIGHT_VALIDATION.md](docs/LIGHT_VALIDATION.md).
-
-**Launch Explorer** is a drag-free 2D model of release angle, speed and height and where the bag first lands on a regulation board. It can start from the selected athlete's median measured release. It shows how far the landing moves per degree of angle or per 0.1 m/s of speed, and how much landing spread the athlete's own measured variability implies. It is a model, not measured data. The earlier 3D physics, pendulum and swing labs were removed; their notes are in `docs/archive`.
-
-The **Cornhole Biomechanics Lab.app** shortcut on the Desktop opens the same installed build as `dist`; rebuilding updates both launchers.
-
-## How trustworthy is the analysis?
-
-[STRESS_TEST.md](docs/STRESS_TEST.md) runs the analysis on simulated athletes whose true cause of misses is known.
-- The outcome comparison makes at most about 5 % false claims.
-- It needs about 20–40 throws to detect a real cause.
-- The physics check names the true cause even with 10 throws.
-
-For pros with tight releases, the app correctly says misses likely come from aim or bag behaviour, not body mechanics. Record at least 20 throws per athlete, preferably 30–40.
-
-## Measuring tracking accuracy
-
-`cornhole-biomech annotation-frames` exports blinded frames. Teammates mark them in `tools/annotator.html`. `cornhole-biomech validate-tracking` then reports landmark, elbow-angle, bag and release-frame error, plus agreement between raters. See [VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md). For the bag alone, `cornhole-biomech bag-annotation-frames` and `bag-benchmark` score each tracker stage per flight phase ([BAG_TRACKING_VALIDATION.md](docs/BAG_TRACKING_VALIDATION.md)). The second-pass audit and plan are in [SECOND_PASS_AUDIT.md](docs/SECOND_PASS_AUDIT.md).
-
-## Where things live
-
-Your default athlete data lives in `~/Documents/Cornhole Biomechanics Lab Data`, separate from the development files. **File → Choose Athlete Library** opens an existing library. **File → Import Legacy .cornholeproject** copies an older study without changing its original. Schema-2/3 libraries open normally. Their indexes are backed up before new edits save as schema 4, which supports unknown outcomes without allowing older builds to misread them as misses. Historical zeros are preserved and should be audited against video.
-
-This folder contains:
-
-| Folder | What it is for |
+| | |
 |---|---|
-| `dist` | The app you open |
-| `docs` | User guide, methods, validation, and development notes |
-| `app` | Native Mac interface, icons, and local model assets |
-| `python` | Scientific calculations and video-processing engine |
-| `tests` | Automated scientific and integration tests |
-| `scripts` | Setup, build, verification, and QA helpers |
-| `data` | Your recordings (`data/videos`), bag-validation frames and spot-check sheets; not bundled or committed |
-| `research` | Your local course PDFs and reference material; not bundled or committed |
+| 🦴 **Automatic body tracking** | Sports2D / RTMPose (HALPE-26) with manual correction, confidence masking and a zero-phase 6 Hz Butterworth filter. |
+| 🥏 **Physics-gated bag tracking** | Motion candidates are accepted only if they fit a parabola whose downward acceleration is *g*. No training data needed. |
+| 📐 **Metric scale from gravity** | The bag's own fall calibrates pixels per metre. A meter stick in the throwing plane also works. |
+| 🎯 **Release → landing model** | Drag-free flight to a regulation board gives the hole window, landing sensitivity and a per-throw verdict. |
+| 📊 **Evidence, not scores** | Scored-vs-missed differences are reported only when there are ≥ 5 throws per group, Cliff's δ ≥ 0.474 and the difference exceeds measurement noise. |
+| 🔒 **Local and private** | All analysis runs on the Mac. Recordings are never uploaded. |
 
-Hidden `.git`, `.venv`, and `.build` items are development support files. They are not extra participant libraries.
+## Screenshots
 
-## For the course project
+<table>
+<tr>
+<td width="50%"><img alt="Per-throw report with verdict, animated replay and release values" src="docs/images/throw-report.png"></td>
+<td width="50%"><img alt="Launch Lab: interactive drag-free flight model with a success map and sensitivities" src="docs/images/launch-lab.png"></td>
+</tr>
+<tr>
+<td><b>Throw report</b>: a plain-language verdict, stick-figure replay synced to measured events, and release speed, angle and height with uncertainty.</td>
+<td><b>Launch Lab</b>: change speed, angle and height to see where a bag lands, and how forgiving each release is.</td>
+</tr>
+</table>
 
-The assignment requires real data you collect from real participants, a system demonstration, and evidence linking movement to performance. Supplied clips and synthetic tests help check the software, but they do not replace that study. You still need an approved collection protocol, consent as appropriate, repeated throws with observed outcomes, manual measurement checks, and a defensible discussion of limitations.
+<img alt="Release map: each throw placed on a hole / board / off map of release speed vs angle" src="docs/images/release-map.png">
 
-Read [the full-throw methods and equations](docs/FULL_THROW_METHODS.md) and [revision/validation record](docs/FULL_THROW_REVISION.md) for this revision. Read [the user guide](docs/USER_GUIDE.md) for controls, [the biomechanics methods](docs/BIOMECHANICS_METHODS.md) for definitions, and [the completion audit](docs/COMPLETION_AUDIT.md) for what is implemented and what still requires research. [Verification](docs/VERIFICATION.md) records what was actually tested. Older notes live in `docs/archive` and are historical, not current instructions.
+## How it works
 
-For a development check, run `./verify.sh`. It runs Python tests, native Swift tests, library-schema checks, and a signed local release build. It does not certify scientific validity.
+```mermaid
+flowchart LR
+    V["🎥 Side-camera video<br/>~60 fps · 1080p"] --> S["Camera stabilisation<br/>ORB + RANSAC → ECC"]
+    S --> P["Pose<br/>Sports2D / RTMPose"]
+    S --> B["Bag tracking<br/>3-frame differencing →<br/>physics-gated parabola →<br/>Kalman / RTS smoother"]
+    S --> BD["Board & scale<br/>PnP homography ·<br/>gravity-calibrated px/m"]
+    P --> E["Events<br/>backswing · peak wrist speed ·<br/>release · first contact"]
+    B --> E
+    BD --> E
+    E --> K["Per-throw metrics<br/>joint angles · wrist speed · tempo<br/>release speed/angle/height ± SE"]
+    K --> A["Athlete analysis<br/>PPR · In/On/Off · Cliff's δ ·<br/>Spearman ρ + bootstrap CI"]
+    A --> APP["🖥️ Coach app<br/>SwiftUI"]
+```
+
+The **SwiftUI app** (`app/`) manages athletes, throws and outcomes and draws every chart. For each analysis it runs the **Python engine** (`python/cornhole_biomech`) as a worker process. The engine streams progress as JSON lines and writes transparent CSV, JSON and plot outputs for each throw. A small Swift helper (`SceneVision`) uses Apple Vision to produce person masks, so background people are boxed out of the bag search.
+
+The full derivations (projectile model, Kalman smoother, PnP, gravity calibration, effect sizes) are in **[Methods & Mathematics](docs/METHODS_AND_MATH.md)**.
+
+## Quick start
+
+**Requirements:** macOS 15+, Xcode with Swift 6.2, and Python 3.11 or 3.12. Setup needs internet access once, for Python packages and pose models.
+
+```bash
+git clone https://github.com/Berkonas/CornHoleBiomech.git
+cd CornHoleBiomech
+./setup.sh        # Python runtime in ~/Library/Application Support/… plus pose models
+./build_app.sh    # release build, ad-hoc signed; installs and links dist/
+./run_app.sh      # or double-click dist/Cornhole Biomechanics Lab.app
+```
+
+**A session in five steps:** *Add Athlete* → *Import Throw* (select all the videos at once) → check for **Bag ✓ auto** in *Throws* → record **Hole · 3 / Board · 1 / Miss · 0** in *Results* → read the *Athlete summary*. The full walkthrough is in the **[app guide](docs/APP_GUIDE.md)**, and the recording setup is in the **[recording protocol](docs/RECORDING_PROTOCOL.md)**.
+
+### Command line
+
+The engine also works without the app:
+
+```bash
+PYTHONPATH=python .venv/bin/python -m cornhole_biomech probe            # check backends
+PYTHONPATH=python .venv/bin/python -m cornhole_biomech analyze clip.mov \
+    --output out/ --trial-id t1 --athlete-id p1 \
+    --view side --throwing-side right --target-direction left_to_right
+```
+
+Other subcommands: `compare-throws`, `athlete-dashboard`, `relationships`, `bag-benchmark`, `validate-tracking`, `calibrate-session` and more. Run `--help` to list them all.
+
+## What it measures
+
+| Level | Quantities |
+|---|---|
+| **Release** | speed, angle, height and forward position, each ± standard error from a least-squares launch fit |
+| **Body at release** | elbow included angle, trunk lean, arm angle, backswing |
+| **Swing** | peak wrist speed (arm lengths/s) and its timing, tempo (backswing ÷ forward swing), pendulum drive ratio |
+| **Bag flight** | apex, flight time, first contact, drag-free model residual, bag energy, momentum, force and power |
+| **Outcome** | PPR (4 × points per bag), In / On / Off %, landing position in board inches from an optional second camera |
+| **Athlete** | consistency vs noise floor, release zones, scored-vs-missed effects, evidence chain, landing error budget |
+
+Every metric is reported as `measured`, `estimated` (with a reason) or `unavailable` (with a reason), plus a GOOD / WARNING / POOR quality grade.
+
+## How trustworthy is it?
+
+- **444 automated tests** cover kinematics, filtering, bag physics, statistics, library schema migration and the full pipeline. Native Swift tests cover persistence and migration. `./verify.sh` runs everything plus a signed release build.
+- **[Stress test](docs/STRESS_TEST.md)** on simulated athletes whose true cause of misses is known: the outcome comparison makes at most ~5 % false claims, needs ~20–40 throws to detect a real cause, and the physics check names the true cause even with 10 throws.
+- **Tracking accuracy:** blinded frames are exported for human raters (`tools/annotator.html`), then scored per tracker stage and flight phase, with inter-rater agreement. See [bag-tracking validation](docs/BAG_TRACKING_VALIDATION.md) and the [validation protocol](docs/VALIDATION_PROTOCOL.md).
+
+## Limitations
+
+These are projected 2D measurements from one camera. They are **not** true 3D joint angles, joint forces, torques, muscle activation or joint loading. The flight model is drag-free, and one camera cannot separate drag from motion away from the lens. Similarity to a reference throw does not prove better technique, and associations with outcomes do not establish cause and effect. Record at least 20 throws per athlete, preferably 30–40.
+
+## Repository layout
+
+```
+app/            SwiftUI macOS app, SceneVision helper, native tests, icons & model assets
+python/         cornhole_biomech: the scientific and video-processing engine
+tests/          Python unit, scientific and integration tests
+scripts/        setup, build, library, QA and benchmark helpers
+tools/          annotator.html, a browser tool for blinded manual annotation
+docs/           methods, validation, guides, and archive of earlier revisions
+```
+
+Recordings (`data/`), course material (`research/`), QA outputs and model weights stay local and are git-ignored. Participant video is never committed.
+
+## Documentation
+
+| Start here | Science | Validation |
+|---|---|---|
+| [App guide](docs/APP_GUIDE.md) | [Methods & Mathematics](docs/METHODS_AND_MATH.md) | [Verification](docs/VERIFICATION.md) |
+| [User guide](docs/USER_GUIDE.md) | [Biomechanics methods](docs/BIOMECHANICS_METHODS.md) | [Validation plan](docs/VALIDATION_PLAN.md) |
+| [Recording protocol](docs/RECORDING_PROTOCOL.md) | [Full-throw methods](docs/FULL_THROW_METHODS.md) | [Stress test](docs/STRESS_TEST.md) |
+| [Project structure](docs/PROJECT_STRUCTURE.md) | [Automatic tracking](docs/AUTOMATIC_TRACKING.md) | [Completion audit](docs/COMPLETION_AUDIT.md) |
+| [Contributing](CONTRIBUTING.md) | [References](docs/REFERENCES.md) | [Light validation](docs/LIGHT_VALIDATION.md) |
+
+## License
+
+[MIT](LICENSE). Built as a course project for Biomechanics of Human Movement, Fall 2026.

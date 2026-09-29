@@ -1,12 +1,13 @@
 # Finding your way around
 
-Start with the README in the main folder. Open the app from `dist`. Everything else is grouped by purpose, not by an old project session.
+Start with the README in the main folder; the detailed app walkthrough is [APP_GUIDE.md](APP_GUIDE.md). Open the app from `dist`. Everything else is grouped by purpose, not by an old project session.
 
 The `dist` app is a link to the generated runnable build in `~/Library/Application Support/Cornhole Biomechanics Lab/Builds`. The Python runtime is a separate sibling folder there. This avoids iCloud Desktop adding metadata that invalidates app signing. Athlete data remains separate in Documents or the library location you select.
 
 ```
 Project 1 - Cornhole/
-  README.md
+  README.md, LICENSE, CONTRIBUTING.md, CITATION.cff
+  .github/                     CI workflow (Python tests on 3.11 and 3.12) and PR template
   setup.sh, build_app.sh, run_app.sh, verify.sh
   app/
     CornholeBiomechanics/       Swift app and native tests
@@ -17,6 +18,7 @@ Project 1 - Cornhole/
   tests/                       Python tests
   scripts/                     Implementation of setup/build and QA tools
   docs/                        Current methods, guides, and verification
+    images/                    Screenshots used by the README
     archive/                   Previous README, research notes, and audits
   research/                    Local user material; ignored by Git
     course/                    Course PDFs
