@@ -47,7 +47,7 @@ if [[ ! -f "$MEDIAPIPE_MODEL" ]]; then
   print "Downloading the official MediaPipe pose model for optional offline fallback..."
   curl --fail --location --output "$MEDIAPIPE_MODEL" \
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task"
-  shasum -a 256 "$MEDIAPIPE_MODEL" > "$MEDIAPIPE_MODEL.sha256"
+  (cd "$MODEL_DIR" && shasum -a 256 "${MEDIAPIPE_MODEL:t}" > "${MEDIAPIPE_MODEL:t}.sha256")
 fi
 print "Installed Cornhole Biomechanics Lab scientific engine."
 print "Verify: PYTHONPATH=\"$PROJECT_DIR/python\" \"$PROJECT_DIR/.venv/bin/python\" -m cornhole_biomech probe"

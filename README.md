@@ -12,7 +12,7 @@ On a fresh Mac, run `./setup.sh` once, then `./build_app.sh`. Setup needs intern
 
 ## Try it on the pilot clips
 
-`~/Documents/Cornhole Pilot Library` holds Players 1–3 (26 clips from 17 September), already analyzed. Open it with **File → Choose Athlete Library**. Outcomes are not filled in: record Hole / Board / Miss for each throw with the buttons at the top of **Results**, and the scored-vs-missed analysis and the ACL stats appear. To build a library from other folders, see `scripts/build_library.py`.
+`~/Documents/Cornhole Pilot Library` holds Players 1–3 (26 clips from 17 September), already analyzed. Open it with **File → Choose Athlete Library**. Outcomes are not filled in: record Hole / Board / Miss for each throw with the buttons at the top of **Results**, and the scored-vs-missed analysis and the ACL stats appear. The source clips are in `data/videos`. To build a library from other folders, see `scripts/build_library.py`.
 
 ## A session in five steps
 
@@ -90,6 +90,7 @@ This folder contains:
 | `python` | Scientific calculations and video-processing engine |
 | `tests` | Automated scientific and integration tests |
 | `scripts` | Setup, build, verification, and QA helpers |
+| `data` | Your recordings (`data/videos`), bag-validation frames and spot-check sheets; not bundled or committed |
 | `research` | Your local course PDFs and reference material; not bundled or committed |
 
 Hidden `.git`, `.venv`, and `.build` items are development support files. They are not extra participant libraries.

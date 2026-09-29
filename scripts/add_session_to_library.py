@@ -11,7 +11,7 @@ file name is already in the athlete's library is skipped.
 Example (Player 1's 4K clips):
   PYTHONPATH=python .venv/bin/python scripts/add_session_to_library.py \\
       --library ~/Documents/"Cornhole Pilot Library" --athlete "Player 1" \\
-      --videos ~/Desktop/"Videos For Biomech/Player 1" --pattern "playe1*" --session "4K session"
+      --videos "data/videos/Player 1" --pattern "playe1*" --session "4K session"
   PYTHONPATH=python .venv/bin/python scripts/reanalyze_library.py --library ~/Documents/"Cornhole Pilot Library"
 
 `--reuse DIR` copies earlier analysis folders named after each clip (DIR/<clip stem>) as a head

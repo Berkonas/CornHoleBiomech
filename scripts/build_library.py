@@ -8,8 +8,8 @@ unknown: enter them in the app. Existing folders are never overwritten.
 
 Example:
   python scripts/build_library.py --output ~/Documents/"Cornhole Pilot Library" \
-      --athlete "Player 1=~/Desktop/Videos For Biomech/Player 1" \
-      --athlete "Player 2=~/Desktop/Videos For Biomech/Player 2"
+      --athlete "Player 1=data/videos/Player 1" \
+      --athlete "Player 2=data/videos/Player 2"
 Optionally reuse existing analysis folders named after each clip with --reuse DIR.
 """
 from __future__ import annotations

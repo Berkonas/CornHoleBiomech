@@ -9,7 +9,7 @@ Analyse the clips first, so each has an `auto_flight.json`. Then:
 
 ```
 PYTHONPATH=python .venv/bin/python -m cornhole_biomech bag-annotation-frames \
-    --library "~/Documents/Cornhole Pilot Library" --output ~/Desktop/"Cornhole Bag Validation"
+    --library "~/Documents/Cornhole Pilot Library" --output data/bag-validation
 ```
 
 Frames come from seven phases of each automatic flight, two per phase:
@@ -25,7 +25,7 @@ Frames come from seven phases of each automatic flight, two per phase:
 - **weak_detection:** flight frames where the tracker was least sure: no mask found, re-acquired in a gap, or
   rejected by the flight filter.
 
-The pilot set (26 clips, 505 frames, 1.3 GB) is already exported to `~/Desktop/Cornhole Bag Validation`, with a
+The pilot set (26 clips, 505 frames, 1.3 GB) is already exported to `data/bag-validation` in the project folder, with a
 `README.txt` listing each clip's folder and the 5 clips for the second rater (clips 1, 8, 10, 18, 22: all three
 players, easy and hard throws).
 
@@ -54,7 +54,7 @@ demonstrated.
 
 ```
 PYTHONPATH=python .venv/bin/python -m cornhole_biomech bag-benchmark \
-    --frames ~/Desktop/"Cornhole Bag Validation" --output ~/Desktop/bag-benchmark.json [--rater AB]
+    --frames data/bag-validation --output data/bag-benchmark.json [--rater AB]
 ```
 
 The alphabetically first rater (or `--rater`) is the reference. Every other rater on the same clip is scored

@@ -907,7 +907,7 @@ import cv2, json
 from cornhole_biomech.auto_bag import read_frames, detect_moving_blobs_in_frames, reference_chain
 from cornhole_biomech.background import build_plate
 from cornhole_biomech.board import detect_board
-frames, fps = read_frames("/Users/berkonas21/Desktop/Videos For Biomech/Player 1/testsep17 - 1.mov")
+frames, fps = read_frames("data/videos/Player 1/testsep17 - 1.mov")
 _, to_prev = detect_moving_blobs_in_frames(frames)
 plate = build_plate(frames, reference_chain(to_prev, 0))["plate"]
 out = detect_board(plate, "left_to_right")
@@ -1298,7 +1298,7 @@ do {
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CLANG_MODULE_CACHE_PATH=$TMPDIR/cmc SWIFTPM_MODULECACHE_OVERRIDE=$TMPDIR/cmc swift build --disable-sandbox --package-path app/CornholeBiomechanics --product SceneVision`
 Expected: `Build complete!`
 
-Run: `app/CornholeBiomechanics/.build/debug/SceneVision --input "/Users/berkonas21/Desktop/Videos For Biomech/Player 1/testsep17 - 1.mov" --output /private/tmp/sv1 && ls /private/tmp/sv1 | head -3 && cat /private/tmp/sv1/index.json | head -8`
+Run: `app/CornholeBiomechanics/.build/debug/SceneVision --input "data/videos/Player 1/testsep17 - 1.mov" --output /private/tmp/sv1 && ls /private/tmp/sv1 | head -3 && cat /private/tmp/sv1/index.json | head -8`
 Expected: `mask_000000.png …`, `"mask_width" : 960`, `"mask_height" : 540`. Open one mask: the athlete is white, the background black. If the mask is upside down relative to the video (CIImage origin is bottom-left), add `image = image.transformed(by: CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: -image.extent.height))` before `createCGImage` and re-check.
 
 - [ ] **Step 4: Write the failing Python tests**
