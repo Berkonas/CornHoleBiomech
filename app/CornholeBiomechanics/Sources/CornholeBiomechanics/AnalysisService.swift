@@ -31,6 +31,50 @@ final class AnalysisService: ObservableObject {
     private var cancelled = false
     /// The throw being analysed (published so a report can reload when its own run starts or ends).
     @Published private(set) var activeTrialID: UUID?
+    /// Throws waiting for analysis. Analyses always run ONE AT A TIME: each decodes a whole clip into
+    /// memory (about 2 GB for a 1080p clip), so running several together can freeze the Mac.
+    @Published private(set) var queue: [UUID] = []
+    /// Size of the current batch (for "throw 3 of 12"); 0 when no batch is running.
+    @Published private(set) var batchTotal = 0
+    @Published private(set) var batchDone = 0
+    private var queueTask: Task<Void, Never>?
+
+    /// "Throw 3 of 12" while a batch runs, else nil.
+    var batchPosition: String? {
+        batchTotal > 1 ? "Throw \(min(batchDone + 1, batchTotal)) of \(batchTotal)" : nil
+    }
+
+    /// Add throws to the queue; they are analyzed one after another, never at the same time.
+    /// `showLastWhenDone`: open the last throw's report when the batch ends (import flow).
+    func enqueue(_ trials: [Trial], store: ProjectStore, showLastWhenDone: Bool = false) {
+        let ids = trials.map(\.id).filter { !queue.contains($0) && $0 != activeTrialID }
+        guard !ids.isEmpty else { return }
+        queue += ids
+        batchTotal += ids.count
+        guard queueTask == nil else { return }
+        let batch = Set(ids)
+        queueTask = Task { [weak self] in
+            guard let self else { return }
+            var last: Trial?
+            while let next = self.queue.first {
+                // A single analysis started by hand finishes first.
+                while self.isRunning { try? await Task.sleep(for: .milliseconds(300)) }
+                guard self.queue.first == next else { continue }
+                self.queue.removeFirst()
+                // Skip throws deleted while the batch was waiting; use the current record.
+                guard let trial = store.project?.trials.first(where: { $0.id == next }) else { self.batchDone += 1; continue }
+                await self.analyze(trial: trial, store: store, selectWhenDone: false)
+                self.batchDone += 1
+                last = trial
+            }
+            self.batchTotal = 0
+            self.batchDone = 0
+            self.queueTask = nil
+            if showLastWhenDone, let last, store.project?.trials.first(where: { $0.id == last.id })?.analysisStatus == "Analyzed" {
+                store.showAnalyzedThrow(last, batch: batch)
+            }
+        }
+    }
 
     /// `selectWhenDone`: show the throw's report afterwards if the user is still looking at this throw or its athlete.
     func analyze(trial: Trial, store: ProjectStore, backend: String? = nil, selectWhenDone: Bool = true) async {
@@ -199,6 +243,8 @@ final class AnalysisService: ObservableObject {
     }
 
     func cancel() {
+        // Cancelling stops the whole batch, not only the throw being analysed.
+        queue.removeAll()
         cancelled = true
         activeProcess?.terminate()
         stage = "Cancelling"

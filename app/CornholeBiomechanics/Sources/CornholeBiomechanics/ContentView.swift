@@ -120,11 +120,11 @@ struct ContentView: View {
             HStack(spacing: Space.m) {
                 ProgressView(value: analysis.progress).frame(width: 140)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(analysis.stage).font(.subheadline.weight(.semibold))
+                    Text(analysis.batchPosition.map { "\($0) · \(analysis.stage)" } ?? analysis.stage).font(.subheadline.weight(.semibold))
                     Text(analysis.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                Button("Cancel") { analysis.cancel() }
+                Button(analysis.batchTotal > 1 ? "Cancel All" : "Cancel") { analysis.cancel() }
                 Text(analysis.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
             }
             .padding(Space.m)

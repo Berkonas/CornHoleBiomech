@@ -122,9 +122,113 @@ def _fmt_range(low: float, high: float, unit: str) -> str:
     return f"{low_str}{sep}{high_str}{'' if unit == '°' else ' '}{unit}".strip()
 
 
+def _inches(value: float) -> str:
+    return f"{abs(value):.0f} in"
+
+
+def measured_end(board_phase: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Plain facts about where the bag landed and ended, from the board phase (inches along the deck)."""
+    if not board_phase or board_phase.get("status") != "measured":
+        return None
+    touch, end, slide = board_phase["touchdown"], board_phase["end"], board_phase.get("slide") or {}
+    return {"kind": end["kind"], "landed_from_hole_in": touch.get("from_hole_in"),
+            "end_from_hole_in": end.get("from_hole_in") if end["kind"] in ("rest", "fell_in_hole") else None,
+            "slide_in": slide.get("distance_in"), "hang_s": (board_phase.get("hang") or {}).get("seconds"),
+            "suggested_score": (board_phase.get("suggested_outcome") or {}).get("score")}
+
+
+def _slide_sentence(end: dict[str, Any]) -> str | None:
+    landed, slide = end.get("landed_from_hole_in"), end.get("slide_in")
+    if landed is None:
+        return None
+    where = "at the hole" if abs(landed) <= 3 else f"{_inches(landed)} {'past' if landed > 0 else 'short of'} the hole"
+    text = f"It landed {where}"
+    if slide is not None and abs(slide) >= 2:
+        text += f" and slid {_inches(slide)}"
+    return text
+
+
+def _scored_verdict(physics: dict[str, Any] | None, end: dict[str, Any] | None, flags: list[dict], metrics: dict,
+                    approx: str) -> tuple[str, list[dict[str, Any]]]:
+    """A hole: say what worked. No corrections, whatever the flight model or usual pattern says."""
+    items: list[dict[str, Any]] = []
+    headline = "In the hole: 3 points."
+    if end:
+        sentence = _slide_sentence(end)
+        if sentence:
+            headline += f" {sentence}{' into the hole' if (end.get('slide_in') or 0) >= 2 else ''}."
+        if end.get("hang_s"):
+            headline += f" It hung on the lip for {end['hang_s']:.1f} s before dropping."
+    if physics:
+        items.append({"kind": "good", "metric_key": "bag_release_speed_m_s",
+                      "text": f"Keep this release as a reference: {physics['angle_deg']:.0f}° at {approx}{physics['speed_m_s']:.1f} m/s "
+                              f"from {physics['height_m']:.2f} m."})
+    if end and (end.get("slide_in") or 0) >= 4:
+        items.append({"kind": "good", "metric_key": None,
+                      "text": "The slide was part of the shot: landing short and sliding in is a valid way to score."})
+    if physics and physics.get("zone") != "green":
+        items.append({"kind": "note", "metric_key": None,
+                      "text": "The drag-free flight model alone did not predict the hole for this release; the slide, bounce "
+                              "or aim made it. The result is what counts; the model is only a guide."})
+    for flag in [f for f in flags if _nameable(metrics, f["key"])][:2]:
+        words = BODY_WORDS[flag["key"]]
+        word = words[0] if flag["direction"] == "high" else words[1]
+        items.append({"kind": "note", "metric_key": flag["key"],
+                      "text": f"Different from this athlete's usual throw, and it still scored: {word} "
+                              f"({_fmt(flag['value'], flag['unit'])}; usual {_fmt_range(flag['q25'], flag['q75'], flag['unit'])})."})
+    return headline, items
+
+
+def _distance_advice(physics: dict[str, Any] | None, end_from_hole_in: float, settings: ZoneSettings,
+                     approx: str) -> dict[str, Any]:
+    """Signed advice from where the bag actually ENDED: how much farther/shorter, and the speed change."""
+    short = end_from_hole_in < 0
+    text = f"The bag ended {_inches(end_from_hole_in)} {'short of' if short else 'past'} the hole."
+    sens = (physics or {}).get("sensitivity_m_per_m_s")
+    if sens and abs(sens) > 1e-6:
+        # Move first contact by the same along-deck amount (the slide is assumed unchanged).
+        shift_m = -end_from_hole_in * 0.0254 * np.cos(settings.board.angle)
+        dv = shift_m / sens
+        text += (f" At the same angle, about {approx}{abs(dv):.2f} m/s {'faster' if dv > 0 else 'slower'} "
+                 f"would have carried it to the hole (if it slides the same way).")
+    else:
+        text += f" It needed {'a little more' if short else 'a little less'} distance."
+    return {"kind": "fix", "metric_key": "bag_release_speed_m_s", "text": text,
+            "signed_error_in": end_from_hole_in, "direction": "short" if short else "long"}
+
+
 def throw_verdict(metrics: dict, others: list[dict], grades: dict, release_to_board_m: float | None,
-                  settings: ZoneSettings, athlete_median_m: float | None = None) -> dict[str, Any]:
+                  settings: ZoneSettings, athlete_median_m: float | None = None,
+                  observed_score: int | None = None, board_phase: dict[str, Any] | None = None) -> dict[str, Any]:
     physics = physics_check(metrics, release_to_board_m, settings, athlete_median_m)
+    end = measured_end(board_phase)
+    if observed_score == 3:
+        flags = personal_flags(metrics, others)
+        approx = "≈" if grades.get("calibration") != "GOOD" else ""
+        headline, items = _scored_verdict(physics, end, flags, metrics, approx)
+        return {"headline": headline, "items": items[:5], "physics": physics, "personal": flags, "outcome": "hole",
+                "measured_end": end,
+                "method": "Scored throw: no corrections are given. Drag-free point-mass flight to first contact "
+                          "(zones.landing) is shown for reference; where the bag ended comes from the board video."}
+    verdict = _unscored_verdict(metrics, others, grades, settings, physics)
+    verdict["measured_end"] = end
+    verdict["outcome"] = {1: "board", 0: "miss"}.get(observed_score)
+    if end and end.get("end_from_hole_in") is not None and end["kind"] == "rest" and observed_score in (0, 1):
+        # Replace the model-only distance advice with advice from where the bag really stopped.
+        approx = "≈" if grades.get("calibration") != "GOOD" else ""
+        advice = _distance_advice(physics, end["end_from_hole_in"], settings, approx)
+        items = [i for i in verdict["items"] if i.get("metric_key") != "bag_release_speed_m_s" or i["kind"] == "note"]
+        verdict["items"] = [advice] + items
+        sentence = _slide_sentence(end)
+        verdict["headline"] = (f"{'On the board: 1 point.' if observed_score == 1 else 'Off the board: 0 points.'} "
+                               + (f"{sentence}, stopping {_inches(end['end_from_hole_in'])} "
+                                  f"{'short of' if end['end_from_hole_in'] < 0 else 'past'} the hole." if sentence else ""))
+    verdict["items"] = verdict["items"][:5]
+    return verdict
+
+
+def _unscored_verdict(metrics: dict, others: list[dict], grades: dict, settings: ZoneSettings,
+                      physics: dict[str, Any] | None) -> dict[str, Any]:
     flags = personal_flags(metrics, others)
     approx = "≈" if grades.get("calibration") != "GOOD" else ""
     items: list[dict[str, Any]] = []

@@ -240,6 +240,7 @@ func eventColor(_ key: String) -> Color {
     case "apex": .purple
     case "first_contact": .blue
     case "final_rest": Color(red: 0.2, green: 0.6, blue: 0.3)
+    case "into_hole": Color(red: 0.1, green: 0.65, blue: 0.2)
     case "peak_wrist_speed": .teal
     case "peak_elbow_extension": .indigo
     default: .gray

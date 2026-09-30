@@ -26,6 +26,16 @@ How the automatic tracking works, and how it did on the pilot clips, is in [AUTO
 
 Athlete profiles can be added, edited, or deleted from **Athletes**. Throw management is in **Throws → Manage**. Deletions need confirmation and use recoverable Trash staging. Removing an analysis keeps its video; deleting an athlete removes that profile and its managed data. Your external source recordings are not deleted.
 
+## What changed in this version (board phase and personal green zone)
+
+- **Where it ended.** Each throw report has a *Where it ended* card: where the bag landed on the board, how far it slid, and whether it stopped or dropped into the hole (including bags that hang on the lip and fall a moment later). It shows the slide physics (speed along the board, slow-down, effective friction μ) and a suggested result; **Use This Result** records it in one click. The flight chart marks *Landed* and *Stopped* / *Into the hole*, and the replay shows the slide.
+- **Made throws get no corrections.** A hole is summarized as what worked (and a slide-in is named as part of the shot). Board bags and misses get signed advice from where the bag really stopped: "ended 9 in short … about 0.12 m/s faster".
+- **Your distance, not 27 ft.** The app measures release point → front of the board in the videos (≈ 5.1–5.8 m in the tripod sessions) and uses it everywhere. The distance in Settings → Analysis is only a fallback.
+- **Left/right is not measured** by the side camera; throws are assumed straight at the board. Record the board camera to measure left/right misses.
+- **Personal green zone.** The athlete summary, each throw report and the Launch Lab show the athlete's own green zone (their release height, measured distance and measured slide) with a **best aim** target chosen for their consistency. In the Launch Lab choose **Use [athlete]'s green zone**. On the summary, click a throw on the map, or ▶ in the table, to watch it.
+- **The summary uses every throw.** The consistency average pools every comparable analyzed throw and lists any left out with the reason. Throws analyzed with an older version are left out until re-analyzed: use **Re-analyze All** (the throws run one at a time).
+- **One analysis at a time.** Imports and re-analyses go through a queue ("Throw 3 of 12"), and the engine refuses to start a second analysis on the same Mac until the first finishes, even from another copy of the app. Running several at once can use all the memory and freeze the computer.
+
 ## What the numbers mean
 
 **Results** opens with an **Athlete summary** in three lines:

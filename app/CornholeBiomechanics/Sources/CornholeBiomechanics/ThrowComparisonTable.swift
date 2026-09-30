@@ -43,6 +43,19 @@ struct SummaryThrowRow: Identifiable, Equatable, Sendable {
     var isStale = false
     /// Measured release-to-board-front distance (m), when the analysis had a metric scale.
     var distance: Double?
+    /// Where the bag ended along the board, inches from the hole centre (− short, + past), from the board video.
+    var endFromHole: Double?
+    /// The bag was seen dropping into the hole.
+    var endInHole: Bool?
+
+    /// "Hole", "−9 in", "+3 in" or "—".
+    var endText: String {
+        if endInHole == true { return "In hole" }
+        guard let endFromHole else { return "—" }
+        return abs(endFromHole) < 0.5 ? "0 in" : "\(endFromHole > 0 ? "+" : "−")\(number(abs(endFromHole), digits: 0)) in"
+    }
+    /// Sort key: in the hole first, then by distance from the hole; untracked last.
+    var endSort: Double { endInHole == true ? -1 : endFromHole.map(abs) ?? .infinity }
 
     static let speedKey = "bag_release_speed_m_s", angleKey = "bag_release_angle_deg", heightKey = "bag_release_height_m"
 
@@ -112,6 +125,10 @@ extension SummaryThrowRow {
         }
         row.isStale = FileManager.default.fileExists(atPath: source.analysisURL.appendingPathComponent("needs_reanalysis.json").path)
         row.distance = MeasuredRelease.releaseToBoard(results)
+        if let phase = BoardPhase.load(results: results), let end = phase.end {
+            row.endInHole = end.kind == "fell_in_hole"
+            if end.kind == "rest" { row.endFromHole = end.from_hole_in }
+        }
         return row
     }
 }
@@ -121,6 +138,8 @@ extension SummaryThrowRow {
 struct ThrowComparisonTable: View {
     let rows: [SummaryThrowRow]
     let open: (UUID) -> Void
+    /// Plays a throw's video in place (the ▶ button in the Throw column).
+    var watch: ((UUID) -> Void)? = nil
     @State private var sortOrder = [KeyPathComparator(\SummaryThrowRow.number)]
     @State private var selection = Set<UUID>()
 
@@ -160,12 +179,24 @@ struct ThrowComparisonTable: View {
         VStack(alignment: .leading, spacing: Space.s) {
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Throw", value: \.number) { row in
-                    Text(row.label).lineLimit(1).foregroundStyle(row.isStale ? .secondary : .primary)
-                        .help(row.isStale ? "\(row.label): out of date, left out of the Median · SD and the release map" : row.label)
+                    HStack(spacing: Space.xs) {
+                        if let watch {
+                            Button { watch(row.id) } label: { Image(systemName: "play.circle.fill") }
+                                .buttonStyle(.borderless).help("Watch \(row.label)")
+                                .accessibilityLabel("Watch \(row.label)")
+                        }
+                        Text(row.label).lineLimit(1).foregroundStyle(row.isStale ? .secondary : .primary)
+                            .help(row.isStale ? "\(row.label): out of date, left out of the Median · SD and the release map" : row.label)
+                    }
                 }
-                    .width(min: 80, ideal: 90)
+                    .width(min: 100, ideal: 120)
                 TableColumn("Result", value: \.resultPoints) { row in ResultBadge(score: row.score) }
                     .width(min: 60, ideal: 70)
+                TableColumn("Ended", value: \.endSort) { row in
+                    Text(row.endText).monospacedDigit().foregroundStyle(row.endFromHole == nil && row.endInHole != true ? .secondary : .primary)
+                        .help("Where the bag ended, along the board from the hole centre (− short, + past), tracked on the board")
+                }
+                    .width(min: 70, ideal: 84)
                 numberColumn(Self.columns[0])
                 numberColumn(Self.columns[1])
                 numberColumn(Self.columns[2])

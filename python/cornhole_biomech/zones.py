@@ -190,3 +190,127 @@ def sports_stats(scores: list[int | None]) -> dict[str, Any]:
             "ppr": None if ppb is None else 4 * ppb,
             "in_percent": pct(3), "on_percent": pct(1), "off_percent": pct(0),
             "definition": "PPR = 4 × mean points per bag (gross, no cancellation), as reported by the American Cornhole League."}
+
+
+# ---------------------------------------------------------------------------------------------
+# Personal green zone: this athlete's height, distance, slide and consistency
+# ---------------------------------------------------------------------------------------------
+
+DEFAULT_SLIDE_ALLOWANCE_M = ZoneSettings.slide_allowance_m
+MIN_PERSONAL_THROWS = 3
+SLIDE_ALLOWANCE_LIMITS_M = (0.10, 0.70)
+PERSONAL_ANGLE_GRID = (10.0, 70.0, 0.5)
+PERSONAL_SPEED_GRID = (3.0, 11.0, 0.02)
+ANGLE_REACH_DEG = 8.0     # best aim is searched within the athlete's own angle range ± this
+
+
+def personal_slide_allowance(slides_in: list[float]) -> tuple[float, str, int]:
+    """How far short of the hole centre this athlete's bags can land and still slide to the hole.
+
+    From the board video: each throw's measured slide (touchdown → rest or drop, inches along the deck).
+    The median slide of throws that stayed on the board is the personal allowance; with fewer than
+    three measured slides the stated default is kept.
+    """
+    values = [float(v) for v in slides_in if v is not None and np.isfinite(v) and v >= 0]
+    if len(values) < MIN_PERSONAL_THROWS:
+        return DEFAULT_SLIDE_ALLOWANCE_M, "assumed", len(values)
+    metres = float(np.median(values)) * 0.0254
+    lo, hi = SLIDE_ALLOWANCE_LIMITS_M
+    return float(min(max(metres, lo), hi)), "measured_median_slide", len(values)
+
+
+def green_grid(height: float, settings: ZoneSettings) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Boolean hole-window map over release angle (columns) × speed (rows) at one height and distance."""
+    a0, a1, da = PERSONAL_ANGLE_GRID
+    s0, s1, ds = PERSONAL_SPEED_GRID
+    angles = np.arange(a0, a1 + da / 2, da)
+    speeds = np.arange(s0, s1 + ds / 2, ds)
+    green = np.zeros((len(speeds), len(angles)), bool)
+    for j, angle in enumerate(angles):
+        # For a fixed angle first contact moves forward with speed: bisect the window edges.
+        for i, speed in enumerate(speeds):
+            green[i, j] = predicted_zone(float(speed), float(angle), height, settings)["zone"] == "green"
+    return angles, speeds, green
+
+
+def _smooth_probability(green: np.ndarray, sd_rows: float, sd_cols: float) -> np.ndarray:
+    """P(green) when aiming at each cell with Gaussian release noise (SDs in grid cells)."""
+    import cv2
+    img = green.astype(np.float32)
+    kx = max(1, int(6 * sd_cols) | 1)
+    ky = max(1, int(6 * sd_rows) | 1)
+    return cv2.GaussianBlur(img, (kx, ky), sigmaX=max(sd_cols, 1e-3), sigmaY=max(sd_rows, 1e-3),
+                            borderType=cv2.BORDER_CONSTANT)
+
+
+def personal_zone(rows: list[dict[str, Any]], settings: ZoneSettings, slides_in: list[float],
+                  distance_source: str) -> dict[str, Any]:
+    """The athlete's own green zone and the release that gives them the best chance of the hole window.
+
+    Personal inputs: median measured release HEIGHT (stature, knee bend and arm length show up here),
+    the measured release-to-board DISTANCE, the athlete's measured SLIDE on the board, and their
+    throw-to-throw SPREAD of speed and angle (biomechanical consistency). For every aim point
+    (speed, angle) the probability that a release scattered by that spread lands in the hole window
+    is the green map blurred by a Gaussian of the athlete's SDs (speed and angle treated as
+    independent; see the compensation analysis for their covariation). The best aim is searched
+    within the athlete's own angle range ± 8°, so the suggestion stays a change they can make.
+    A drag-free model: a guide for practice, not a guarantee.
+    """
+    keys = {"speed": "bag_release_speed_m_s", "angle": "bag_release_angle_deg", "height": "bag_release_height_m"}
+    scaled = [r for r in rows if all(r.get(k) is not None and np.isfinite(r[k]) for k in keys.values())]
+    slide_m, slide_source, n_slides = personal_slide_allowance(slides_in)
+    base = {"slide_allowance_m": slide_m, "slide_source": slide_source, "slides_measured": n_slides,
+            "distance_m": settings.release_to_board_m, "distance_source": distance_source,
+            "regulation_distance_m": ZoneSettings().release_to_board_m,
+            "method": personal_zone.__doc__.split("\n\n", 1)[1].strip() if personal_zone.__doc__ else ""}
+    if len(scaled) < MIN_PERSONAL_THROWS:
+        return {**base, "status": "needs_throws",
+                "message": f"The personal green zone needs release speed, angle and height on at least "
+                           f"{MIN_PERSONAL_THROWS} throws ({len(scaled)} so far)."}
+    speed = np.array([r[keys["speed"]] for r in scaled], float)
+    angle = np.array([r[keys["angle"]] for r in scaled], float)
+    height = float(np.median([r[keys["height"]] for r in scaled]))
+    personal = ZoneSettings(release_to_board_m=settings.release_to_board_m, slide_allowance_m=slide_m,
+                            slide_up_m=settings.slide_up_m, board=settings.board)
+    angles, speeds, green = green_grid(height, personal)
+    sd_speed = float(np.std(speed, ddof=1)) if len(speed) > 1 else 0.0
+    sd_angle = float(np.std(angle, ddof=1)) if len(angle) > 1 else 0.0
+    da, ds = PERSONAL_ANGLE_GRID[2], PERSONAL_SPEED_GRID[2]
+    prob = _smooth_probability(green, max(sd_speed, 0.05) / ds, max(sd_angle, 0.5) / da)
+
+    def cell(v: float, a: float) -> tuple[int, int]:
+        return (int(np.clip(round((v - speeds[0]) / ds), 0, len(speeds) - 1)),
+                int(np.clip(round((a - angles[0]) / da), 0, len(angles) - 1)))
+
+    current = (float(np.median(speed)), float(np.median(angle)))
+    ci, cj = cell(*current)
+    lo_angle = max(angles[0], float(np.min(angle)) - ANGLE_REACH_DEG)
+    hi_angle = min(angles[-1], float(np.max(angle)) + ANGLE_REACH_DEG)
+    allowed = (angles >= lo_angle) & (angles <= hi_angle)
+    masked = np.where(allowed[None, :], prob, -1.0)
+    bi, bj = np.unravel_index(int(np.argmax(masked)), masked.shape)
+    column = green[:, cj]
+    window = [float(speeds[column].min()), float(speeds[column].max())] if column.any() else None
+    widths = [(float(angles[j]), float(green[:, j].sum() * ds)) for j in range(len(angles)) if allowed[j]]
+    forgiving = max(widths, key=lambda w: w[1]) if widths else None
+    in_green = [bool(green[cell(v, a)]) for v, a in zip(speed, angle)]
+    return {**base, "status": "available", "height_m": height, "n": len(scaled),
+            "sd_speed_m_s": sd_speed, "sd_angle_deg": sd_angle,
+            "current": {"speed_m_s": current[0], "angle_deg": current[1], "p_green": float(prob[ci, cj]),
+                        "speed_window_m_s": window},
+            "best": {"speed_m_s": float(speeds[bi]), "angle_deg": float(angles[bj]), "p_green": float(prob[bi, bj])},
+            "angle_limits_deg": [float(lo_angle), float(hi_angle)],
+            "most_forgiving_angle": None if forgiving is None else {"angle_deg": forgiving[0], "speed_window_m_s": forgiving[1]},
+            "throws_in_green": int(sum(in_green)),
+            "sentence": personal_sentence(current, (float(speeds[bi]), float(angles[bj])), float(prob[ci, cj]),
+                                          float(prob[bi, bj]))}
+
+
+def personal_sentence(current: tuple[float, float], best: tuple[float, float], p_now: float, p_best: float) -> str:
+    """Plain-language summary of the personal green zone for a coach."""
+    if p_best - p_now < 0.05 or (abs(best[1] - current[1]) < 2 and abs(best[0] - current[0]) < 0.1):
+        return (f"This athlete's usual release ({current[1]:.0f}° at {current[0]:.1f} m/s) already sits in the best part "
+                f"of their green zone; the gain now comes from repeating it.")
+    return (f"Aiming for about {best[1]:.0f}° at {best[0]:.1f} m/s instead of the usual {current[1]:.0f}° at "
+            f"{current[0]:.1f} m/s would raise the model's chance of reaching the hole window from "
+            f"{100 * p_now:.0f}% to {100 * p_best:.0f}%, with this athlete's current consistency.")

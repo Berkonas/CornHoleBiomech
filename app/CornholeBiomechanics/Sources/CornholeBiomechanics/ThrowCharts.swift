@@ -281,12 +281,20 @@ struct FlightChartData: Equatable {
     let metres: Bool
     /// y is height above the floor (true) or rise above release (false).
     let heightAboveFloor: Bool
+    /// Where the bag first touched down, its slide on the board, and where it ended (tracked on the board).
+    var landing: Point? = nil
+    var slide: [Point] = []
+    var end: Point? = nil
+    /// "fell_in_hole", "rest", … (board phase), or nil when the end was not tracked.
+    var endKind: String? = nil
 
     var unit: String { metres ? "m" : "px" }
 
+    private var everything: [Point] { measured + model + board + slide + [landing, end].compactMap { $0 } }
     /// Tight axis domains: from the smaller of 0 and the data to the data's far edge, 5 % padding.
-    var xDomain: ClosedRange<Double> { Self.domain((measured + model + board).map(\.x) + [0]) }
-    var yDomain: ClosedRange<Double> { Self.domain((measured + model + board).map(\.y) + [0]) }
+    var xDomain: ClosedRange<Double> { Self.domain(everything.map(\.x) + [0]) }
+    var yDomain: ClosedRange<Double> { Self.domain(everything.map(\.y) + [0]) }
+    var endLabel: String { endKind == "fell_in_hole" ? "Into the hole" : endKind == "rest" ? "Stopped" : "Last seen" }
     private static func domain(_ values: [Double]) -> ClosedRange<Double> {
         let finite = values.filter(\.isFinite)
         guard let lo = finite.min(), let hi = finite.max(), hi > lo else { return 0...1 }
@@ -324,8 +332,23 @@ struct FlightChartData: Equatable {
             hole = Point(id: 0, x: d + geometry.holeAlong * cos(geometry.angle),
                          y: geometry.frontHeight + geometry.holeAlong * sin(geometry.angle))
         }
-        return FlightChartData(measured: path.map(convert), model: replay.model.filter(inFlight).map(convert),
-                               board: board, hole: hole, metres: ppm != nil, heightAboveFloor: ppm != nil && releaseHeight != nil)
+        // Touchdown, slide and end, in the same coordinates as the flight (release-frame pixels → chart).
+        func eventPoint(_ key: String) -> Point? {
+            guard let event = replay.events[key], let position = event.position else { return nil }
+            return convert(ReplayDocument.Point(frame: event.frame, x: position.x, y: position.y))
+        }
+        let endKey = replay.events["into_hole"] != nil ? "into_hole" : replay.events["final_rest"]?.position != nil ? "final_rest" : nil
+        var result = FlightChartData(measured: path.map(convert), model: replay.model.filter(inFlight).map(convert),
+                                     board: board, hole: hole, metres: ppm != nil, heightAboveFloor: ppm != nil && releaseHeight != nil)
+        result.landing = eventPoint("first_contact")
+        result.slide = replay.after_contact.map(convert)
+        if let endKey {
+            result.end = eventPoint(endKey)
+            result.endKind = endKey == "into_hole" ? "fell_in_hole" : "rest"
+        } else if let last = replay.after_contact.last {
+            result.end = convert(last)
+        }
+        return result
     }
 }
 
@@ -360,6 +383,21 @@ struct FlightChart: View {
                 if data.heightAboveFloor {
                     RuleMark(y: .value(data.yTitle, 0)).foregroundStyle(Color.secondary.opacity(0.5))
                 }
+                ForEach(data.slide) { p in
+                    LineMark(x: .value(data.xTitle, p.x), y: .value(data.yTitle, p.y), series: .value("Series", "Slide"))
+                        .foregroundStyle(slideInk).lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
+                }
+                if let landing = data.landing {
+                    PointMark(x: .value(data.xTitle, landing.x), y: .value(data.yTitle, landing.y))
+                        .symbol(.circle).symbolSize(90).foregroundStyle(eventColor("first_contact"))
+                        .annotation(position: .bottom, spacing: 4) { Text("Landed").font(.caption2.weight(.semibold)) }
+                }
+                if let end = data.end {
+                    PointMark(x: .value(data.xTitle, end.x), y: .value(data.yTitle, end.y))
+                        .symbol(data.endKind == "fell_in_hole" ? BasicChartSymbolShape.circle : BasicChartSymbolShape.square).symbolSize(110)
+                        .foregroundStyle(eventColor(data.endKind == "fell_in_hole" ? "into_hole" : "final_rest"))
+                        .annotation(position: .top, spacing: 4) { Text(data.endLabel).font(.caption2.weight(.semibold)) }
+                }
             }
             .chartXAxisLabel(data.xTitle, alignment: .center)
             .chartYAxisLabel(data.yTitle, position: .leading)
@@ -370,6 +408,7 @@ struct FlightChart: View {
             .accessibilityLabel("Bag flight side view, \(data.measured.count) measured points")
             HStack(spacing: Space.l) {
                 ChartLegendItem(color: measuredInk, label: "Measured bag, release → first contact", dot: true)
+                if data.landing != nil || data.end != nil { ChartLegendItem(color: slideInk, label: "Landing → slide → end") }
                 if !data.model.isEmpty { ChartLegendItem(color: .primary.opacity(0.75), label: "Drag-free fit", dashed: true) }
                 if !data.board.isEmpty { ChartLegendItem(color: .primary.opacity(0.7), label: "Board") }
             }

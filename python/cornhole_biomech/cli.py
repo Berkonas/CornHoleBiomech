@@ -339,6 +339,24 @@ def handle_insights(args):
     return {"trial_id": args.trial_id, "status": "ready"}
 
 
+def dashboard_base_trial(root: Path, trials: list[dict[str, Any]]) -> dict[str, Any]:
+    """The throw whose comparable group is largest (ties: the newest), so the summary pools as many throws as
+    possible instead of whichever was imported last (a newer app version must not hide older throws, and one
+    re-analyzed throw must not shrink the summary to itself)."""
+    from .insights import compatible_key, read
+    keys = {}
+    for t in trials:
+        d = root / t["analysisRelativePath"]
+        if (d / "needs_reanalysis.json").exists():
+            continue
+        keys[t["id"]] = compatible_key(t, read(d / "manifest.json", {}))
+    counts: dict[Any, int] = {}
+    for key in keys.values():
+        counts[key] = counts.get(key, 0) + 1
+    candidates = [t for t in trials if t["id"] in keys] or trials
+    return max(candidates, key=lambda t: (counts.get(keys.get(t["id"]), 0), t.get("createdAt") or ""))
+
+
 def handle_athlete_dashboard(args: argparse.Namespace) -> dict[str, Any]:
     """The dashboard is athlete-level; any analysed throw of the athlete regenerates it."""
     from .insights import generate_insights
@@ -347,8 +365,7 @@ def handle_athlete_dashboard(args: argparse.Namespace) -> dict[str, Any]:
     trials = [t for t in project.get("trials", []) if t["athleteID"] == args.athlete_id and t.get("analysisRelativePath")]
     if not trials:
         raise ValueError("Analyze at least one throw for this athlete first.")
-    latest = max(trials, key=lambda t: t.get("createdAt") or "")
-    generate_insights(root, latest["id"], export_report=False)
+    generate_insights(root, dashboard_base_trial(root, trials)["id"], export_report=False)
     return {"athlete_id": args.athlete_id, "dashboard": str(root / "dashboards" / f"{args.athlete_id}.json")}
 
 
@@ -413,7 +430,59 @@ def handle_bag_qa(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+ANALYSIS_LOCK_NAME = "cornhole-biomech-analysis.lock"
+
+
+class analysis_slot:
+    """Only one video analysis runs at a time on this computer, across app windows and copies of the app.
+
+    Each analysis decodes a whole clip into memory (about 2 GB for a 1080p throw), so two or more at
+    once can exhaust memory and freeze the Mac. A second analysis waits here, reporting that it is
+    queued, until the first finishes (an OS file lock: released automatically if a process dies).
+    Set CORNHOLE_ANALYSIS_LOCK to a path to override the lock file (tests).
+    """
+
+    def __init__(self, report=None):
+        import os
+        import tempfile
+        self.path = Path(os.environ.get("CORNHOLE_ANALYSIS_LOCK") or Path(tempfile.gettempdir()) / ANALYSIS_LOCK_NAME)
+        self.report = report
+        self.handle = None
+
+    def __enter__(self):
+        import time
+        try:
+            import fcntl
+        except ImportError:          # not POSIX: no cross-process lock
+            return self
+        self.handle = open(self.path, "a+")
+        waited = False
+        while True:
+            try:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except BlockingIOError:
+                if not waited and self.report:
+                    self.report("queued", 0.0, "Waiting for another analysis on this Mac to finish (one at a time).")
+                waited = True
+                time.sleep(1.0)
+
+    def __exit__(self, *exc):
+        if self.handle is not None:
+            try:
+                import fcntl
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                self.handle.close()
+        return False
+
+
 def handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
+    with analysis_slot(progress):
+        return _handle_analyze(args)
+
+
+def _handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
     context = TrialContext(
         trial_id=args.trial_id,
         athlete_id=args.athlete_id,

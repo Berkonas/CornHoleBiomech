@@ -6,12 +6,20 @@ let launchLabSymbol = "point.topleft.down.to.point.bottomright.curvepath"
 struct LaunchLabView: View {
     @EnvironmentObject private var store: ProjectStore
     @State private var measured: [MeasuredRelease] = []
+    @State private var zone: PersonalZone?
 
     var body: some View {
-        LaunchLabContent(measured: measured, athleteSelected: store.selectedAthleteID != nil)
+        LaunchLabContent(measured: measured, athleteSelected: store.selectedAthleteID != nil, personalZone: zone,
+                         athleteName: store.selectedAthlete?.displayName)
+            .id(store.selectedAthleteID)
             .task(id: store.selectedAthleteID) {
                 let releases = await MeasuredRelease.load(athleteID: store.selectedAthleteID, store: store)
                 if !Task.isCancelled { measured = releases }
+                if let id = store.selectedAthleteID, let root = store.projectURL {
+                    zone = AthleteDashboard.load(root.appendingPathComponent("dashboards/\(id.uuidString).json"))?.personal_zone
+                } else {
+                    zone = nil
+                }
             }
     }
 }
@@ -21,6 +29,9 @@ struct LaunchLabContent: View {
     let measured: [MeasuredRelease]
     let athleteSelected: Bool
     var animateOnAppear = true
+    /// The selected athlete's own green zone (height, measured distance and slide, best aim).
+    let personalZone: PersonalZone?
+    let athleteName: String?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var params: LaunchParameters
@@ -31,9 +42,11 @@ struct LaunchLabContent: View {
     @State private var source: (label: String, params: LaunchParameters)?
 
     init(measured: [MeasuredRelease], athleteSelected: Bool, initial: LaunchParameters = LaunchLabContent.defaultParameters,
-         ghosts: [LaunchParameters] = [], animateOnAppear: Bool = true) {
+         ghosts: [LaunchParameters] = [], animateOnAppear: Bool = true, personalZone: PersonalZone? = nil, athleteName: String? = nil) {
         self.measured = measured
         self.athleteSelected = athleteSelected
+        self.personalZone = personalZone
+        self.athleteName = athleteName
         self.animateOnAppear = animateOnAppear
         _params = State(initialValue: initial)
         _ghosts = State(initialValue: ghosts)
@@ -61,7 +74,10 @@ struct LaunchLabContent: View {
             }
             Card("Success map", symbol: "square.grid.3x3.fill",
                  subtitle: "Predicted first contact for every speed and angle, at h = \(number(params.releaseHeight, digits: 2)) m and \(number(params.distanceToBoard, digits: 2)) m to the board. Click or drag to try a release.") {
-                SuccessMap(params: $params, throws: measured, onPick: throwNow)
+                SuccessMap(params: $params, throws: measured, onPick: throwNow, bestAim: bestAimMarker)
+                if usingPersonalZone, let sentence = personalZone?.sentence {
+                    Text(sentence).font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
             }
             sensitivityCard
             Card {
@@ -115,7 +131,7 @@ struct LaunchLabContent: View {
             ForEach(LandingZone.allCases.filter { $0 != .off }, id: \.self) { zone in
                 HStack(spacing: Space.xs) {
                     Capsule().fill(zone.color).frame(width: 16, height: 3)
-                    Text(zone == .hole ? "Hole window (lands ≤ 45 cm short of centre)" : "On the board (or ≤ 30 cm short)")
+                    Text(zone == .hole ? "Hole window (lands ≤ \(number(params.slideAllowance * 100, digits: 0)) cm short of centre and slides in)" : "On the board (or ≤ 30 cm short)")
                 }
             }
             HStack(spacing: Space.xs) {
@@ -135,6 +151,13 @@ struct LaunchLabContent: View {
                 ParameterRow(title: "Angle", unit: "°", value: $params.angleDegrees, range: Self.angleRange, step: 0.5, digits: 1, commit: throwNow)
                 ParameterRow(title: "Height", unit: "m", value: $params.releaseHeight, range: Self.heightRange, step: 0.01, digits: 2, commit: throwNow)
                 ParameterRow(title: "Distance to board", unit: "m", value: $params.distanceToBoard, range: Self.distanceRange, step: 0.05, digits: 2, commit: throwNow)
+                ParameterRow(title: "Slide on the board", unit: "m", value: $params.slideAllowance, range: 0.0...0.9, step: 0.01, digits: 2, commit: throwNow)
+            }
+            if let zone = personalZone, zone.status == "available" {
+                Button("Use \(athleteName ?? "this athlete")'s green zone", systemImage: "person.crop.circle.badge.checkmark", action: usePersonalZone)
+                    .help("Their release height, measured distance and measured slide; starts at their best aim")
+                Text("Height \(number(zone.height_m, digits: 2)) m · \(number(zone.distance_m, digits: 2)) m to the board · slide \(number(zone.slide_allowance_m, digits: 2)) m (\(zone.slide_source == "assumed" ? "assumed" : "measured"))")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Divider().padding(.vertical, Space.xs)
             Button("Solve speed for the hole", systemImage: "scope", action: solve)
@@ -180,6 +203,26 @@ struct LaunchLabContent: View {
         params.releaseHeight = clamp(m.height, Self.heightRange)
         if let d = m.distance { params.distanceToBoard = clamp(d, Self.distanceRange) }
         source = (m.label, params)
+        throwNow()
+    }
+
+    /// The map and scene currently use the athlete's own height, distance and slide.
+    private var usingPersonalZone: Bool {
+        guard let zone = personalZone, let height = zone.height_m else { return false }
+        return abs(params.releaseHeight - height) < 0.005 && abs(params.distanceToBoard - zone.distance_m) < 0.005
+            && abs(params.slideAllowance - zone.slide_allowance_m) < 0.005
+    }
+
+    /// The athlete's best aim, drawn only while the map uses their own height, distance and slide.
+    private var bestAimMarker: (speed: Double, angle: Double)? {
+        guard usingPersonalZone, let best = personalZone?.best else { return nil }
+        return (speed: best.speed_m_s, angle: best.angle_deg)
+    }
+
+    private func usePersonalZone() {
+        guard let zone = personalZone, let p = zone.parameters(speed: zone.best?.speed_m_s, angle: zone.best?.angle_deg) else { return }
+        params = p
+        source = ("\(athleteName ?? "Athlete")'s best aim", p)
         throwNow()
     }
 

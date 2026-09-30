@@ -69,20 +69,8 @@ struct ImportTrialForm: View {
                     if let first = imported.first { store.destination = .throwReport(first.id) }
                     dismiss()
                     if analyzeAutomatically && !imported.isEmpty {
-                        // One worker at a time; each throw is analyzed end to end without clicks.
-                        let batch = Set(imported.map(\.id))
-                        Task {
-                            var last: Trial?
-                            for trial in imported {
-                                // Skip throws deleted while the batch was running; use the current record.
-                                guard let current = store.project?.trials.first(where: { $0.id == trial.id }) else { continue }
-                                await analysis.analyze(trial: current, store: store, selectWhenDone: false)
-                                last = current
-                            }
-                            if let last, store.project?.trials.first(where: { $0.id == last.id })?.analysisStatus == "Analyzed" {
-                                store.showAnalyzedThrow(last, batch: batch)
-                            }
-                        }
+                        // Queued: one throw at a time, end to end without clicks (never several at once).
+                        analysis.enqueue(imported, store: store, showLastWhenDone: true)
                     }
                 }.buttonStyle(.borderedProminent).disabled(athleteID == nil)
             }
@@ -143,6 +131,16 @@ struct AnalysisSettingsView: View {
                 }
                 Stepper("Time-normalized samples: \(settings.normalizationSamples)", value: $settings.normalizationSamples, in: 51...201, step: 10)
                 Stepper("Minimum paired trials: \(settings.minimumRelationshipTrials)", value: $settings.minimumRelationshipTrials, in: 8...30)
+                LabeledContent("Fallback throwing distance") {
+                    HStack {
+                        Slider(value: Binding(get: { settings.releaseToBoardMeters ?? 7.7 },
+                                              set: { settings.releaseToBoardMeters = ($0 * 20).rounded() / 20 }), in: 3...9)
+                        Text("\(number(settings.releaseToBoardMeters ?? 7.7, digits: 2)) m · \(number((settings.releaseToBoardMeters ?? 7.7) / 0.3048, digits: 1)) ft")
+                            .monospacedDigit().frame(width: 120, alignment: .trailing)
+                    }
+                }
+                Text("Release point to the front of the board. Used only until at least three throws have this distance measured from the video; the measured distance always wins. The regulation 27 ft pitch is about 7.7 m from a typical release point.")
+                    .font(.caption).foregroundStyle(.secondary)
             }.formStyle(.grouped)
             Text("The 6 Hz default is a documented starting point, not a universal optimum. Cutoff validity depends on frame rate, movement content, and markerless noise; the engine rejects values above Nyquist.")
                 .font(.caption).foregroundStyle(.secondary)

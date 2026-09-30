@@ -27,6 +27,10 @@ struct AthleteSummaryView: View {
     @State private var reloadToken = 0
     /// The next load rebuilds the dashboard even when it looks current (Refresh).
     @State private var forceNextRebuild = false
+    /// The throw whose video is showing in the watch sheet.
+    @State private var watching: WatchedThrow?
+
+    struct WatchedThrow: Identifiable { var id: UUID }
 
     var body: some View {
         AthleteSummaryContent(dashboard: dashboard, rows: rows, consistency: consistency, open: open,
@@ -40,8 +44,23 @@ struct AthleteSummaryView: View {
                         .help("Rebuild this athlete's summary from the latest analyses and results")
                         .disabled(analysis.isRunning || analysedTrials.isEmpty)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Re-analyze All", systemImage: "arrow.triangle.2.circlepath") {
+                        analysis.enqueue(trials.filter { store.videoState(for: $0).isAvailable }, store: store)
+                    }
+                    .help("Analyze every throw of this athlete again with the current version, one at a time (never all at once)")
+                    .disabled(analysis.isRunning || trials.isEmpty)
+                }
             }
             .task(id: "\(reloadKey)#\(reloadToken)") { await load() }
+            .sheet(item: $watching) { item in
+                let trial = trials.first { $0.id == item.id }
+                ThrowVideoSheet(title: trial?.displayName ?? "Throw", videoURL: trial.flatMap { store.videoURL(for: $0) },
+                                score: trial?.outcome?.scoreCategory,
+                                phase: trial.flatMap { store.analysisURL(for: $0) }.flatMap {
+                                    BoardPhase.load(results: $0.appendingPathComponent("results.json")) },
+                                openReport: { open(item.id) })
+            }
             .onChange(of: analysis.isRunning) { _, running in
                 if !running { reload() }
             }
@@ -72,6 +91,11 @@ struct AthleteSummaryView: View {
         let unanalysed = trials.first { $0.analysisRelativePath == nil && store.videoState(for: $0).isAvailable }
         let unscored = trials.first { $0.outcome?.scoreCategory == nil }
         let newestAnalysed = analysedTrials.last
+        let pending = leftOut
+        var reanalyze: (label: String, run: () -> Void)?
+        if !pending.isEmpty {
+            reanalyze = (label: "Re-analyze \(pending.count) (one at a time)", run: { analysis.enqueue(pending, store: store) })
+        }
         return SummaryActions(
             canEdit: !busy,
             importVideos: { NotificationCenter.default.post(name: .importTrialVideo, object: nil) },
@@ -80,6 +104,8 @@ struct AthleteSummaryView: View {
             },
             recordResults: unscored.map { trial in { open(trial.id) } },
             refresh: { reload(rebuild: true) },
+            watch: { id in watching = WatchedThrow(id: id) },
+            reanalyzeLeftOut: reanalyze,
             prepareConsistency: newestAnalysed.map { trial in
                 {
                     Task {
@@ -92,6 +118,14 @@ struct AthleteSummaryView: View {
     }
 
     private func open(_ id: UUID) { store.destination = .throwReport(id) }
+
+    /// Throws the summary left out that a re-analysis would bring in (old app version, out of date).
+    private var leftOut: [Trial] {
+        let reasons = Set((dashboard?.cohort?.excluded ?? []).filter {
+            $0.reason.contains("re-analyze") || $0.reason.contains("needs re-analysis") || $0.reason == "not analyzed yet"
+        }.map(\.trial_id))
+        return trials.filter { reasons.contains($0.id.uuidString) && store.videoState(for: $0).isAvailable }
+    }
 
     private func analyze(_ trial: Trial) {
         Task { await analysis.analyze(trial: trial, store: store) }
@@ -167,6 +201,10 @@ struct SummaryActions {
     /// Open the first throw without a result.
     var recordResults: (() -> Void)? = nil
     var refresh: () -> Void = {}
+    /// Watch a throw's video without leaving the summary.
+    var watch: ((UUID) -> Void)? = nil
+    /// Re-analyze throws left out of the summary (old app version, out of date), one at a time.
+    var reanalyzeLeftOut: (label: String, run: () -> Void)? = nil
     /// Prepare the cross-throw consistency data (insights) for the newest analysed throw.
     var prepareConsistency: (() -> Void)? = nil
 }
@@ -195,11 +233,15 @@ struct AthleteSummaryContent: View {
     init(dashboard: AthleteDashboard?, rows: [SummaryThrowRow], consistency: TrialInsights.Consistency?, open: @escaping (UUID) -> Void,
          athleteName: String? = nil, throwCount: Int? = nil, resultCount: Int? = nil, loading: Bool = false, failure: String? = nil,
          actions: SummaryActions = SummaryActions(), showsDetails: Bool = false) {
-        self.dashboard = dashboard; self.rows = rows; self.consistency = consistency; self.open = open
+        self.dashboard = dashboard; self.rows = rows; self.open = open
         self.athleteName = athleteName; self.throwCount = throwCount; self.resultCount = resultCount
         self.loading = loading; self.failure = failure; self.actions = actions
         _showsDetails = State(initialValue: showsDetails)
-        curves = consistency.map(ElbowCurves.init)
+        // The dashboard's consistency pools every comparable throw; a throw's own insights.json is a snapshot
+        // of the throws that existed when it was prepared, so it is only the fallback.
+        let pooled = dashboard?.consistency.flatMap { $0.n > 0 ? $0 : nil } ?? consistency
+        self.consistency = pooled
+        curves = pooled.map(ElbowCurves.init)
         scores = Dictionary(rows.compactMap { row in row.score.map { (row.id, $0) } }, uniquingKeysWith: { a, _ in a })
     }
 
@@ -394,7 +436,7 @@ struct AthleteSummaryContent: View {
 
     private var tableCard: some View {
         Card("Throw comparison", symbol: "tablecells", subtitle: "One row per analyzed throw. Click a column title to sort.") {
-            ThrowComparisonTable(rows: rows, open: open)
+            ThrowComparisonTable(rows: rows, open: open, watch: actions.watch)
         }
     }
 
@@ -405,6 +447,7 @@ struct AthleteSummaryContent: View {
             Text("Elbow angle through the throw").font(.headline)
             if let curves, !curves.lines.isEmpty {
                 ElbowConsistencyChart(curves: curves, scores: scores)
+                cohortNote
             } else if let consistency {
                 sectionEmpty("chart.line.flattrend.xyaxis",
                              "\(consistency.message) (\(consistency.n) so far.)",
@@ -422,6 +465,26 @@ struct AthleteSummaryContent: View {
             } else {
                 sectionEmpty("chart.dots.scatter", "No measure was reliable on enough throws to compare yet.",
                              action: moreThrowsAction)
+            }
+        }
+    }
+
+    /// Which throws the average uses, and why any were left out (with the one action that brings them in).
+    @ViewBuilder private var cohortNote: some View {
+        if let cohort = dashboard?.cohort {
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("Average of \(cohort.included.count) \(cohort.included.count == 1 ? "throw" : "throws") (every comparable analyzed throw).")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !cohort.excluded.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                        Label("\(cohort.excluded.count) left out: " + cohort.excluded.prefix(4).map { "\($0.label) (\($0.reason))" }.joined(separator: "; ")
+                              + (cohort.excluded.count > 4 ? "; …" : "."), systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                        if let action = actions.reanalyzeLeftOut {
+                            Button(action.label, action: action.run).buttonStyle(.link).font(.caption).disabled(!actions.canEdit)
+                        }
+                    }
+                }
             }
         }
     }
@@ -447,7 +510,10 @@ struct AthleteSummaryContent: View {
 
     @ViewBuilder private var releaseMapCard: some View {
         let releases = rows.compactMap(\.release)
-        if let typical = Self.typicalRelease(releases) {
+        if let zone = dashboard?.personal_zone, zone.status == "available" {
+            PersonalZoneCard(zone: zone, releases: releases, distanceNote: dashboard?.distance?.note,
+                             lateralNote: dashboard?.lateral?.note, select: actions.watch)
+        } else if let typical = Self.typicalRelease(releases) {
             let p = typical.params
             let distance = typical.measuredDistance
                 ? "\(number(p.distanceToBoard, digits: 2)) m to the board (this athlete's measured median)"

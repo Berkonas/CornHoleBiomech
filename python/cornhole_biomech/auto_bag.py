@@ -41,7 +41,7 @@ from .board import detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
 from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v15_backfill_to_hand"
+AUTO_BAG_REVISION = "auto_motion_parabola_v16_board_phase"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -933,6 +933,11 @@ def _landing(decided: dict[str, Any], contact_known: bool, contact: int, refined
     return None
 
 
+def model_plane(model, point: dict[str, Any]) -> list[float]:
+    """Throw-plane (x, y) metres of a release-frame pixel point given as a dict with x/y_release_frame."""
+    return model.to_plane(np.array([[point["x_release_frame"], point["y_release_frame"]]], float))[0].tolist()
+
+
 def _no_board_fallback(decided, fit, fps, last, contact, width, height) -> tuple[bool, str | None]:
     """No board: the previous geometric rule (descending, away from the image edge), labelled unverified.
 
@@ -1138,8 +1143,36 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     camera_to_release = {str(f): np.round(chain[f][:2], 6).tolist() for f in range(len(frames))}
     areas = [r["area_px"] for r in refined.values() if r.get("area_px")]
     typical_area = float(np.median(areas)) if areas else None
-    after_contact, after_contact_from_predicted = _after_contact(decided, contact, contact_known, refined, chain,
-                                                                  frames, release, fps, typical_area)
+    after_contact, after_contact_from_predicted = None, False
+    board_phase = None
+    if board.get("model") is not None:
+        # Follow the bag ON the board to the end of the clip (touchdown, slide, stop or drop into
+        # the hole). This replaces the older first-quiet-window rest rule when it succeeds.
+        from .board_phase import analyze_board_phase, as_after_contact
+        flight_ref = {f: tuple(float(v) for v in (chain[f] @ np.array([r["x"], r["y"], 1.0]))[:2])
+                      for f, r in refined.items() if f in chain}
+        try:
+            board_phase = analyze_board_phase(frames, chain, board["model"], release, contact, flight_ref, fps,
+                                              typical_area, touchdown_hint=contact if contact_known else None)
+        except Exception as error:  # never lose the flight because the board stage failed
+            board_phase = {"status": "failed", "reason": f"Board-phase tracking failed: {error}"}
+        if board_phase.get("status") == "measured":
+            after_contact = as_after_contact(board_phase)
+            touch = board_phase["touchdown"]
+            if not contact_known and touch.get("on_deck") and touch.get("basis") == "on_deck_surface" \
+                    and touch["frame"] > contact:
+                # The flight tracker lost the bag in the air just before landing; the landing was
+                # seen on the board, so first contact is observed after all.
+                contact_known = True
+                decided["first_contact_frame"] = int(touch["frame"])
+                decided["contact"] = {"kind": "deck", "state": "measured", "source": "board_phase",
+                                      "plane_xy_m": model_plane(board["model"], touch),
+                                      "reason": f"The flight track ended in the air at frame {contact}; the bag was "
+                                                f"then seen landing on the board at frame {touch['frame']}."}
+                decided["predicted_contact"] = None
+    if after_contact is None:
+        after_contact, after_contact_from_predicted = _after_contact(decided, contact, contact_known, refined, chain,
+                                                                      frames, release, fps, typical_area)
     # Second, independent release cue: where the flight traced backwards meets the
     # wrist (geometry of bag path vs hand), versus the first free-flight detection.
     release_check = None
@@ -1163,6 +1196,9 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
                        "leaves from the hand, so the start of the flight was probably missed.")
     if fallback_warning:
         reasons.append(fallback_warning)
+    if board_phase and (board_phase.get("touchdown") or {}).get("frame") is not None and contact_known \
+            and decided["first_contact_frame"] != contact:
+        contact = int(decided["first_contact_frame"])
     if not contact_known:
         predicted = decided["predicted_contact"]
         reasons.append(decided["contact"]["reason"] + " Flight time is unknown"
@@ -1171,8 +1207,16 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     landing = suggested = None
     if board.get("model") is not None:
         model = board["model"]
-        landing = _landing(decided, contact_known, contact, refined, chain, model)
-        suggested = _mark_predicted_basis(suggest_outcome(after_contact, model), after_contact_from_predicted)
+        if (decided.get("contact") or {}).get("source") == "board_phase":
+            touch = board_phase["touchdown"]
+            landing = {**landing_summary((touch["x_release_frame"], touch["y_release_frame"]), model),
+                       "state": "measured", "position_basis": "board_phase_touchdown"}
+        else:
+            landing = _landing(decided, contact_known, contact, refined, chain, model)
+        if board_phase and board_phase.get("status") == "measured" and board_phase.get("suggested_outcome"):
+            suggested = board_phase["suggested_outcome"]
+        else:
+            suggested = _mark_predicted_basis(suggest_outcome(after_contact, model), after_contact_from_predicted)
     board_payload = {k: v for k, v in board.items() if k != "model"}
     if board.get("model") is not None:
         board_payload.update(board["model"].as_dict())
@@ -1182,7 +1226,7 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     return {
         "status": status, "revision": AUTO_BAG_REVISION, "fps": fps, "reasons": reasons,
         "release_frame": release, "first_contact_frame": contact if contact_known else None,
-        "last_tracked_frame": contact,
+        "last_tracked_frame": int(fit["last_frame"]),
         "contact": decided["contact"], "predicted_contact": decided["predicted_contact"],
         "board": board_payload, "landing": landing, "suggested_outcome": suggested,
         "scene": {"masks_status": masks_info["status"], "masks_reason": masks_info.get("reason"),
@@ -1206,6 +1250,7 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
         "stabilized_points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
         "camera_to_release": camera_to_release,
         "after_contact": after_contact,
+        "board_phase": board_phase,
         "release_check": release_check,
         "release_onset": {"method": "first_flight_point_beyond_hand", "status": onset["status"],
                           "reason": RELEASE_ONSET_REASONS[onset["status"]].format(r=IN_HAND_ARM_LENGTHS,

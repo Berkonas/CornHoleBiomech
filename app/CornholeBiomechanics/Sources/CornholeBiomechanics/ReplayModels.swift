@@ -50,7 +50,7 @@ struct ReplayDocument: Decodable {
     }
 
     /// Display order of events on the timeline.
-    static let eventOrder = ["peak_backswing", "peak_wrist_speed", "peak_elbow_extension", "release", "apex", "first_contact", "final_rest"]
+    static let eventOrder = ["peak_backswing", "peak_wrist_speed", "peak_elbow_extension", "release", "apex", "first_contact", "final_rest", "into_hole"]
     var orderedEvents: [(key: String, event: Event)] {
         Self.eventOrder.compactMap { key in events[key].map { (key, $0) } }
     }
@@ -180,6 +180,14 @@ struct AthleteDashboard: Decodable {
     var observed_differences: [Priority]
     var trust: Trust
     var trial_labels: [String: String]?
+    /// The athlete's own green zone (height, measured distance and slide, consistency).
+    var personal_zone: PersonalZone?
+    var distance: DistanceInfo?
+    var lateral: LateralInfo?
+    /// Throw-to-throw consistency over every comparable throw (not a per-throw snapshot).
+    var consistency: TrialInsights.Consistency?
+    /// Which throws the summary pooled, and why any were left out.
+    var cohort: Cohort?
 
     static func load(_ url: URL?) -> AthleteDashboard? {
         guard let url, let data = try? Data(contentsOf: url) else { return nil }

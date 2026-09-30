@@ -21,6 +21,9 @@ struct LaunchParameters: Equatable {
     var releaseHeight: Double    // m above the floor
     var distanceToBoard: Double  // m, horizontal from release point to the board's front edge
     var board = BoardGeometry.regulation
+    /// How far short of the hole centre a bag can land and still slide in (m). 0.45 m is the stated
+    /// default; an athlete's measured median slide replaces it (python `zones.personal_slide_allowance`).
+    var slideAllowance = 0.45
 
     var vx: Double { speed * cos(angleDegrees * .pi / 180) }
     var vy: Double { speed * sin(angleDegrees * .pi / 180) }
@@ -134,8 +137,9 @@ struct LaunchModel {
     /// Zone of first contact. Hole window = on the deck from `slideAllowance` short of the
     /// hole centre to its far edge; board = elsewhere on the deck or up to `slideUp` short of
     /// the front edge; off = further short, the front face, or long. Mirrors python exactly.
-    func zone(slideAllowance: Double = 0.45, slideUp: Double = 0.30) -> LandingZone {
-        Self.zone(for: landing(), distance: p.distanceToBoard, board: p.board, slideAllowance: slideAllowance, slideUp: slideUp)
+    func zone(slideAllowance: Double? = nil, slideUp: Double = 0.30) -> LandingZone {
+        Self.zone(for: landing(), distance: p.distanceToBoard, board: p.board,
+                  slideAllowance: slideAllowance ?? p.slideAllowance, slideUp: slideUp)
     }
 
     static func zone(for hit: Landing, distance: Double, board b: BoardGeometry,

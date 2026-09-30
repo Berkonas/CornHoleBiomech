@@ -421,6 +421,30 @@ def method_signature(manifest: dict[str, Any]) -> str | None:
     return manifest.get("method_version") or manifest.get("engine_source_sha256")
 
 
+BOARD_PHASE_SUMMARY_KEYS = ("board_touchdown_along_in", "board_touchdown_from_hole_in", "board_end_along_in",
+                            "board_end_from_hole_in", "board_end_in_hole", "board_slide_in", "board_slide_s",
+                            "board_slide_entry_speed_m_s", "board_slide_deceleration_m_s2", "board_slide_friction_mu",
+                            "board_hang_s")
+
+
+def board_phase_summaries(phase: dict[str, Any] | None) -> dict[str, Any]:
+    """Flat per-throw numbers from the board phase (inches along the deck; + = past the hole centre)."""
+    out: dict[str, Any] = {k: None for k in BOARD_PHASE_SUMMARY_KEYS}
+    if not phase or phase.get("status") != "measured":
+        return out
+    touch, end, slide = phase["touchdown"], phase["end"], phase.get("slide") or {}
+    out.update(board_touchdown_along_in=touch.get("v_in"), board_touchdown_from_hole_in=touch.get("from_hole_in"),
+               board_end_in_hole=1.0 if end.get("kind") == "fell_in_hole" else 0.0 if end.get("kind") == "rest" else None,
+               board_slide_in=slide.get("distance_in"), board_slide_s=slide.get("duration_s"),
+               board_slide_entry_speed_m_s=slide.get("entry_speed_m_s"),
+               board_slide_deceleration_m_s2=slide.get("deceleration_m_s2"),
+               board_slide_friction_mu=slide.get("mu_effective"),
+               board_hang_s=(phase.get("hang") or {}).get("seconds"))
+    if end.get("kind") in ("rest", "fell_in_hole"):
+        out.update(board_end_along_in=end.get("v_in"), board_end_from_hole_in=end.get("from_hole_in"))
+    return out
+
+
 def _no_progress(stage: str, fraction: float, message: str) -> None:
     del stage, fraction, message
 
@@ -1355,6 +1379,9 @@ def analyze_trial(
     summaries["landing_along_error_m"] = (landing or {}).get("along_error_m") \
         if landing and landing.get("state") == "measured" else None
     summaries["board_phi_deg"] = board_scale.get("phi_deg")
+    board_phase = (auto_flight or {}).get("board_phase")
+    board_phase = board_phase if isinstance(board_phase, dict) and board_phase.get("status") == "measured" else None
+    summaries.update(board_phase_summaries(board_phase))
     chain = None
     if release_frame is not None:
         from .chain import flatten_for_summaries
@@ -1500,6 +1527,11 @@ def analyze_trial(
                 "landing": auto_flight.get("landing"),
                 "suggested_outcome": auto_flight.get("suggested_outcome"),
             }
+    if board_phase is not None:
+        # Where the throw ENDED (touchdown, slide, rest or into the hole): measured on the board even
+        # when the flight itself still needs review, so it is kept with the flight's status.
+        results["board_phase"] = {**{k: v for k, v in board_phase.items() if k != "background_frames"},
+                                  "flight_accepted": bool(auto_accepted)}
     results["scale"] = board_scale
     results["scale_check"] = scale_check
     results["chain"] = chain
@@ -1511,7 +1543,7 @@ def analyze_trial(
     replay = build_replay(
         fps=video.fps, frame_count=sequence.frame_count, width=video.width, height=video.height,
         camera_to_release=camera_to_release, measured=fit_points, filtered=flight_filter,
-        model_check=flight.get("model_check"), after_contact=after_contact, events=replay_events,
+        model_check=flight.get("model_check"), after_contact=after_contact, events=replay_events, board_phase=board_phase,
         summaries=summaries, coach_metrics=coach_metrics, grades=quality["grades"], release_window=release_window)
     normalized_payload = {
         "schema_version": 1,

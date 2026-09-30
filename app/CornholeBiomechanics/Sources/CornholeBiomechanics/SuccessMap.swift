@@ -101,6 +101,7 @@ struct SuccessMapGrid: Equatable {
     var distance: Double
     /// Per column (angle), the zone runs from the lowest speed row upward.
     var runs: [[Run]]
+    var slideAllowance = 0.45
 
     static func angle(column: Int) -> Double { angleRange.lowerBound + (Double(column) + 0.5) * angleStep }
     static func speed(row: Int) -> Double { speedRange.lowerBound + (Double(row) + 0.5) * speedStep }
@@ -136,9 +137,11 @@ struct SuccessMapGrid: Equatable {
                 deck(board.length)]
     }
 
-    static func compute(height: Double, distance: Double, board: BoardGeometry = .regulation) -> SuccessMapGrid {
+    static func compute(height: Double, distance: Double, board: BoardGeometry = .regulation,
+                        slideAllowance: Double = 0.45) -> SuccessMapGrid {
         let runs = (0..<columns).map { column -> [Run] in
-            let b = boundaries(angleDegrees: angle(column: column), height: height, distance: distance, board: board)
+            let b = boundaries(angleDegrees: angle(column: column), height: height, distance: distance, board: board,
+                               slideAllowance: slideAllowance)
             var runs: [Run] = []
             for row in 0..<rows {
                 let zone = zone(speed: speed(row: row), boundaries: b)
@@ -147,7 +150,7 @@ struct SuccessMapGrid: Equatable {
             }
             return runs
         }
-        return SuccessMapGrid(height: height, distance: distance, runs: runs)
+        return SuccessMapGrid(height: height, distance: distance, runs: runs, slideAllowance: slideAllowance)
     }
 
     func zone(column: Int, row: Int) -> LandingZone? {
@@ -165,21 +168,32 @@ struct SuccessMap: View {
     var interactive: Bool
     /// Called when a click or drag on the map ends.
     var onPick: (() -> Void)?
+    /// A throw drawn larger with a ring (the throw this report is about).
+    var highlight: UUID?
+    /// The release with the best modelled chance of the hole window for this athlete (a target marker).
+    var bestAim: (speed: Double, angle: Double)?
+    /// Clicking a measured throw's mark (non-interactive maps only) calls this with its id.
+    var onSelectThrow: ((UUID) -> Void)?
 
     @State private var grid: SuccessMapGrid
     @State private var hover: (angle: Double, speed: Double)?
 
-    init(params: Binding<LaunchParameters>, throws measured: [MeasuredRelease], interactive: Bool = true, onPick: (() -> Void)? = nil) {
+    init(params: Binding<LaunchParameters>, throws measured: [MeasuredRelease], interactive: Bool = true, onPick: (() -> Void)? = nil,
+         highlight: UUID? = nil, bestAim: (speed: Double, angle: Double)? = nil, onSelectThrow: ((UUID) -> Void)? = nil) {
         _params = params
         throwsList = measured
         self.interactive = interactive
         self.onPick = onPick
+        self.highlight = highlight
+        self.bestAim = bestAim
+        self.onSelectThrow = onSelectThrow
         _grid = State(initialValue: SuccessMapGrid.compute(height: params.wrappedValue.releaseHeight,
                                                            distance: params.wrappedValue.distanceToBoard,
-                                                           board: params.wrappedValue.board))
+                                                           board: params.wrappedValue.board,
+                                                           slideAllowance: params.wrappedValue.slideAllowance))
     }
 
-    private struct Key: Equatable { var height: Double; var distance: Double; var board: BoardGeometry }
+    private struct Key: Equatable { var height: Double; var distance: Double; var board: BoardGeometry; var slide: Double }
 
     private static let insets = EdgeInsets(top: 8, leading: 58, bottom: 44, trailing: 10)
 
@@ -189,6 +203,10 @@ struct SuccessMap: View {
                 .frame(minHeight: 280, idealHeight: 320)
                 .contentShape(Rectangle())
                 .gesture(interactive ? pickGesture : nil)
+                .onTapGesture { location in
+                    guard !interactive, let onSelectThrow, let id = nearestThrow(to: location) else { return }
+                    onSelectThrow(id)
+                }
                 .onContinuousHover { phase in
                     guard interactive else { return }
                     if case .active(let location) = phase { hover = value(at: location) } else { hover = nil }
@@ -199,10 +217,12 @@ struct SuccessMap: View {
                 .overlay { GeometryReader { proxy in Color.clear.onAppear { canvasSize = proxy.size }.onChange(of: proxy.size) { canvasSize = $1 } } }
             legend
         }
-        .task(id: Key(height: params.releaseHeight, distance: params.distanceToBoard, board: params.board)) {
-            let (h, d, b) = (params.releaseHeight, params.distanceToBoard, params.board)
-            guard grid.height != h || grid.distance != d else { return }
-            let next = await Task.detached(priority: .userInitiated) { SuccessMapGrid.compute(height: h, distance: d, board: b) }.value
+        .task(id: Key(height: params.releaseHeight, distance: params.distanceToBoard, board: params.board, slide: params.slideAllowance)) {
+            let (h, d, b, slide) = (params.releaseHeight, params.distanceToBoard, params.board, params.slideAllowance)
+            guard grid.height != h || grid.distance != d || grid.slideAllowance != slide else { return }
+            let next = await Task.detached(priority: .userInitiated) {
+                SuccessMapGrid.compute(height: h, distance: d, board: b, slideAllowance: slide)
+            }.value
             if !Task.isCancelled { grid = next }
         }
     }
@@ -240,6 +260,16 @@ struct SuccessMap: View {
         let speed = s.lowerBound + Double((plot.maxY - location.y) / plot.height) * (s.upperBound - s.lowerBound)
         return ((min(max(angle, a.lowerBound), a.upperBound) * 2).rounded() / 2,
                 (min(max(speed, s.lowerBound), s.upperBound) * 20).rounded() / 20)
+    }
+
+    /// The measured throw whose mark is within 10 pt of a click, nearest first.
+    private func nearestThrow(to location: CGPoint) -> UUID? {
+        let plot = plotRect(canvasSize)
+        let hits = throwsList.map { release -> (UUID, CGFloat) in
+            let p = point(angle: release.angle, speed: release.speed, in: plot)
+            return (release.id, hypot(p.x - location.x, p.y - location.y))
+        }.filter { $0.1 <= 10 }
+        return hits.min { $0.1 < $1.1 }?.0
     }
 
     private var pickGesture: some Gesture {
@@ -302,10 +332,33 @@ struct SuccessMap: View {
         // Measured throws.
         var clipped = ctx
         clipped.clip(to: Path(plot.insetBy(dx: -6, dy: -6)))
-        for release in throwsList {
+        for release in throwsList where release.id != highlight {
             let p = point(angle: release.angle, speed: release.speed, in: plot)
             guard plot.insetBy(dx: -5, dy: -5).contains(p) else { continue }
             drawMark(&clipped, at: p, score: release.score)
+        }
+        if let highlight, let release = throwsList.first(where: { $0.id == highlight }) {
+            let p = point(angle: release.angle, speed: release.speed, in: plot)
+            if plot.insetBy(dx: -5, dy: -5).contains(p) {
+                let ring = Path(ellipseIn: CGRect(x: p.x - 11, y: p.y - 11, width: 22, height: 22))
+                clipped.stroke(ring, with: .color(Color(nsColor: .controlBackgroundColor)), lineWidth: 5)
+                clipped.stroke(ring, with: .color(.accentColor), lineWidth: 2.5)
+                drawMark(&clipped, at: p, score: release.score)
+                clipped.draw(Text("This throw").font(.caption2.weight(.semibold)).foregroundStyle(Color.accentColor),
+                             at: CGPoint(x: p.x, y: p.y - 14), anchor: .bottom)
+            }
+        }
+        // Best aim for this athlete: a target (concentric rings), labelled.
+        if let bestAim {
+            let p = point(angle: bestAim.angle, speed: bestAim.speed, in: plot)
+            if plot.contains(p) {
+                for (radius, width) in [(9.0, 2.0), (4.0, 2.0)] as [(CGFloat, CGFloat)] {
+                    let ring = Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius, width: 2 * radius, height: 2 * radius))
+                    clipped.stroke(ring, with: .color(Color(nsColor: .controlBackgroundColor)), lineWidth: width + 2)
+                    clipped.stroke(ring, with: .color(.primary), lineWidth: width)
+                }
+                clipped.draw(Text("Best aim").font(.caption2.weight(.semibold)), at: CGPoint(x: p.x + 12, y: p.y), anchor: .leading)
+            }
         }
 
         // Current release: crosshair and a ring.

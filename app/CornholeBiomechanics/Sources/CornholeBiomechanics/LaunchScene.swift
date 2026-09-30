@@ -328,7 +328,7 @@ struct LaunchSceneRenderer {
         ctx.fill(hole, with: .color(.black.opacity(dark ? 0.7 : 0.55)))
 
         // Where first contact scores: hole window (green) and board (yellow), 3 pt strips just above the surface.
-        let slideAllowance = 0.45, slideUp = 0.30
+        let slideAllowance = params.slideAllowance, slideUp = 0.30
         func strip(_ from: CGPoint, _ to: CGPoint, _ zone: LandingZone) {
             var p = Path()
             let a = w(from), c = w(to)

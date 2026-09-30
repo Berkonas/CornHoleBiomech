@@ -181,6 +181,10 @@ struct AnalysisSettings: Codable, Equatable {
     var filterCutoffHz = 6.0
     var normalizationSamples = 101
     var minimumRelationshipTrials = 8
+    /// Release point → front of the board (m), used only when the videos cannot measure it
+    /// (Python `insights`: the athlete's measured median wins with ≥ 3 measured throws). Optional so
+    /// libraries saved before this setting existed still open.
+    var releaseToBoardMeters: Double? = nil
 
     var pythonPayload: [String: Any] {
         [

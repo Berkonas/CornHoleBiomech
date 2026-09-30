@@ -8,16 +8,18 @@ import SwiftUI
 enum HoleWindow {
     /// Contiguous run of speeds (0.01 m/s steps, 1–15 m/s) that reach the hole at `angle`, `height`, `distance`;
     /// the run nearest `near` if there is more than one.
-    static func speed(angle: Double, height: Double, distance: Double, near: Double) -> ClosedRange<Double>? {
+    static func speed(angle: Double, height: Double, distance: Double, near: Double, slide: Double = 0.45) -> ClosedRange<Double>? {
         run(steps: 100...1500, step: 0.01, near: near) { v in
-            LaunchModel(LaunchParameters(speed: v, angleDegrees: angle, releaseHeight: height, distanceToBoard: distance)).zone() == .hole
+            LaunchModel(LaunchParameters(speed: v, angleDegrees: angle, releaseHeight: height, distanceToBoard: distance,
+                                         slideAllowance: slide)).zone() == .hole
         }
     }
 
     /// Contiguous run of angles (0.1° steps, −10–80°) that reach the hole at `speed`, `height`, `distance`.
-    static func angle(speed: Double, height: Double, distance: Double, near: Double) -> ClosedRange<Double>? {
+    static func angle(speed: Double, height: Double, distance: Double, near: Double, slide: Double = 0.45) -> ClosedRange<Double>? {
         run(steps: -100...800, step: 0.1, near: near) { a in
-            LaunchModel(LaunchParameters(speed: speed, angleDegrees: a, releaseHeight: height, distanceToBoard: distance)).zone() == .hole
+            LaunchModel(LaunchParameters(speed: speed, angleDegrees: a, releaseHeight: height, distanceToBoard: distance,
+                                         slideAllowance: slide)).zone() == .hole
         }
     }
 
@@ -57,6 +59,13 @@ struct ThrowReportData {
     /// Why the saved analysis is out of date (`needs_reanalysis.json` reason); nil when current.
     var staleReason: String?
     var manifest: ManifestInfo?
+    /// Where the bag landed, slid and ended (results.json → board_phase).
+    var boardPhase: BoardPhase?
+    /// This athlete's green zone and measured releases (from the athlete summary's dashboard).
+    var personalZone: PersonalZone?
+    var athleteReleases: [MeasuredRelease] = []
+    var distanceNote: String?
+    var lateralNote: String?
 
     // Derived once per load by `derive()`, never per replay frame.
     var timeline = EventTimeline(fps: 30, frames: [:])
@@ -83,11 +92,14 @@ struct ThrowReportData {
         if let physics, let height = physics.height_m ?? value("bag_release_height_m") {
             let speed = physics.speed_m_s ?? value("bag_release_speed_m_s")
             let angle = physics.angle_deg ?? value("bag_release_angle_deg")
+            let slide = personalZone?.slide_allowance_m ?? 0.45
             if let angle {
-                targets["bag_release_speed_m_s"] = HoleWindow.speed(angle: angle, height: height, distance: physics.distance_m, near: speed ?? 8)
+                targets["bag_release_speed_m_s"] = HoleWindow.speed(angle: angle, height: height, distance: physics.distance_m,
+                                                                    near: speed ?? 8, slide: slide)
             }
             if let speed {
-                targets["bag_release_angle_deg"] = HoleWindow.angle(speed: speed, height: height, distance: physics.distance_m, near: angle ?? 35)
+                targets["bag_release_angle_deg"] = HoleWindow.angle(speed: speed, height: height, distance: physics.distance_m,
+                                                                    near: angle ?? 35, slide: slide)
             }
         }
         if let metrics = coach?.coach_metrics {
@@ -342,6 +354,8 @@ struct ThrowReportView: View {
     private func loadHistory() async {
         let values = await AthleteHistory.values(athleteID: trial.athleteID, store: store)
         if !Task.isCancelled { history = values; report.history = historyByMetric() }
+        let releases = await MeasuredRelease.load(athleteID: trial.athleteID, store: store)
+        if !Task.isCancelled { report.athleteReleases = releases }
     }
 
     /// Show the saved results at once; re-run the insights step (moved from the old Results page) only when
@@ -413,6 +427,14 @@ struct ThrowReportView: View {
         next.analysisURL = url
         next.history = historyByMetric()
         next.staleReason = Self.staleReason(url.appendingPathComponent("needs_reanalysis.json"))
+        next.boardPhase = BoardPhase.load(results: resultsURL)
+        next.athleteReleases = report.athleteReleases
+        if let root = store.projectURL,
+           let dashboard = AthleteDashboard.load(root.appendingPathComponent("dashboards/\(trial.athleteID.uuidString).json")) {
+            next.personalZone = dashboard.personal_zone
+            next.distanceNote = dashboard.distance?.note
+            next.lateralNote = dashboard.lateral?.note
+        }
         next.derive()
         report = next
         if !loadedOnce {
@@ -484,9 +506,17 @@ struct ThrowReportContent: View {
                                 frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
                                 refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
                                 canRefresh: actions.canEdit && !loading)
+                    if let phase = data.boardPhase {
+                        WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
+                                         accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+                    }
                     replayCard
                     keyNumbers
                     ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
+                    if let zone = data.personalZone {
+                        PersonalZoneCard(zone: zone, releases: data.athleteReleases, highlight: trial.id,
+                                         distanceNote: data.distanceNote, lateralNote: data.lateralNote)
+                    }
                     scientificDetails
                 }
             }

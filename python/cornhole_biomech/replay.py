@@ -42,7 +42,8 @@ def _point(frame: int | None, series: dict[int, tuple[float, float]]) -> dict[st
 def build_replay(*, fps: float, frame_count: int, width: int, height: int, camera_to_release: dict[str, Any] | None,
                  measured: np.ndarray, filtered: dict[str, Any] | None, model_check: dict[str, Any] | None,
                  after_contact: dict[str, Any] | None, events: dict[str, int | None], summaries: dict[str, Any],
-                 coach_metrics: dict[str, Any], grades: dict[str, Any], release_window: tuple[int, int] | None) -> dict[str, Any]:
+                 coach_metrics: dict[str, Any], grades: dict[str, Any], release_window: tuple[int, int] | None,
+                 board_phase: dict[str, Any] | None = None) -> dict[str, Any]:
     """Assemble replay.json from the analysis products (all bag positions in release-frame pixels)."""
     measured_rows = [{"frame": int(f), "x": float(measured[f, 0]), "y": float(measured[f, 1])}
                      for f in range(len(measured)) if np.isfinite(measured[f]).all()]
@@ -89,6 +90,28 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
                        "position": {"x": rest["x_release_frame"], "y": rest["y_release_frame"]} if rest else None,
                        "status": (after_contact or {}).get("status"), "note": (after_contact or {}).get("note")},
     }
+    if board_phase and board_phase.get("status") == "measured":
+        end = board_phase["end"]
+        touch = board_phase["touchdown"]
+        slide = board_phase.get("slide") or {}
+        if event_rows["first_contact"]["frame"] is None or event_rows["first_contact"].get("position") is None:
+            event_rows["first_contact"].update(frame=touch["frame"],
+                                               position={"x": touch["x_release_frame"], "y": touch["y_release_frame"]})
+        event_rows["first_contact"]["values"] = event_rows["first_contact"].get("values", []) + [
+            {"key": "board_touchdown_from_hole_in", "label": "Landed (from hole centre)", "unit": "in",
+             "value": touch.get("from_hole_in"), "status": "reported"}]
+        if end["kind"] == "fell_in_hole":
+            event_rows["into_hole"] = {"frame": end["frame"], "label": "Into the hole",
+                                       "position": {"x": end["x_release_frame"], "y": end["y_release_frame"]},
+                                       "note": end.get("note"),
+                                       "values": [{"key": "board_slide_in", "label": "Slide", "unit": "in",
+                                                   "value": slide.get("distance_in"), "status": "reported"}]}
+        elif end["kind"] == "rest":
+            event_rows["final_rest"]["values"] = [
+                {"key": "board_end_from_hole_in", "label": "Stopped (from hole centre)", "unit": "in",
+                 "value": end.get("from_hole_in"), "status": "reported"},
+                {"key": "board_slide_in", "label": "Slide", "unit": "in", "value": slide.get("distance_in"),
+                 "status": "reported"}]
     return {
         "schema_version": 1, "revision": REPLAY_REVISION, "fps": fps, "frame_count": frame_count,
         "width": width, "height": height,

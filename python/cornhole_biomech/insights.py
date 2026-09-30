@@ -67,6 +67,27 @@ def compatible_key(trial, manifest):
             manifest.get('pose_model_sha256'),method_signature(manifest),canonical_hash(config))
 
 
+def incompatibility_reason(trial, manifest, base_trial, base_manifest) -> str:
+    """Why a throw cannot be pooled with the base throw (plain words for the coach)."""
+    from .pipeline import method_signature
+    if trial.get('cameraView') != base_trial.get('cameraView'):
+        return 'different camera view'
+    if trial.get('throwingSide') != base_trial.get('throwingSide'):
+        return 'different throwing hand'
+    if trial.get('sessionID') != base_trial.get('sessionID'):
+        return 'recorded in a different session (camera setup may differ)'
+    if (trial.get('outcome') or {}).get('throw_type', 'Standard') != (base_trial.get('outcome') or {}).get('throw_type', 'Standard'):
+        return 'different throw type'
+    if (trial.get('outcome') or {}).get('intended_target', 'Hole center') != (base_trial.get('outcome') or {}).get('intended_target', 'Hole center'):
+        return 'different target'
+    if method_signature(manifest) != method_signature(base_manifest):
+        return 'analyzed with a different app version: re-analyze to include it'
+    if (manifest.get('pose_backend'), manifest.get('pose_model'), manifest.get('pose_model_sha256')) != \
+            (base_manifest.get('pose_backend'), base_manifest.get('pose_model'), base_manifest.get('pose_model_sha256')):
+        return 'different body-tracking model: re-analyze to include it'
+    return 'different analysis settings: re-analyze to include it'
+
+
 def consistency_model(normalized: list[dict], minimum=MINIMUM_CONSISTENCY):
     result = {"n":len(normalized),"minimum_trials":minimum,"components":[],"curves":{},"traces":[],
               "message":f"More trials needed: record at least {minimum} comparable throws with usable tracking."}
@@ -183,17 +204,23 @@ def generate_insights(project_path, trial_id, export_report=True):
         comparison=None
     if comparison and not comparison_references_are_current(project, trial, comparison):
         comparison = None
-    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[]
+    compatible=[];excluded=[];eligible_dirs=[];outcomes={};board=[];exclusion_reasons=[]
     trial_labels={t['id']:(t.get('name') or t.get('originalFilename') or t['id']) for t in project['trials']}
     for t in project['trials']:
-        if t['athleteID']!=trial['athleteID'] or not t.get('analysisRelativePath'):continue
+        if t['athleteID']!=trial['athleteID']:continue
+        if not t.get('analysisRelativePath'):
+            exclusion_reasons.append({'trial_id':t['id'],'label':trial_labels[t['id']],'reason':'not analyzed yet'});continue
         d=root/t['analysisRelativePath'];m=read(d/'manifest.json',{});r=read(d/'results.json',{});n=read(d/'normalized.json')
-        if compatible_key(t,m)!=compatible_key(trial,manifest) or (d/'needs_reanalysis.json').exists():
-            excluded.append(t['id']);continue
+        if (d/'needs_reanalysis.json').exists():
+            excluded.append(t['id']);exclusion_reasons.append({'trial_id':t['id'],'label':trial_labels[t['id']],'reason':'needs re-analysis'});continue
+        if compatible_key(t,m)!=compatible_key(trial,manifest):
+            excluded.append(t['id']);exclusion_reasons.append({'trial_id':t['id'],'label':trial_labels[t['id']],
+                                                               'reason':incompatibility_reason(t,m,trial,manifest)});continue
         if t.get('outcome'):board.append({'trial_id':t['id'],'label':t['originalFilename'],'outcome':t['outcome']})
         outcomes[t['id']]=t.get('outcome') or {}
         if not n or r.get('quality',{}).get('usable_frame_percentage',0)<80:
-            excluded.append(t['id']);continue
+            excluded.append(t['id']);exclusion_reasons.append({'trial_id':t['id'],'label':trial_labels[t['id']],
+                                                               'reason':'body tracking covered less than 80% of the frames'});continue
         compatible.append(n);eligible_dirs.append(d)
     consistency=consistency_model(compatible)
     from .outcomes import outcome_summary
@@ -237,15 +264,25 @@ def generate_insights(project_path, trial_id, export_report=True):
     from .zones import ZoneSettings, sports_stats, zone_report
     settings=project.get('analysisSettings',{})
     measured=[x for x in ((read(d/'results.json',{}).get('summaries') or {}).get('release_to_board_front_m') for d in eligible_dirs) if isinstance(x,(int,float))]
+    # Measured distances beyond the plausible range come from a failed board scale (one pilot throw read 24 m).
+    measured=[x for x in measured if 1.5<=x<=15.0]
     default_distance=float(settings.get('releaseToBoardMeters') or 7.7)
-    zone_settings=ZoneSettings(release_to_board_m=float(np.median(measured)) if len(measured)>=3 else default_distance)
+    from .zones import personal_slide_allowance, personal_zone
+    slides=[]
+    for d in eligible_dirs:
+        summ=read(d/'results.json',{}).get('summaries') or {}
+        if summ.get('board_end_in_hole') is not None and isinstance(summ.get('board_slide_in'),(int,float)):
+            slides.append(summ['board_slide_in'])
+    slide_m,slide_source,_=personal_slide_allowance(slides)
+    zone_settings=ZoneSettings(release_to_board_m=float(np.median(measured)) if len(measured)>=3 else default_distance,
+                               slide_allowance_m=slide_m)
     performance["sports"]=sports_stats([o.get('score_category') for o in outcomes.values()])
     performance["zones"]=zone_report(rows,zone_settings)
     performance["zones"]["settings"]["distance_source"]="measured_median" if len(measured)>=3 else "assumed"
     from .verdict import throw_verdict
     other_metrics=[read(d/'results.json',{}).get('coach_metrics') or {} for d in eligible_dirs if d!=directory]
     grades={k:v.get('grade') for k,v in (results.get('quality',{}).get('grades') or {}).items() if isinstance(v,dict)}
-    verdict=throw_verdict(results.get('coach_metrics') or {},other_metrics,grades,(results.get('summaries') or {}).get('release_to_board_front_m'),replace(zone_settings,release_to_board_m=default_distance),athlete_median_m=float(np.median(measured)) if len(measured)>=3 else None)
+    verdict=throw_verdict(results.get('coach_metrics') or {},other_metrics,grades,(results.get('summaries') or {}).get('release_to_board_front_m'),replace(zone_settings,release_to_board_m=default_distance),athlete_median_m=float(np.median(measured)) if len(measured)>=3 else None,observed_score=(trial.get('outcome') or {}).get('score_category'),board_phase=results.get('board_phase'))
     performance["summary"]["feedback"]["physics"]=physics_sentence(performance["zones"],rows)
     from .coaching import athlete_dashboard
     grade_rows,coach_rows=[],[]
@@ -256,6 +293,23 @@ def generate_insights(project_path, trial_id, export_report=True):
     dashboard=athlete_dashboard(rows,performance["summary"],performance["sports"],performance["first_contact"],
                                 performance["zones"],zone_settings,trial_labels,grade_rows,coach_rows)
     athlete_record=next((a for a in project['athletes'] if a['id']==trial['athleteID']),{})
+    personal=personal_zone(rows,zone_settings,slides,"measured_median" if len(measured)>=3 else "settings")
+    personal['distance_measured_n']=len(measured)
+    dashboard.update(personal_zone=personal,
+                     distance={'release_to_board_m':zone_settings.release_to_board_m,
+                               'source':'measured_median' if len(measured)>=3 else 'settings','n_measured':len(measured),
+                               'regulation_release_to_board_m':7.7,
+                               'note':('Measured from the videos: release point to the front of the board. '
+                                       'The regulation pitch is 27 ft between board fronts (about 7.7 m from a typical release point); '
+                                       'this session was shorter, so zones and advice use the measured distance.')
+                                      if len(measured)>=3 else
+                                      'Not enough throws with a measured distance; the distance from Settings is used.'},
+                     lateral={'measured':False,
+                              'note':'Left/right is not measured by the side camera; these throws were made straight at the board. '
+                                     'Record a board camera to measure left/right misses.'},
+                     consistency=consistency,
+                     cohort={'included':[n['trial_id'] for n in compatible],'excluded':exclusion_reasons,
+                             'base_trial_id':trial_id})
     dashboard.update(athlete_id=trial['athleteID'],athlete=athlete_record.get('participantCode','Unknown athlete'),
                      trial_labels={t['id']:trial_labels[t['id']] for t in project['trials'] if t['athleteID']==trial['athleteID']},
                      trial_analysis_paths={t['id']:t.get('analysisRelativePath') for t in project['trials']
@@ -271,7 +325,9 @@ def generate_insights(project_path, trial_id, export_report=True):
              'trial_name':trial.get('name') or trial['originalFilename'],'date':trial.get('createdAt'), 'quality':results['quality'],
              'outcome':outcome,'comparison_available':comparison is not None,
              'differences':diffs,'coach_summary':payload_summary,'consistency':consistency,
-             'warnings':warnings,'excluded_trials':excluded,'board_trials':board,'relationships':relationships,'verdict':verdict,
+             'warnings':warnings,'excluded_trials':excluded,'exclusion_reasons':exclusion_reasons,
+             'cohort_trial_ids':[n['trial_id'] for n in compatible],
+             'board_trials':board,'relationships':relationships,'verdict':verdict,
              'provenance':{'backend':manifest.get('pose_backend','unknown'),'model':manifest.get('pose_model','unknown'),
                            'sports2d_version':manifest.get('pose_backend_metadata',{}).get('sports2d_version'),
                            'configuration':manifest.get('analysis_configuration',{}),'analysis_id':manifest.get('analysis_id'),
