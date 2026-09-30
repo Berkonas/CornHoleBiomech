@@ -52,7 +52,7 @@ struct SummaryThrowRow: Identifiable, Equatable, Sendable {
     var endText: String {
         if endInHole == true { return "In hole" }
         guard let endFromHole else { return "—" }
-        return abs(endFromHole) < 0.5 ? "0 in" : "\(endFromHole > 0 ? "+" : "−")\(number(abs(endFromHole), digits: 0)) in"
+        return abs(endFromHole) < 0.5 ? "0 in" : "\(endFromHole > 0 ? "+" : "−")\(CornholeBiomechanics.number(abs(endFromHole), digits: 0)) in"
     }
     /// Sort key: in the hole first, then by distance from the hole; untracked last.
     var endSort: Double { endInHole == true ? -1 : endFromHole.map(abs) ?? .infinity }
