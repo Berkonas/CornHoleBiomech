@@ -17,11 +17,69 @@ EVENT_ORDER = (
 )
 
 
+EVENT_METHOD = "filtered_shoulder_relative_wrist_heuristic_v3"
+
+# The fastest rearward wrist movement of the backswing is sought this far before the top of the
+# backswing. On the six audited throws it came 0.23–0.43 s before the top (whole backswing
+# 0.5–0.8 s); 1 s covers that without reaching back into aiming or practice swings.
+SWING_ONSET_SEARCH_S = 1.0
+# Peak follow-through: the arm's highest point is sought this long after release. On the six
+# audited two-camera throws the arm reached its highest point 0.12–1.6 s after release.
+FOLLOW_THROUGH_WINDOW_S = 2.0
+# A held follow-through pose wobbles (0.024 arm lengths ≈ 3 px peak-to-peak over a 1 s hold on an
+# audited throw); the event is the first frame within this much of the highest point, so it marks
+# the arrival at the top rather than an arbitrary frame inside the hold.
+FOLLOW_THROUGH_TOLERANCE_ARM_LENGTHS = 0.02
+
+
 def _sustained(mask: np.ndarray, count: int) -> np.ndarray:
     if count <= 1:
         return mask
     convolution = np.convolve(mask.astype(int), np.ones(count, dtype=int), mode="same")
     return convolution >= count
+
+
+def _swing_onset(speed: np.ndarray, velocity_x: np.ndarray, valid: np.ndarray, top: int,
+                 threshold: float, fps: float) -> int | None:
+    """Last quiet frame before the backswing (the throw's motion start).
+
+    The wrist also stops at the top of the backswing, so the search runs back from the fastest
+    rearward wrist movement in the `SWING_ONSET_SEARCH_S` before the top, not from the top itself.
+    Walking in, aiming, practice swings or fidgeting earlier in the clip end with a quiet frame
+    (shoulder-relative wrist speed below the motion threshold), so they are not counted.
+    """
+    lo = max(0, top - int(round(SWING_ONSET_SEARCH_S * fps)))
+    rearward = np.where(valid[lo:top], -velocity_x[lo:top], np.nan)
+    if not np.isfinite(rearward).any() or np.nanmax(rearward) <= 0:
+        return None
+    fastest = lo + int(np.nanargmax(rearward))
+    quiet = np.flatnonzero(valid[:fastest] & (np.nan_to_num(speed[:fastest], nan=np.inf) < threshold))
+    return int(quiet[-1]) if quiet.size else None
+
+
+def _peak_follow_through(height: np.ndarray, release: int, end: int, fps: float) -> int | None:
+    """Arrival of the throwing wrist at its highest shoulder-relative point after release."""
+    stop = min(end, release + int(round(FOLLOW_THROUGH_WINDOW_S * fps)))
+    segment = height[release:stop + 1]
+    if not np.isfinite(segment).any():
+        return None
+    near_top = np.nan_to_num(segment, nan=-np.inf) >= np.nanmax(segment) - FOLLOW_THROUGH_TOLERANCE_ARM_LENGTHS
+    return int(release + np.flatnonzero(near_top)[0])
+
+
+def elbow_extension_search_start(extension_velocity: np.ndarray, start: int, release: int) -> int:
+    """Start of the forward-swing search for peak elbow extension velocity.
+
+    The elbow often straightens during the backswing and that extension decays across the top.
+    Its tail is not forward-swing extension (two audited throws reported it as the "peak" 5 and
+    2 frames after the top while the elbow only flexed in the forward swing), so the search
+    starts at the first frame from `start` (top of the backswing) to release where dθ/dt ≤ 0.
+    If the elbow extends without pause from the top to release, the search starts at `start`.
+    """
+    v = np.asarray(extension_velocity, float)
+    lo, hi = max(0, start), min(len(v) - 1, release)
+    stopped = np.flatnonzero(np.nan_to_num(v[lo:hi + 1], nan=np.inf) <= 0) if hi >= lo else np.array([], int)
+    return int(lo + stopped[0]) if stopped.size else start
 
 
 def detect_events(
@@ -35,6 +93,15 @@ def detect_events(
     divergence takes priority over the wrist-only proxy. Otherwise release is
     peak target-axis wrist velocity after backswing. Both remain frame-limited
     candidates until manually reviewed.
+
+    Moving = shoulder-relative wrist speed ≥ max(0.05, 0.12 × peak) arm lengths/s.
+    - motion_end: last frame of sustained (≥ 0.05 s) moving.
+    - peak_backswing: most rearward wrist (min target-axis x) before release.
+    - motion_start: last non-moving frame before the fastest rearward wrist movement in the
+      1 s before peak_backswing (the start of the throwing swing). Falls back to the first
+      sustained moving frame when the wrist never goes quiet.
+    - peak_follow_through: first frame after release within 0.02 arm lengths of the wrist's
+      highest shoulder-relative point in [release, min(motion_end, release + 2 s)].
     """
     wrist = np.asarray(normalized_wrist, float)
     valid = np.isfinite(wrist).all(axis=-1)
@@ -72,7 +139,13 @@ def detect_events(
     )
     provisional_release = int(release_candidate.automatic_frame) if use_bag else wrist_release
     backswing = int(start + np.nanargmin(x[start : provisional_release + 1]))
-    follow = int(provisional_release + np.nanargmax(x[provisional_release : end + 1]))
+    # Motion start: the throwing swing, not the first sustained wrist motion in the clip
+    # (walking in, aiming and practice swings made that fire at frame 1–37 on 5 of 6 audited throws).
+    onset = _swing_onset(speed, velocity[:, 0], valid, backswing, threshold, fps)
+    if onset is not None:
+        start = onset
+    height = np.where(valid, wrist[:, 1], np.nan)
+    follow = _peak_follow_through(height, provisional_release, end, fps)
     forward_candidates = np.flatnonzero(valid & (np.arange(len(valid)) > backswing) & (np.arange(len(valid)) <= provisional_release))
     forward = int(forward_candidates[0]) if forward_candidates.size else provisional_release
     confidence = float(np.clip(np.nanmean(valid[start : end + 1]), 0.0, 1.0))
@@ -88,8 +161,8 @@ def detect_events(
         name: EventValue(
             name=name,
             automatic_frame=frames[name],
-            automatic_confidence=confidence,
-            automatic_method="filtered_shoulder_relative_wrist_heuristic_v2",
+            automatic_confidence=None if frames[name] is None else confidence,
+            automatic_method=EVENT_METHOD,
         )
         for name in EVENT_ORDER
     }

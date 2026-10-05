@@ -85,3 +85,65 @@ def test_incompatible_views_are_blocked():
     with pytest.raises(ValueError, match="incompatible"):
         assert_compatible_views("side", ["side", "front"])
 
+
+
+def _ramp(a, b, n):
+    """Smooth (cosine) move from a to b over n frames."""
+    return a + (b - a) * (1 - np.cos(np.linspace(0, np.pi, n))) / 2
+
+
+def realistic_throw_wrist(fps=60):
+    """Shoulder-relative wrist (arm lengths, x toward the target, y up) for one throw.
+
+    Frames 0–39: practice swings while walking in (arm angle 40° ± 30°, faster than the
+    motion threshold); 40–79: arm raised slowly to the aiming position at 60°; 80–119: backswing 60° → −40° (top at 119);
+    120–139: forward swing −40° → 85° (release ≈ 136, arm still rising); 140–169: the
+    follow-through keeps rising to 140° while slowing down; 170–209: hold; 210–239: arm lowered.
+    """
+    phi = np.concatenate([
+        40 + 30 * np.sin(np.linspace(0, 3 * np.pi, 40)),
+        np.full(40, 40.0) + _ramp(0, 20, 40),
+        _ramp(60, -40, 40),
+        _ramp(-40, 85, 20),
+        _ramp(85, 140, 30),
+        np.full(40, 140.0),
+        _ramp(140, 0, 30),
+    ])
+    r = np.radians(phi)
+    return np.column_stack((np.sin(r), -np.cos(r))), phi
+
+
+def test_motion_start_ignores_pre_throw_fidget_and_follow_through_is_the_highest_point():
+    from cornhole_biomech.models import EventValue
+    wrist, phi = realistic_throw_wrist()
+    release = EventValue("release", automatic_frame=136, automatic_confidence=1.0, automatic_method="bag")
+    events = detect_events(wrist, 60, release)
+    frames = {name: events[name].effective_frame for name in EVENT_ORDER}
+    assert frames["release"] == 136                       # release is untouched
+    assert frames["peak_backswing"] == pytest.approx(119, abs=1)
+    # The practice swings at frames 0–39 are faster than the motion threshold; the throw starts
+    # where the backswing leaves the aiming position (frame 80; the wrist crosses the motion
+    # threshold a few frames later), not at the first movement in the clip.
+    assert 76 <= frames["motion_start"] <= 86
+    # The wrist is most forward at φ = 90° (just after release); the follow-through keeps rising
+    # until the arm reaches its highest point at frame ~169.
+    assert frames["peak_follow_through"] == pytest.approx(int(np.argmax(phi[136:220])) + 136, abs=6)
+    assert frames["peak_follow_through"] > 160
+    assert list(frames.values()) == sorted(frames.values())
+
+
+def test_held_follow_through_marks_arrival_at_the_top_not_a_frame_inside_the_hold():
+    wrist, phi = realistic_throw_wrist()
+    wrist = wrist.copy()
+    wrist[170:210, 1] += 0.01 * np.sin(np.arange(40))      # a held pose wobbles by < 0.02 arm lengths
+    events = detect_events(wrist, 60)
+    assert 160 <= events["peak_follow_through"].effective_frame <= 171
+
+
+def test_motion_start_falls_back_when_the_wrist_never_goes_quiet():
+    t = np.arange(240) / 60
+    wrist = np.column_stack((np.sin(2 * np.pi * 0.8 * t), np.cos(2 * np.pi * 0.8 * t)))
+    events = detect_events(wrist, 60)
+    frames = [events[name].effective_frame for name in EVENT_ORDER]
+    assert frames == sorted(frames)
+    assert events["motion_start"].effective_frame is not None

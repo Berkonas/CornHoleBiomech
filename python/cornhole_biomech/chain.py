@@ -35,6 +35,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .bag import GRAVITY_M_S2
+from .events import elbow_extension_search_start
 from .filtering import derivative, lowpass_zero_phase
 from .mechanics import (BAG_ONLY_NOTE, G_VECTOR, along_error_m, energy_rate, landing_jacobian, minimum_speed,
                         net_force_on_bag, power_on_bag, release_state, required_speed)
@@ -214,7 +215,9 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
     """Joint angles at release, peak angular velocities and their timing, and the peak order.
 
     Angles are the already-filtered 2D projected angles (no second filter). Peaks are searched in
-    [forward swing, release + 0.1 s] (forward swing missing → release − 0.6 s). `wrist_speed`
+    [forward swing, release + 0.1 s] (forward swing missing → release − 0.6 s); the elbow search
+    starts once extension carried over from the backswing has ended (`elbow_extension_search_start`).
+    `wrist_speed`
     (any unit; only its timing is used) adds the wrist to the peak order.
     """
     out: dict[str, Any] = {}
@@ -239,7 +242,8 @@ def body_chain(angles: dict[str, np.ndarray], fps: float, forward_swing: int | N
             p, edge = _peak_or_edge(np.abs(velocity), start, stop)
             formula = "max |dθ/dt| of the filtered shoulder angle"
         else:
-            p, edge = _peak_or_edge(velocity, start, stop)
+            # Forward-swing extension only: skip extension carried over from the backswing.
+            p, edge = _peak_or_edge(velocity, elbow_extension_search_start(velocity, start, release), stop)
             formula = "max dθ/dt of the filtered elbow angle (positive = extending)"
             if p is not None and velocity[p] <= 0:
                 p, edge = None, False

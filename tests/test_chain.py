@@ -28,6 +28,17 @@ def test_body_chain_peak_order_proximal_to_distal():
     assert out["wrist_peak_speed_time_rel_release_ms"]["state"] == "unavailable"
 
 
+def test_body_chain_elbow_peak_skips_backswing_extension_tail():
+    n, top, release = 120, 40, 80
+    f = np.arange(n, dtype=float)
+    shoulder = 40 * np.tanh((f - 60) / 8.0)
+    elbow = 140 + 38 / (1 + np.exp(-(f - (top - 12)) / 2.5)) - 18 / (1 + np.exp(-(f - (top + 18)) / 3.0))
+    elbow += 1.5 / (1 + np.exp(-(f - (top + 5)) / 1.5))     # last straightening just after the top
+    out = body_chain({"arm_to_trunk_deg": shoulder, "elbow_angle_deg": elbow}, FPS, top + 1, release)
+    assert out["elbow_peak_extension_velocity_deg_s"]["state"] == "unavailable"
+    assert out["peak_sequence"]["state"] == "unavailable"
+
+
 def test_body_chain_includes_wrist_speed_peak_when_given():
     n, release = 120, 90
     shoulder = 40 * np.tanh((np.arange(n) - 60) / 8.0)
