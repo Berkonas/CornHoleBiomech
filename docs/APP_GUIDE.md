@@ -26,6 +26,33 @@ How the automatic tracking works, and how it did on the pilot clips, is in [AUTO
 
 Athlete profiles can be added, edited, or deleted from **Athletes**. Throw management is in **Throws → Manage**. Deletions need confirmation and use recoverable Trash staging. Removing an analysis keeps its video; deleting an athlete removes that profile and its managed data. Your external source recordings are not deleted.
 
+## Two-camera takes (side + front)
+
+The Fall 2026 collection films each **take** (the athlete claps, shows the take number, throws four bags)
+with two phones: the side camera and a front camera on a tripod behind the board. Name the files
+`Take_<n>_Side` and `Take_<n>_Front` (capitalisation does not matter) and keep one athlete's takes in one folder.
+
+1. Select the athlete, then choose **Throw → Import Two-Camera Takes…** (⇧⌘T) and pick the folder.
+2. The app pairs the files and checks which phone recorded each one (device, size, frame rate). A pair whose
+   labels are swapped is used in its true roles and marked **Labels swapped**; takes already in the library are
+   unticked. Choose the throwing side and the direction the board is in the side video.
+3. **Import** prepares the takes one at a time: the two cameras are synchronised from the clap and the bag
+   impacts, each throw is found and cut into a side clip and a front clip, and the front camera is calibrated
+   from the board. The original videos are not changed. The throws then analyse one at a time (≈ 2 minutes each).
+4. The throw list groups throws by take. Each report adds **Where it ended**: hole / board / off from the front
+   camera, the miss in inches (short/long, left/right), the aim, and the frontal-plane body measures. The replay
+   has **Side**, **Front**, **Both** (synchronised) and **Animation** views. **Animation** is a to-scale side
+   view: the stick figure throws, the bag flies its measured path (a dotted arc where the camera lost it), lands
+   at the measured first contact and slides to where it ended; the board, the floor and the release-to-board
+   distance are drawn in metres. **From above** (in *Where it ended*) draws the lane to scale with the board
+   2 ft × 4 ft along the throw: a strip with the release point, the aim line and the board, and an enlarged
+   board with the landing, the slide and the rest point (or an arrow off the board for a miss) and a 6 in scale.
+   A confident front-camera result is filled in automatically; check it against the video and change it if it
+   is wrong.
+
+How it works and how accurate it is: [METHODS_AND_MATH.md §5](METHODS_AND_MATH.md). For a batch of athletes from
+the command line, use `scripts/add_takes_to_library.py`, then `scripts/analyze_library.py` (one athlete at a time).
+
 ## What changed in this version (board phase and personal green zone)
 
 - **Where it ended.** Each throw report has a *Where it ended* card: where the bag landed on the board, how far it slid, and whether it stopped or dropped into the hole (including bags that hang on the lip and fall a moment later). It shows the slide physics (speed along the board, slow-down, effective friction μ) and a suggested result; **Use This Result** records it in one click. The flight chart marks *Landed* and *Stopped* / *Into the hole*, and the replay shows the slide.

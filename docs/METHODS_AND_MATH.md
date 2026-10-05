@@ -8,12 +8,15 @@ This document collects, in one place, the methods and every equation the system 
 
 | Item | Value | Where defined |
 |---|---|---|
-| Measurement method version | `METHOD_VERSION = "2026.09.27-working-1080p"` | `cornhole_biomech/__init__.py` |
-| Python package | 0.6.1 | `cornhole_biomech/__init__.py` |
+| Measurement method version | `METHOD_VERSION = "2026.10.05-body-events"` | `cornhole_biomech/__init__.py` |
+| Body-event detector | `filtered_shoulder_relative_wrist_heuristic_v3` | `events.py` |
+| Python package | 0.6.2 | `cornhole_biomech/__init__.py` |
 | Pose software | Sports2D 0.8.34 (pinned), RTMPose via RTMLib/ONNX Runtime on CPU, model `body_with_feet` (HALPE-26 incl. heel/toe points), mode `balanced` | `sports2d_adapter.py`, `config.py` |
-| Automatic bag tracker | `auto_motion_parabola_v13_near_contact_surface_point` | `auto_bag.py` |
+| Automatic bag tracker | `auto_motion_parabola_v17_forward_to_contact` | `auto_bag.py` |
 | Bag silhouette centroid | `local_median_background_mask_v1` | `bag_segment.py` |
 | Bag flight filter | `ca_kalman_rts_v1` | `bag_filter.py` |
+| Board phase (touchdown, slide, end) | `board_phase_v2_side_edge` | `board_phase.py` |
+| Two-camera combination | `two_view_v3_front_lag` | `two_view.py` |
 
 **Validation status in one line.** Software behaviour is unit-tested; the measurement accuracy of body landmarks, bag centroids and metric scale has **not** been validated against a criterion (motion capture or manual digitisation) for this task. Evidence so far is a light engineering validation on 26 hand-held pilot clips from 3 athletes (17 Sep 2026; [LIGHT_VALIDATION.md](LIGHT_VALIDATION.md), [SCENE_REGRESSION.md](SCENE_REGRESSION.md)). Every noise floor for body metrics is **provisional**.
 
@@ -87,6 +90,7 @@ A Swift helper (`scene_vision`) runs Apple Vision `VNGeneratePersonSegmentationR
 2. **Seeds** — blobs linked frame-to-frame with constant-velocity prediction; short windows fitted with a quadratic; RANSAC over triples as fallback. A seed must move toward the target, curve downward with image "gravity" inside the range implied by the athlete's projected shoulder–wrist length (taken as 0.45–0.90 m, ±25 %), and have small horizontal curvature.
 3. **Growth and trimming** — backward extension stops while the bag is within 0.45 arm lengths of the wrist (still in hand); the end is trimmed where the path breaks from a local parabola of the preceding 15 frames (slide/bounce).
    **Backfill to the hand.** Detection differences grey levels, so a red bag crossing a wall of similar brightness goes undetected for its first frames of flight. Walking back from the first measured centre, each earlier frame is searched with the colour (LAB) segmentation at the position predicted by a parabola through the nearest six centres, and accepted by the gap-filling rule (within half a bag length of the prediction, typical bag size, outside the hand); the walk stops before the prediction reaches the hand (0.45 arm lengths), after two misses or 0.25 s. Release is then the earliest free-flight centre. On the Player 1 session this recovered 7 frames on throw 3 (release 70 → 63, visually 62–63) and 2 on throw 10 (101 → 99, visually 99–100); throws whose detections already reached the hand are unchanged.
+   **Forward growth to first contact** (`bag_segment.extend_to_contact`, `auto_bag._grow_to_contact`). *Defect it fixes (QA audit, 5 Oct 2026):* the detected flight stopped 0.30–0.37 s before touchdown while the bag was plainly visible — Player 1 throw 5A659FED ended at frame 215 (touchdown 233), Player 4 throw 681A89BF at 203 (touchdown 225, fit coverage 0.68). Cause: in front of the concrete pillar, posters and bystanders the red bag's grey-level difference is weak, so detections thin out, and `find_flights` split each throw into **two** candidate flights; the first one found claimed (removed) the late-flight detections, so the flight that starts at the hand — the one used — could no longer grow forward, and the motion-only extension gives up after 3 missed frames anyway. Colour search was only used backwards (to the hand), never forwards. Now, when the chosen flight ends in the air, each next frame is searched with the colour (LAB) segmentation at the position predicted by a quadratic through the last 8 centres, seeded also at every motion candidate of the clip within the gate (including those claimed by another candidate flight). A mask component is accepted only if **all** hold: (1) within 0.5 bag lengths of the prediction (the gap-filling rule), widened by half for each missed frame; (2) area 0.4–2.5 × the median of the last centres; (3) bag colour: its a*/b* chromaticity within 0.75 × the bag's chroma of the bag's own colour (median of the last 10 centres; at least 10 Lab units); (4) after a missed frame, not inside a person mask or pose-tracked bystander box, so the track never re-acquires on a person; and it must not touch the search window. Up to **6** consecutive frames may be missed (pillar, legs; the longest real gap seen was 2 frames, 3 when a bystander box covered the bag's path), the walk stops at 1 s or when the bag leaves the view, and the background median uses **earlier frames only** ($t-\{4,6,8,10,12\}$): near the landing the bag later rests where it touched down, and a symmetric median can merge it with the falling bag (synthetic landing test: mask area ×2.2, centre 6 px off; on the six real throws no measurable change). With a board the walk **stops at first contact**: at the first accepted centre the board model classifies as deck/front/floor (the same `surface_at` test as the contact classification below), or when the predicted centre has reached a surface and the bag is not seen in the air there. The grown flight then passes the existing physics gates: an end that breaks from the local parabola of the preceding 15 frames is trimmed (slide/bounce), and the whole flight must still be a plausible gravity arc toward the target with RMS residual within the acceptance limit (or no worse than before) — otherwise the growth is discarded and the detected flight kept (`forward_extension.status = rejected_by_physics_gate`). Added centres are labelled `extended_mask` (`centroid_sources`); the Kalman leave-one-out gate (item 6) is unchanged and still screens them. *Colour-gate evidence* (6 staged two-camera throws, 336 bag centres): the bag's a*/b* distance from its own previous 10 frames was p50 0.12, p95 0.48, p99 0.72, max 0.91 of its chroma (lighting changed L* by up to ~45 units on OpenCV's 8-bit scale but a*/b* little), while 30 other mask components 50–90 px away were ≥ 0.45 (median 0.80) — so colour is one of four gates, not a classifier on its own. *Result:* replaying the stored automatic flights through the new stage, both truncated throws now end at the board-phase touchdown frame (215 → 233, 203 → 225; 16 and 22 frames added, 2 frames bridged behind a bystander's legs); the added centres agree with the motion-detector mask centroids from an untruncated run of the same clip to median 0.1 px (max 0.8 px); the other four throws, already tracked to touchdown, are bit-identical. On Player 1 throw 5A659FED the truncated arc had pulled the gravity-calibrated field of view to 54.1° (release speed 7.28 m/s); the full arc gives 64.3° (8.30 m/s), in line with the same session's other throw (61.9°). The contact this produces is described under the local-path contact rule (§1.9).
 4. **Acceptance** — a flight is used without review only if **all** gates pass; otherwise it is `needs_review` with every reason listed:
 
 | Gate | Value (code) |
@@ -128,11 +132,24 @@ Older path still in the code for fixed cameras: a gravity scale from the reviewe
 
 ### 1.9 Event detection
 
-**Body events** (`events.py`, `swing.py`) come from the filtered shoulder-relative wrist: motion start/end from sustained wrist speed above $\max(0.05,\ 0.12\times\text{peak})$ arm lengths/s for ≥ 0.05 s; peak backswing = most rearward wrist position before release; peak follow-through = most forward wrist position after release. Backswing *start* (for tempo) = the last frame before the fastest backward arm swing where arm angular speed < 15 % of that peak. All automatic events are candidates that a reviewer can correct; the raw candidate is preserved.
+**Body events** (`events.py`, `swing.py`, `timing.py`) come from the filtered shoulder-relative wrist $\mathbf w(t)$ (arm lengths; x toward the target, y up). The wrist is *moving* when $\lVert\dot{\mathbf w}\rVert \ge \max(0.05,\ 0.12\times\text{peak})$ arm lengths/s.
+
+| Event | Rule |
+|---|---|
+| Peak backswing (top) | most rearward wrist ($\min w_x$) before release |
+| Motion start | the **start of the throwing swing**: find the fastest rearward wrist movement ($\max(-\dot w_x)$) in the 1 s before the top, then take the last frame before it where the wrist is not moving. Falls back to the first sustained (≥ 0.05 s) moving frame if the wrist never goes quiet |
+| Forward swing | first valid frame after the top |
+| Peak follow-through | the arm's **highest point after release**: the first frame in $[t_\text{rel},\ \min(t_\text{end},\ t_\text{rel}+2\text{ s})]$ where $w_y$ is within 0.02 arm lengths of its maximum in that window |
+| Motion end | last frame of sustained (≥ 0.05 s) moving |
+| Peak elbow extension | max $d\theta_\text{elbow}/dt>0$ from the first frame after the top where $d\theta_\text{elbow}/dt \le 0$ (extension carried over from the backswing has ended) to release + 0.1 s; none if the elbow only flexes in the forward swing |
+
+Backswing *start* (for tempo, `swing.py`) = the last frame before the fastest backward arm swing where arm angular speed < 15 % of that peak; it agreed with motion start within 0–2 frames on 5 of the 6 audited throws below (on the sixth it found no quiet frame, so tempo is unavailable there). All automatic events are candidates that a reviewer can correct; the raw candidate is preserved.
+
+*Why (QA audit, 6 two-camera throws from Players 1, 2 and 4, side camera 59.94 fps, each event checked on the video frames):* the earlier rules were motion start = first sustained wrist motion in the clip, peak follow-through = most forward wrist after release, and elbow search from the top of the backswing. Motion start fired on walking in, aiming adjustments and practice swings in 5 of 6 throws (frames 1, 1, 10, 11, 37, while the swing started at frames 80–117); it now lands where the arm leaves the aiming position (115, 117, 80, 96, 108, 110). Because motion start→end bounds the movement interval, movement duration, normalized time τ and the interval mean/ROM summaries changed with it (`METHOD_VERSION` 2026.10.05-body-events). The most forward wrist occurs at φ ≈ 90°, 0–4 frames after release on all 6 throws, while the arm kept rising for a further 0.1–1.4 s; the new event is the highest point (173, 256, 219, 200, 183, 187 vs release 167, 170, 157, 166, 165, 165). Height is measured relative to the shoulder, not in the image: on one throw the image-highest wrist (frame 227) was the athlete standing up while holding the arm level, 53 frames after the arm itself peaked. The 0.02 arm-length tolerance (≈ 2 px) is the wobble of a held pose (0.024 arm lengths peak-to-peak over 1 s), so a held follow-through gives its arrival, not an arbitrary frame of the hold. On two throws the elbow straightened through the backswing and only flexed in the forward swing; the old search returned the decaying tail of the backswing extension (+8 and +7 °/s, 5 and 2 frames after the top) as the "peak". These throws now report peak elbow extension as unavailable; the other four kept the same frame and value. Release was unchanged on all 6.
 
 **Release = first flight centroid beyond the hand.** Release is the first refined bag centroid in the accepted flight that lies more than **0.45 projected arm lengths** from the throwing-wrist landmark; earlier flight points are dropped as still in hand and the parabola is refitted. A visual audit of all 21 accepted pilot flights (release−8…release+3 contact sheets) found **21/21 within ±1 frame** of the visually judged release (19 exact; mean error +0.10 frame, SD 0.30 frame). The earlier rule (first flight-fit point) was 2–3 frames early on 5/21. A second, independent cue — where the fitted flight traced backward meets the wrist path — is kept as a cross-check (it runs 1–4 frames early by construction) and defines the release-window grade (§1.13).
 
-**First contact (board-gated).** The end of the flight fit is only a candidate. It is mapped into the throw plane and classified as `deck` (inside the deck footprint expanded by half a bag width, within 6 cm of the deck surface), `front` (front face), `floor` (within 6 cm of floor height) or `air`. Only deck/front/floor are `measured`. **Near-contact rule:** a descending track that ends within 2 frames of its own predicted surface contact counts as measured, with the landing position taken where the fitted parabola meets the surface. Otherwise the contact is `lost_in_flight` and a **predicted contact** is found by extending the parabola (≤ 1.5 s), always `estimated` and excluded from measured-landing statistics.
+**First contact (board-gated).** The end of the flight fit is only a candidate. It is mapped into the throw plane and classified as `deck` (inside the deck footprint expanded by half a bag width, within 6 cm of the deck surface), `front` (front face), `floor` (within 6 cm of floor height) or `air`. Only deck/front/floor are `measured`. **Near-contact rule:** a descending track that ends within 2 frames of its own predicted surface contact counts as measured, with the landing position taken where the fitted parabola meets the surface. Otherwise the contact is `lost_in_flight` and a **predicted contact** is found by extending the parabola (≤ 1.5 s), always `estimated` and excluded from measured-landing statistics. **Local-path contact rule** (forward growth, §1.6): when the forward walk ends because the bag's *local* path (quadratic through its last 8 centres) reaches the deck/front/floor in the very next frame and the bag is not seen in the air there, the last tracked frame of the descending track is the observed first contact, of the kind the local path hits, and the landing position is the tracked centre in that frame. The whole-flight parabola is not used here: it drifts from the end of a real flight (drag, perspective) and, sampled once per frame (~10 cm of fall per frame at landing), can step over the ±6 cm deck band — on Player 1 throw 5A659FED it reported the floor two frames later, while the video and the board phase show the deck at frame 233. A predicted next-frame point is not used as the landing position because it lies past the surface by up to a frame of motion (there ~18 in of across-deck error).
 
 **Suggested outcome** (`contact.suggest_outcome`), always requiring a coach click: 3 if the post-contact track disappears within 4 in (3 in hole radius + 1 in slack) of the hole centre; 1 or 0 by whether the final-rest point lies on the 24 × 48 in deck; otherwise none with a reason. Final rest was correct on 3 of 5 detected rests in the spot check, so the result stays a one-click human entry.
 
@@ -142,7 +159,7 @@ Older path still in the code for fixed cameras: a gravity scale from the reviewe
 2. Empty-board background: per-pixel Lab median of up to 11 camera-aligned frames from 1 s before release until the bag nears the board (bags already lying still are part of it).
 3. Each later frame is camera-aligned; the bag is the connected change region (threshold median + 6 MAD, ≥ 18) of 0.25–4× the in-flight bag area nearest the prediction (entering with the flight's last velocity; re-acquired after 2 missed frames).
 4. Positions map to the deck with the deck homography: $v$ = inches up the deck from the front edge (hole centre 39 in), $u$ = inches across.
-5. Events: **touchdown** = first sample on the deck surface in the throw plane (≤ 7 cm from it); **stop** = the along-deck position (3-sample median) stays within max(1 in, 3 × pixel precision) for 0.2 s; a bag that disappears for ≥ 0.12 s within 6.5 in (hole radius + half a bag) of the hole centre along the deck **fell in** (its visible area usually shrinks by ≥ 35 % as it tips in; a stop before the drop is reported as time "on the lip"); a bag still present at the end of the clip **rests** there; a bag lost at the edge of the deck **left** it.
+5. Events: **touchdown** = first sample on the deck surface in the throw plane (≤ 7 cm from it); **stop** = the along-deck position (3-sample median) stays within max(1 in, 3 × pixel precision) for 0.2 s; a bag that disappears for ≥ 0.12 s within 6.5 in (hole radius + half a bag) of the hole centre along the deck **fell in** (its visible area usually shrinks by ≥ 35 % as it tips in; a stop before the drop is reported as time "on the lip"); a bag still present at the end of the clip **rests** there; a bag lost at the edge of the deck **left** it — at the front or back edge (last seen below 1 in or beyond 45 in along) or, while still moving, with its centre within half a bag (3 in) of a side edge (≤ 3 in or ≥ 21 in across), where the bag already overhangs the edge. The side rule came from the tracking audit: Player 2 take 5 throw 4 was last seen sliding at 21.6 in across and was next visible on the floor, but was reported as "lost". Across-board position is only ±3 in from the side camera, so the rule needs the bag to be moving (no stop) when it vanishes; a bag that stopped and later disappeared stays "lost" (hidden or picked up).
 6. Suggested score: 3 fell in, 1 rests on the deck, 0 left the deck; always a one-click coach confirmation. When the flight tracker lost the bag in the air, a touchdown seen on the deck becomes the measured first contact.
 
 **Slide kinematics.** On the plain deck before the hole, a least-squares constant-deceleration fit $s(t)=s_0+v_0t-\tfrac12 a t^2$ gives the entry speed along the deck $v_0$ and the deceleration $a$. For a bag sliding **up** the slope $\alpha$ (10.8°), $a = g(\sin\alpha + \mu\cos\alpha)$, so the effective kinetic friction is $\mu = (a/g - \sin\alpha)/\cos\alpha$ (withheld for slides < 4 in or < 5 samples, or a non-decelerating fit).
@@ -163,7 +180,7 @@ All body quantities are **projected 2D** in the camera plane, from filtered land
 | Angular velocity | finite-difference derivative of the filtered (unwrapped) angle (Eq. 3.5.1) | °/s |
 | Wrist speed / direction | $\lVert \dot{\mathbf W}\rVert$ of the camera-steadied filtered wrist; direction $\operatorname{atan2}(v_y, v_x)$ | arm lengths/s (m/s with scale), ° |
 | Peak wrist speed and timing | max $\lVert\dot{\mathbf W}\rVert$ from peak backswing to release + 0.1 s (interior maximum only); $t_{\text{peak}}-t_{\text{rel}}$ | arm lengths/s, ms |
-| Peak elbow extension velocity and timing | max $d\theta_{\text{elbow}}/dt > 0$ in the same window | °/s, ms |
+| Peak elbow extension velocity and timing | max $d\theta_{\text{elbow}}/dt > 0$ in the same window, but starting where extension carried over from the backswing has ended (first $d\theta/dt\le 0$ after the top, §1.9); unavailable if the elbow only flexes in the forward swing | °/s, ms |
 | Forward-swing time | peak backswing → release | s |
 | Tempo | backswing duration ÷ forward-swing duration | ratio |
 | Pendulum drive ratio | measured ω at the bottom of the swing ÷ passive uniform-rod ω (Eq. 3.4.6); needs a scale | ratio |
@@ -608,20 +625,312 @@ $$\delta_{\text{crit}} = \max\!\left(0.474,\ z_{1-\alpha/(2k)}\sqrt{\frac{n_a + 
 |---|---|
 | No criterion validation (motion capture / manual digitisation) yet | Landmark, centroid and angle accuracy for this task are unknown; all body noise floors are provisional. |
 | Small athlete in frame (pilot) | Elbow-angle noise ~5–10° SD; derivative metrics (elbow extension speed) are exploratory. |
-| Single camera | Lateral release direction, trunk rotation and depth are invisible; lateral error exists only on the board. |
+| Single camera | Lateral release direction, trunk rotation and depth are invisible from the side; two-camera takes (§5) measure left/right, heading and frontal-plane body from a front camera. |
 | Gravity-only scale (WARNING grade) | Metres are approximate (a few percent); verdict numbers carry "≈". |
 | 60 fps | One frame = 16.7 ms; release timing and peak timing cannot be finer; release-timing sensitivity unavailable. |
 | No hand/finger landmarks | No wrist-snap, grip or finger-release measures. |
 | Final-rest detection | Board phase correct on 10/10 tripod clips with a located board; still a one-click confirmation, and a clip that ends < 0.5 s after the bag stops is flagged (a late drop cannot be ruled out). |
 | Throwing distance | The pilot sessions were thrown from about 5.1–5.8 m (release to board front), not the 27 ft regulation pitch (≈ 7.7 m from release); every zone and verdict uses the measured distance, so results do not transfer directly to regulation distance. |
-| Lateral (left/right) | Not measured from the side camera; the protocol throws straight at the board. Left/right misses need the board camera. |
+| Lateral (left/right) | Not measured from the side camera alone; measured on two-camera takes from the front camera (§5.2, ±0.5 in across the deck). |
 | Pilot library | 26 clips, 3 athletes, ~10 throws each, no outcomes recorded: no priorities can be claimed yet; the stress test suggests 20–40 throws per athlete for reliable outcome comparisons ([STRESS_TEST.md](STRESS_TEST.md)). |
 | Multiple comparisons | Bonferroni control within analyses; the scored-vs-miss analysis is exploratory across variables. |
 | 6 Hz filter | Supported by residual analysis on 12 signals, but may flatten wrist-speed peaks. |
 
 ---
 
-## 5. References
+## 5. Two-Camera Takes (Final Data Collection protocol)
+
+The final data collection (Fall 2026) uses **two phones per take**: the original side camera, and a
+**front camera** on a tripod behind the board looking back along the throw line at the athlete. A *take*
+is one continuous recording per camera: the athlete claps, shows the take number with their fingers,
+then throws four bags. Each athlete has 5–7 takes. The side camera keeps every method in §1–§3; the
+front camera adds what one side camera cannot see: **left/right**, where the bag stopped across the
+board, whether it went in, and frontal-plane body measures. Code: `takes.py` (§5.1), `front_view.py`
+and `front_track.py` (§5.2), `two_view.py` (§5.3).
+
+| Camera | Device (this collection) | Video | Sees |
+|---|---|---|---|
+| Side | iPhone 15 Pro Max | 1920×1080, 59.94 fps (variable frame rate) | body chain, release speed/angle/height, flight, distance along the board |
+| Front | iPhone 17 Pro | 1280×720, 30 fps | deck in board inches, sideways landing and rest, hole/board/off, frontal pose, stance |
+
+### 5.1 Takes, synchronisation and throws
+
+**Pairing.** File names are matched case-insensitively on `take <n> <front|side>` with any separator
+(`Take_2_side.mov` = `take_2_Side.MOV`). A take with only one camera is reported, never guessed.
+
+**Camera roles.** Each file's *camera signature* — QuickTime device model (read from `moov/meta`; only
+model and creation date are kept, never location), frame size and nominal frame rate — is compared
+across the athlete's folder. The signature most `Front`-named files share is the front camera, the one
+most `Side`-named files share is the side camera (majority vote). A pair whose two signatures are
+exactly reversed is reported as **swapped labels** and used in its true roles; the files are never
+renamed (Player 1, take 3: the file named *Front* was recorded by the side phone). When both phones
+share a signature the names are trusted and that is stated.
+
+**Synchronisation from sound.** Both phones record audio; the clap and every bag impact are sharp
+transients heard by both. For each soundtrack (16 kHz mono):
+
+$$e(t) = 20\log_{10}\Big(\mathrm{RMS}_{5\,\text{ms}}\big[\mathrm{HP}_{300\,\text{Hz}}(s)\big](t)\Big),\qquad
+\tilde e(t) = e(t) - \mathrm{median}_{1\,\text{s}}\,e(t)$$
+
+The high-pass removes hall rumble and the low end of voices; the 1 s running median removes slow
+loudness changes so only transients remain. The offset is the lag $\tau$ that maximises the normalised
+cross-correlation $r(\tau)$ of $\tilde e_\text{side}$ and $\tilde e_\text{front}$ over $|\tau| \le 12$ s
+with ≥ 8 s of overlap; convention $t_\text{front} = t_\text{side} + \tau$.
+The offset is **accepted** when $r \ge 0.35$ and the peak beats every lag outside ±100 ms by a margin
+≥ 0.08. *Justification (pilot evidence):* on all 23 Final Data Collection pairs, $r$ = 0.44–0.74 and the
+margin 0.10–0.35; both gates sit below every real pair. **Uncertainty ±17.5 ms**: sound travels
+≈ 2.9 ms per metre and the two microphones are at different distances from the clap and the board
+(±15 ms), plus half an envelope hop (2.5 ms). That is about half a front-camera frame (33 ms), so the
+front frame matched to a side frame is the right one or its neighbour. Each throw also gets a **direct
+check**: the side camera's first-contact frame against the first front frame with the bag on the deck
+(`sync_check`; agreement within ±4 front frames = the 2-frame sync tolerance plus 2 frames because the
+front camera sees the bag reach the deck late at its grazing angle).
+**Front picture lag.** Aligned soundtracks are not quite aligned pictures: what each phone shows at a
+timestamp also depends on exposure, rolling-shutter readout (the deck sits low in the front picture and is read
+out late) and audio-path latency. The tracking audit found the front camera showing first contact and release
+one front frame *after* the sound-mapped frame on all six audited throws (always the same direction, so a bias,
+not noise). The lag is therefore measured per front camera set-up (device, frame size, date) over every throw
+where both views saw first contact, $\ell_i = (f^\text{front}_\text{first on deck} - f^\text{front}_\text{mapped side contact})/\text{fps}_\text{front} + \ell_\text{applied}$,
+minus the expected quantisation $\tfrac{1}{2}(1/\text{fps}_\text{front} - 1/\text{fps}_\text{side})$ (both "first frame on
+the deck" values come half a frame after the true contact on average, while the mapping rounds to the nearest
+frame). The set-up's **interquartile mean** (≥ 8 throws; robust like a median but not stuck on whole frames) is
+added to the mapping, $t_\text{front} = t_\text{side} + \tau + \ell$ (`two_view.pool_front_lag`, stored as
+`front_lag_s` in each take record; new or re-prepared takes of a measured set-up inherit it). One throw's value
+is ±1–2 front frames (30 fps, a bag reaching the deck within a frame), so only the pooled value is used. A pooled
+lag beyond ±100 ms (3 front frames) or with an interquartile spread above 70 ms (about 2 frames) is not a picture
+lag but a sync or tracking fault: it is rejected and the mapping stays as the sound gives it. Only results from
+the current front tracker (`two_view_v2` or later) are pooled. `analyze_library.py` pools it after the front-camera pass and re-runs the front camera once for throws
+analysed with a different lag.
+If sync fails, the two views are analysed separately and combined only by throw order (stated in the report).
+
+**Finding throws (side video).** The side video is streamed once at 480 px width. A three-frame
+difference ($\min(|I_t - I_{t-1}|, |I_{t+1}-I_t|) > 14$ grey levels) gives small moving blobs
+(4–400 px²); blobs are linked frame to frame (gate 7 px, ≤ 3 missed frames) into tracklets; a
+tracklet of ≥ 8 points moving towards the board at 1.5–20 px per frame is bag-like; tracklets that chain
+within 0.25 s form one flight, which must cross ≥ 35 % of the frame width (a bag carried in the hand or a
+person walking does not). Flights closer than 2 s are one throw. Bag impacts in the front soundtrack
+(the front phone stands by the board) confirm each flight within ±0.45 s. When a take has more flights
+than throws and enough of them were heard landing, the unheard ones are left out, latest first, with a note
+(Player 1 takes 4 and 6: the fifth "flight" was the side phone being picked up at the end of the take).
+Two more guards came from the same check. A "flight" during which the picture itself moves is the camera,
+not a bag: it is dropped when the median number of moving blobs per frame over it is at least 15 and at
+least 4× the take's typical frame (real flights 4–9, the take's typical frame 3, a bumped side phone 23 —
+Player 4 take 3 at 21 s). And a flight already heard landing is never merged with the next one, however
+close, so one stray movement cannot chain two throws together. Thresholds were set on
+Player 1 and Player 4 takes: all 4 throws were found on every checked take, with no false flights from
+people walking through the side view.
+
+**Clips.** Each throw becomes a side clip from 2.5 s before the flight starts (the whole swing from the
+stance) to 1.6 s after it ends (slide and rest), and a front clip covering the same synchronised time.
+Clips are written in one decode pass per camera (H.264, CRF 12, near-lossless). Every clip frame's
+source timestamp is stored, so side frame → front frame mapping uses real times, not nominal rates
+(the side phone records at a variable frame rate). The originals are never changed.
+
+**Side board with bags on the deck.** Later throws in a take have earlier bags on the deck, which can
+hide the board edges the side detector needs. The empty-board corners are found once at the take start
+and carried to each clip's first frame by ECC alignment (`board_corners.json`, source `take_reference`).
+When neither the take start nor the throw's own clip gives a deck (people beside the board; Player 1 takes 1 and 3: detector
+confidence 0.42 against the 0.75 gate, while the same deck was found at 0.88–0.89 on other clips of the
+take), the deck **another throw of the athlete found** is used: same take first, then the other takes,
+highest detector confidence; it is carried from that throw's background plate into this clip's first frame
+by ECC on the board area and kept only if the alignment converges with correlation ≥ 0.6 (source
+`sibling_throw`). Only decks the detector itself found are shared, never shared or clicked ones, and
+clicked corners are never replaced. The side phone is on a tripod for the whole session, so one deck
+seen well is a better reference than a weak detection on a cluttered clip.
+
+**Side field-of-view search range.** The gravity calibration (§3.8) now searches 45–85° for the root
+(`SEARCH_HFOV_RANGE_DEG`) while the reported scale band stays 55–75°. *Reason:* the Final Data
+Collection side phone solved at exactly 55.0°, the old search edge, so every throw was flagged even
+though gravity matched within 0.003 m/s². A root at a search edge is a bound, not a measurement;
+widening the search lets the fit find its own root, and the reported uncertainty keeps the wider band.
+
+**Side field of view pooled per camera set-up.** One throw's ~0.4 s flight calibrates the field of view
+noisily (per-throw values 51–65° on the spot check). For two-camera takes the per-throw values are pooled
+(median, §3.8) over every throw recorded by the same side phone (device model and frame size), on the
+same date, with the deck at the same place in the picture (centre within 25 px, so the tripod did not
+move) — across athletes, because the lens does not depend on who throws. Pooling per athlete instead gave
+61.1° for Player 1 (8 throws) and 52.6° for Player 4 (4 throws) although their decks were 11 px apart in
+the same picture: an 8° disagreement the camera cannot have. The library run analyses each athlete, then
+re-pools over the whole set-up and refreshes every throw.
+
+### 5.2 Front camera
+
+**Board frame.** x 0–24 in left→right *as the thrower sees it*, y 0–48 in from the front edge, hole centre
+(12, 39), radius 3 in. The front camera faces the thrower, so its image is mirrored: the thrower's
+front-left corner (0, 0) is the far-right deck corner in the image. All signed lateral values are in the
+thrower's frame (− left, + right).
+
+**Finding the deck** (on a median plate of the take's first 1.5 s, so people and moving bags vanish).
+1. The black end apron nearest the camera is the widest dark (V ≤ 75), wide (≥ 6 % of the image width,
+   aspect ≥ 2.5) component in the lower two thirds; up to four candidates are tried (furniture can be dark too).
+2. The deck's red paint above it (hue ≤ 12 or ≥ 150, S ≥ 25, V ≥ 60; this hall gives S 30–60) gives the two
+   side edges by RANSAC line fits (RMS ≤ 3 px).
+3. The far (front) edge is chosen among gradient-scored candidate rows by the **hole test**: the deck
+   homography from each candidate must put the dark hole within 4 in of (12, 39); the best fit wins.
+
+On all 10 checked takes (Players 1 and 4) the deck was found with the hole 0.04–0.43 in from its nominal
+place. A coach can set the four corners by hand (`set-front-corners`), which always wins.
+
+**Deck homography.** $\mathbf H$ maps image pixels to deck inches from the four corners. Its local
+resolution is reported: at mid-deck one pixel is ≈ 0.3–0.5 in across, so the lateral precision label is ±0.5 in.
+
+**Camera drift.** The front phone sinks slowly on its tripod (≈ 40 px over a 30 s take, with exposure
+changes). Every 5th frame of a clip is aligned to the take's reference frame by ECC (affine,
+brightness-invariant) on a window around the deck, apron and legs, seeded by phase correlation; corners
+in between are interpolated. Alignment correlation was 0.97–0.997; frames below 0.6 keep the last good warp.
+
+**Camera model.** With the field of view fixed, a pose from four deck points has 6 unknowns and 8
+equations, so a wrong field of view leaves a PnP reprojection residual. Scanning 40–95° gives a sharp
+V-shaped minimum (residual < 0.3 px, ≈ 0.28 px per degree either side): 60.7–65.8° on this collection,
+±2.5°. The **median over every take the same front phone recorded that day** is used (the field of view
+belongs to the lens, not the tripod position, so all athletes' takes count; one take is an outlier now and
+then — Player 1 take 3 gave 76.6° against 65.7° for take 1); otherwise the take's own value;
+otherwise the nominal 68° (`estimated`). IPPE `solvePnP` then gives the camera position (≈ 4.0 m from
+the board front, 1.27 m high, on the centre line). Rays through image points are intersected with the
+floor (stance) or with the vertical plane at the side camera's measured release distance (release hand).
+Cross-check: the release height implied by the front ray is compared with the side camera's release height.
+**Corner check.** True corners leave ≤ 1.3 px of PnP residual at the pooled field of view on this collection.
+When the residual exceeds 2.5 px, or the take's deck-shape field of view is more than 8° from the pooled one
+(about 3× its ±2.5° noise), the corners are treated as misplaced (Player 1 take 5: 6.5 px, 90.9° against
+66.1°, one corner 26 px inside the deck). The camera is then `estimated`, and stance, release-hand offset
+and aim are withheld with a note asking for clicked corners; positions on the deck are kept but marked
+`estimated`, and hole / board / off is shown but not recorded automatically (it comes from the same corners).
+
+**Where the bag ended.** *Before* = median of 12 frames ending 0.25 s before release (bag in the hand),
+warped onto the last frame's board position; *after* = median of the clip's last 0.3 s. Changed pixels
+(CIELAB ΔE > 18) form blobs; a blob is a bag when its area is 0.25–15× the expected image area of a
+6 × 6 in bag at that place. Each blob is tested against the **empty board** from the take start: a bag
+*appeared* there when the after image differs from the empty board more than the before image does;
+otherwise the blob is a bag that was knocked away. Then:
+- centre on the deck (within 0.75 in sideways, −3 to 54 in along; at this grazing view a bag's own
+  thickness pushes its pixels past the back edge) → **board**, rest x from the homography;
+- on the floor under the deck (where a bag through the hole lies) and at least 0.6× the deck-centre bag
+  area → **hole**. The region is the floor rectangle under the deck, ±12 in across, from 0.45 m behind the
+  front edge to 3 cm short of the back edge, projected with the camera pose (the hole's centre is 23 cm
+  short of the back edge). A bag that slides off the back end lands beyond the back edge, nearer the
+  camera; an earlier region drawn as a fixed proportion of the image reached past the back legs and took
+  two such Player 4 bags for bags in the hole, while the side camera saw them leave the deck (a bag there is nearer the camera than the deck centre, so it is
+  never smaller; Player 1 take 3: the bag was 996 px² against an expected 227, shadow specks ≈ 70);
+- on the floor near the board → **off**, its floor position from the camera ray. The search covers the
+  floor band from 2.5 deck image heights above the deck's far edge down to the frame's bottom edge (bags
+  that slide off the back end come towards the camera — Player 4 take 5 throw 1 stopped at the frame edge),
+  but a blob counts only when it is whole-bag sized (≥ 0.6×), bag-coloured (≥ 40 % of its pixels red as
+  the bags of this collection: deck-paint hue, saturation ≥ 60; real bags measured S 88–166, floor glare
+  and reflections S 13–86 and yellow hue) and its floor point lies within ±2 m of the centre line, from
+  2.5 m short of the board to the camera. The colour test also applies under the board. It removed four
+  false "off the board" rests on Player 2 (glare on the shiny floor) and kept every real one checked. Without that gate a shiny floor's reflections and
+  people far to the side were taken for bags (Player 1 take 3: four such blobs on one throw, none after);
+- no new bag, but the tracked bag reached the hole → **hole**;
+- no new bag anywhere (`deck_clear`): the whole deck is visible, so the bag is not on the board and not in the
+  hole → **off**. It is *suggested* only when the side camera also saw the bag leave the deck or never land on
+  it; otherwise it needs confirmation (Player 4 take 5 throw 3 dropped off the front edge, hidden by the deck).
+
+If one throw changes both the deck and the under-board region (it knocked a bag in), the front camera
+cannot tell which bag was thrown. The side camera, which follows the thrown bag from release to rest,
+decides: a side ending "rest" → the bag on the deck, "fell_in_hole" → the hole. Player 1 had five such
+throws, the thrown bag stopping at the hole's lip while it pushed the bag already there into the hole.
+Without a side ending the throw stays `ambiguous` (needs confirmation, nothing recorded automatically).
+When the side ending chose, the two views are not independent on that throw: the agreement is reported as
+unknown and the suggestion's confidence as medium.
+
+**Bag path in the front camera** (`front_track.py`; the replay overlay `front_path` and the deck track
+below). *Candidates* in each frame (searched at half resolution) are pixels that are bag-red (hue ≤ 12 or
+≥ 150, S ≥ 60, V ≥ 35), differ from the empty scene by > 30 (8-bit, largest channel; the scene is the
+median of every 3rd frame from 2.5 s to 0.2 s before release, shifted for camera drift by the deck
+corners) and differ from the same frame 2 frames before *and* after by > 20. Evidence (727 bag
+detections on 21 throws, two libraries, 2nd–98th percentile): bag hue 165–180 and 0–8, S 63–145, difference
+from the empty scene 50–173; the still scene differs by a median of 2–4 and only 1 % of its pixels change by
+more than 8 over two frames; the deck paint is S 25–60 and the wooden wall slats hue 15–28, so neither
+passes. *The bag* is the set of candidates that one drag-free projectile explains: seen through a fixed
+pinhole camera, its image position is $u = (a_0 + a_1 t + a_2 t^2)/D$, $v = (c_0 + c_1 t + c_2 t^2)/D$
+with the shared depth $D = 1 + d_1 t + d_2 t^2$ ($a_2$, $d_2$ come only from camera pitch). RANSAC (1500
+draws of three candidates ≥ 3 frames apart, level-camera model solved exactly, scored over *all* frames)
+picks the model, then a robust least-squares fit of the full model refines it. A model is accepted only if
+the bag comes towards the camera the whole way, its depth shrinks 1.3–8× (measured 2.2–3.3), its gravity
+term puts the release 3–30 m from the camera ($Z_0 = f g / (2 c_2)$; measured 7.4–9.4 m — a person
+walking or a rolled bag has no gravity term) and, at the side camera's contact frame, it is within 1.5
+deck widths of the deck (else retried without this, for bags that end well off the board). A frame keeps
+its candidate only if it lies within 4 px + 0.75 × its size of the model (residuals: median 0.6 px, 98th
+percentile 2.9 px, i.e. a third of the tolerance) and its area is within 6× of the size the depth predicts
+(a tumbling bag changes 2.5× between frames); a path seen in fewer than 6 frames or 30 % of the flight is
+dropped. Frames without a consistent candidate stay empty. The path runs from release to one frame after
+the side camera's contact (the front camera sees the bag reach the deck 0–2 frames, median 1, after it on
+11 throws). Before this, nearest-blob linking of frame differences followed a bystander or the thrower's
+body on 6 of 13 Final Data Collection throws and stayed half on the body on 2 more; now all 13 (and 8 of an
+earlier test library) follow the bag from the hand to the deck, 1.1–1.8 s per throw. Only red bags are
+found; the path is for display and no number is computed from it.
+
+**First contact across the board.** The moving bag near the deck is tracked from just before the side
+camera's contact time with the same colour and motion test (blobs with ≥ 15 % moving pixels; a bag at rest
+ends the track), linked by the best chain through all frames (+1 per frame, minus (step ÷ 90 px)², minus
+0.5 per skipped frame, at most 3 skipped; the last flight steps before contact are 32–73 px). Each point is
+the bag in that very frame: the earlier frame-pair differencing put it one frame early or late (44–71 px
+off on all 13 throws). The point nearest the synchronised contact frame, among points
+within 6 in (one bag width) of the deck, gives $x_\text{contact}$ (earlier points are the bag still in the
+air, whose deck-plane mapping runs far off). The heading uses first contact; the resting place stands in
+only for a bag that stayed on the board, never for one that slid or bounced off. Without a side contact, the first three consecutive tracked points on the deck mark it
+(source stated).
+
+**Heading (left/right aim).** From the release hand to first contact, in the floor plane:
+
+$$\psi = \operatorname{atan2}\big(X_\text{contact} - X_\text{release},\; D_\text{release} + y_\text{contact}\cos\theta\big)$$
+
+$X$ = sideways from the centre line (m), $D_\text{release}$ = side-camera release-to-board-front distance
+(the athlete's median if missing on a throw), $\theta$ = board slope; + = to the thrower's right. The
+sideways miss the heading alone would give at the hole is reported too, so *aim* and *standing
+off-centre* can be separated. Noise ≈ 0.5° (±0.5 in contact precision and ±3 cm hand position over ~6 m).
+
+**Frontal-plane body** (Sports2D on the front clip; joints with confidence ≥ 0.3; ±1-frame mean at release).
+The front camera looks down the throw line, so its image plane is the athlete's frontal plane. Image
+angles are corrected for camera roll, measured from the board's level back edge.
+
+| Measure | Definition | Noise used |
+|---|---|---|
+| Trunk side lean | hip centre → shoulder centre vs vertical; + towards the throwing arm | 6° |
+| Shoulder tilt | shoulder line vs horizontal; + throwing shoulder lower | shown only |
+| Hand across body | (wrist − throwing shoulder) sideways ÷ shoulder width at release; + towards the midline | 0.15 shoulder widths |
+| Follow-through | the same, 0.15 s after release | shown only |
+| Release offset | release hand's sideways distance from the centre line (ray ∩ release plane) | 0.03 m |
+| Stance offset / width | ankle rays ∩ floor (7 cm ankle height), 1 s before release | shown only |
+
+### 5.3 Combined result: where it ended and why
+
+**Fusion.** Across (x) comes from the front camera; along (y) comes from the side camera's board phase
+(§1.13) when it has one, because the side view sees distance along the deck without the front camera's
+grazing foreshortening; otherwise the front homography's y. The result (hole 3 / board 1 / off 0) comes
+from the front camera; the side camera's board phase is a cross-check, and any disagreement is shown as
+*needs confirmation*.
+
+**Signed miss** at rest from the hole centre, thrower's frame: $\Delta x = x_\text{rest} - 12$ (right +),
+$\Delta y = y_\text{rest} - 39$ (long +), distance $\sqrt{\Delta x^2+\Delta y^2}$.
+
+**Automatic result.** A confident front-camera result (views agree or the side camera has no ending, a
+knocked bag resolved by the side camera, corners not suspect) is recorded as the throw's outcome with the note
+*"Recorded automatically…"*; it never replaces a result someone entered. When a re-analysis is no longer
+confident, an earlier automatic result is removed, so the throw shows as needing a result.
+
+**The coach sentence** (outcome first; associations, never "because"):
+- in the hole → no correction;
+- within 3 in both ways (the hole radius) → "close";
+- otherwise `N in short/long` with the release speed, and `N in left/right` with the aim when
+  $|\psi| \ge 0.3°$. The hand across the body (≥ 0.25 shoulder widths, ≈ 2× its noise) or a stance
+  ≥ 15 cm off the centre line is named **only when it points the same way as the miss** (across the body
+  sends the bag toward the non-throwing side). Trunk side lean is a steady personal trait for most
+  athletes (≈ 10° on every Player 1 throw), so it is compared across throws on the athlete summary, not
+  named per throw.
+
+**Athlete level.** `front_heading_deg`, `front_arm_across_body_sw`, `front_trunk_side_lean_deg` and
+`front_release_offset_m` join the scored-vs-miss and relationship analyses (§2.4) with the noise floors
+above, under the same evidence gate (≥ 5 throws per group, Cliff's δ ≥ 0.474, difference > noise).
+
+**Limits.** The front camera sees the deck at a grazing angle, so along-board distance from it alone is
+coarse (that is why y comes from the side). A bag that lands far off the board, outside the front view, is
+`unavailable`, not "off". Frontal body angles are 2D image angles. Sound sync assumes both microphones
+heard the same events; it is checked per throw but not against an external clock.
+
+---
+
+## 6. References
 
 Only sources listed in [REFERENCES.md](REFERENCES.md) and [RESEARCH_BACKGROUND.md](RESEARCH_BACKGROUND.md) are cited. Web sources were accessed 8 September 2026 unless stated.
 
