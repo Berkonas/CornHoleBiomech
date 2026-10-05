@@ -29,10 +29,13 @@ Method (side camera, board located by `board.py`):
    coefficient for a bag sliding UP the slope (angle alpha):  a = g (sin alpha + mu cos alpha).
 
 Lateral position: from a side camera the deck's across direction runs nearly along the
-optical axis, so a few pixels of height (the bag's thickness) move u by several inches.
-u is therefore reported as approximate and is not used to decide the outcome; decisions
-use the along-deck coordinate v, which is well determined. The protocol throws straight
-at the board, so left/right errors are not measured by this camera (use the board camera).
+optical axis, so a few pixels of height move u by several inches. The bag's centre sits
+about half its thickness above the deck, so u is found by intersecting the centre's viewing
+ray (camera pose from the board corners) with the plane 0.6 in above the deck, not with the
+deck itself (which put every bag several inches toward the far side). It is reported as
+approximate (about +/-3 in), drawn on the board, and signed from the thrower's point of view
+(`right_of_centre_in`, + = thrower's right); it is not used to decide the outcome, which uses
+the along-deck coordinate v. The board camera measures left/right precisely.
 
 The suggested score always needs a coach's confirmation (one click).
 """
@@ -48,7 +51,7 @@ from .bag import GRAVITY_M_S2
 from .bag_segment import _local_align, _warp_to
 from .regulation import INCH_M
 
-BOARD_PHASE_REVISION = "board_phase_v1"
+BOARD_PHASE_REVISION = "board_phase_v2_side_edge"
 HOLE_U_IN, HOLE_V_IN, HOLE_RADIUS_IN = 12.0, 39.0, 3.0
 BAG_HALF_IN = 3.0
 # A bag whose centre vanishes within the hole radius + half a bag (along the deck) fell in.
@@ -59,7 +62,12 @@ VANISH_S = 0.12                # absent this long = gone
 DRAIN_AREA_DROP = 0.35         # visible area falling by this fraction before vanishing = tipping into the hole
 MIN_SLIDE_FOR_FRICTION_IN = 4.0
 LATERAL_UNRELIABLE_IN = 0.5    # inches across per pixel above which u is only approximate
+BAG_CENTRE_HEIGHT_IN = 0.6     # a resting/sliding bag's centre above the deck (about half its thickness)
 DECK_TOLERANCE_M = 0.07        # bag half-thickness + plane-mapping noise
+DECK_WIDTH_IN = 24.0
+# A moving bag whose centre was last seen within half a bag of a side edge already overhangs it; when it
+# then vanishes it went off that side (Player 2 take 5 throw 4: last seen 21.6 in across, on the floor next).
+SIDE_EDGE_IN = BAG_HALF_IN
 
 
 def _bag_length_px(typical_area: float | None) -> float:
@@ -181,7 +189,8 @@ def slide_kinematics(times_s: np.ndarray, along_in: np.ndarray, deck_angle_rad: 
 
 def analyze_board_phase(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], model, release: int,
                         last_flight: int, flight_ref: dict[int, tuple[float, float]], fps: float,
-                        typical_area: float | None, touchdown_hint: int | None = None) -> dict[str, Any]:
+                        typical_area: float | None, touchdown_hint: int | None = None,
+                        target_direction: str = "left_to_right") -> dict[str, Any]:
     """Follow the bag on the deck from touchdown to the end of the clip.
 
     `chains[f]` maps raw pixels of frame f into the release frame's pixels; the board model and
@@ -249,13 +258,14 @@ def analyze_board_phase(frames: Sequence[np.ndarray], chains: dict[int, np.ndarr
         position, missed = (x, y), 0
         samples.append({"frame": f, "present": True, "x_release_frame": x, "y_release_frame": y, "area_px": chosen["area"]})
     return summarize_board_phase(samples, model, fps, n, typical_area=area, chains=chains,
-                                 touchdown_hint=touchdown_hint, background_frames=background_frames)
+                                 touchdown_hint=touchdown_hint, background_frames=background_frames,
+                                 target_direction=target_direction)
 
 
 def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, frame_count: int,
                           typical_area: float | None = None, chains: dict[int, np.ndarray] | None = None,
-                          touchdown_hint: int | None = None, background_frames: list[int] | None = None
-                          ) -> dict[str, Any]:
+                          touchdown_hint: int | None = None, background_frames: list[int] | None = None,
+                          target_direction: str = "left_to_right") -> dict[str, Any]:
     """Events, outcome and slide kinematics from per-frame deck samples (release-frame pixels).
 
     Split from the image work so the decision rules can be tested directly.
@@ -268,8 +278,13 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         pts = np.array([[s["x_release_frame"], s["y_release_frame"]] for s in present], float)
         uv = model.to_deck_inches(pts)
         plane = model.to_plane(pts)
-        for s, (u, v), (px, py) in zip(present, uv, plane):
-            s["u_in"], s["v_in"] = float(u), float(v)
+        lifted = _lifted_u(model, pts)
+        side = 1.0 if target_direction == "left_to_right" else -1.0
+        for s, (u, v), (px, py), u_lift in zip(present, uv, plane, lifted):
+            s["u_in_deck_plane"] = float(u)
+            s["u_in"], s["v_in"] = (float(u_lift) if math.isfinite(u_lift) else float(u)), float(v)
+            # Thrower's right is the camera side for a left-to-right throw (the far side right-to-left).
+            s["right_of_centre_in"] = side * (s["u_in"] - HOLE_U_IN)
             s["plane_x_m"], s["plane_y_m"] = float(px), float(py)
             deck_y = board.deck_height_at(min(max(float(px), 0.0), board.horizontal_length_m))
             s["on_deck_surface"] = bool(-0.5 * 6 * INCH_M <= px <= board.horizontal_length_m + 3 * INCH_M
@@ -283,9 +298,10 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         lateral_precision = model.across_precision_in_per_px(mid)
     lateral = {"state": "approximate" if lateral_precision is None or lateral_precision > LATERAL_UNRELIABLE_IN else "estimated",
                "inches_per_pixel": lateral_precision,
-               "note": "Left/right on the board is poorly resolved from a side camera (the bag's thickness alone "
-                       "moves it several inches); the outcome is decided from the along-board position. "
-                       "Throws are assumed straight at the board; use the board camera to measure left/right."}
+               "precision_in": None if lateral_precision is None else float(max(3.0, 3.0 * lateral_precision)),
+               "note": "Left/right on the board is approximate from a side camera (about ±3 in): the across "
+                       "direction runs along the camera's line of sight. The result is decided from the "
+                       "along-board position; the board camera measures left/right precisely."}
     base["lateral"] = lateral
     if not present:
         return {**base, "status": "not_found", "path": [],
@@ -342,6 +358,11 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         end = {"kind": "left_deck", "frame": last_seen["frame"] + 1,
                "note": "The bag was last seen at the edge of the board and then disappeared (probably slid off)."}
         end_sample = last_seen
+    elif gone and stop is None and (last_seen["u_in"] >= DECK_WIDTH_IN - SIDE_EDGE_IN or last_seen["u_in"] <= SIDE_EDGE_IN):
+        end = {"kind": "left_deck", "frame": last_seen["frame"] + 1, "edge": "side",
+               "note": "The bag was last seen moving at the side edge of the board and then disappeared "
+                       "(probably slid or tipped off the side)."}
+        end_sample = last_seen
     elif gone:
         end = {"kind": "lost", "frame": last_seen["frame"] + 1,
                "note": "The bag disappeared away from the hole (hidden or picked up); confirm the result in the video."}
@@ -354,6 +375,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
                         + (" (resting at the lip of the hole)." if abs(rest_v - HOLE_V_IN) <= HOLE_RADIUS_IN + BAG_HALF_IN
                            else "."))}
         end_sample = {**stop, "u_in": float(np.median([s["u_in"] for s in quiet])),
+                      "right_of_centre_in": float(np.median([s["right_of_centre_in"] for s in quiet])),
                       "v_in": float(np.median([s["v_in"] for s in quiet])),
                       "x_release_frame": float(np.median([s["x_release_frame"] for s in quiet])),
                       "y_release_frame": float(np.median([s["y_release_frame"] for s in quiet]))}
@@ -365,6 +387,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
                "note": "The bag was still moving when the clip ended."}
         end_sample = last_seen
     end.update(u_in=float(end_sample["u_in"]), v_in=float(end_sample["v_in"]),
+               right_of_centre_in=float(end_sample["right_of_centre_in"]),
                from_hole_in=float(end_sample["v_in"] - HOLE_V_IN),
                x_release_frame=float(end_sample["x_release_frame"]), y_release_frame=float(end_sample["y_release_frame"]))
     if "x" in end_sample:
@@ -373,6 +396,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         end["from_hole_in"] = 0.0 if abs(end["from_hole_in"]) <= HOLE_RADIUS_IN else end["from_hole_in"]
 
     touchdown = {"frame": touch["frame"], "u_in": touch["u_in"], "v_in": touch["v_in"],
+                 "right_of_centre_in": touch["right_of_centre_in"],
                  "from_hole_in": touch["v_in"] - HOLE_V_IN,
                  "x_release_frame": touch["x_release_frame"], "y_release_frame": touch["y_release_frame"],
                  "on_deck": bool(0.0 <= touch["v_in"] <= 48.0),
@@ -402,15 +426,27 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         score, confidence = (1, "high" if not end.get("short_after_stop") else "medium") if on else (0, "medium")
         basis = f"{end['note']} It stopped {_where(end['from_hole_in'])}."
     elif end["kind"] == "left_deck":
-        score, confidence = 0, "medium"
+        # Off a side edge is judged from the approximate (±3 in) across position: low confidence.
+        score, confidence = 0, "low" if end.get("edge") == "side" else "medium"
     suggested = None if score is None else {
         "score": score, "basis": basis, "confidence": confidence, "needs_confirmation": True,
         "source": "board_phase"}
-    path = [{k: s[k] for k in ("frame", "x", "y", "x_release_frame", "y_release_frame", "u_in", "v_in", "area_px")
+    path = [{k: s[k] for k in ("frame", "x", "y", "x_release_frame", "y_release_frame", "u_in", "v_in",
+                               "right_of_centre_in", "area_px")
              if k in s} for s in deck]
     return {**base, "status": "measured", "touchdown": touchdown, "end": end, "hang": hang, "drained": drained,
             "slide": slide_summary, "path": path, "suggested_outcome": suggested,
             "samples_present": len(present), "samples_total": len(samples)}
+
+
+def _lifted_u(model, pts: np.ndarray) -> np.ndarray:
+    """Across-deck inches of bag centres (BAG_CENTRE_HEIGHT_IN above the deck); NaN where unavailable."""
+    if not hasattr(model, "deck_inches_lifted") or getattr(model, "rvec", None) is None:
+        return np.full(len(pts), np.nan)
+    try:
+        return model.deck_inches_lifted(pts, BAG_CENTRE_HEIGHT_IN * INCH_M)[:, 0]
+    except Exception:  # a degenerate pose never costs the along-deck result
+        return np.full(len(pts), np.nan)
 
 
 def _where(from_hole_in: float) -> str:

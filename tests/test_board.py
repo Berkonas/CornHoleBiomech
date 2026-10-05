@@ -463,3 +463,26 @@ def test_pale_non_regulation_decoy_is_not_found_through_the_full_cascade(far_l, 
     # ... and every pass rejects it
     out = detect_board(img, "left_to_right", B)
     assert out["status"] == "not_found" and out["reasons"]
+
+
+def test_pose_is_the_physical_one_not_its_mirror():
+    """Tripod clip (Player 1, throw 19): IPPE's lower-error pose put the camera 3 m up on the FAR side of the board
+    with the throw line 38° out of the picture; the real camera is on the near side at tripod height."""
+    import cv2 as _cv2
+    from cornhole_biomech.board import camera_height_m
+    corners = np.array([[1611.0, 672.0], [1660.0, 701.0], [1919.0, 662.0], [1869.0, 631.0]])
+    model = solve_board(corners, (1920, 1080))
+    R = _cv2.Rodrigues(model.rvec)[0]
+    centre = -R.T @ model.tvec.ravel()
+    assert centre[2] > 0                                  # near side (+z, lower in the image)
+    assert 1.0 < camera_height_m(model) < 3.0
+    assert model.phi_deg < 15
+
+
+def test_a_red_rectangle_high_in_the_picture_is_not_a_board():
+    """Player 1, throw 20: a screen high on the wall was taken for the board (camera 8.7 m up)."""
+    from cornhole_biomech.board import CAMERA_HEIGHT_RANGE_M, camera_height_m
+    screen = solve_board(np.array([[854.0, 240.0], [867.0, 356.0], [1049.0, 324.0], [1050.0, 232.0]]), (1920, 1080))
+    assert camera_height_m(screen) > CAMERA_HEIGHT_RANGE_M[1]
+    board = solve_board(np.array([[1583.0, 671.6], [1632.0, 698.9], [1919.0, 654.1], [1837.0, 627.2]]), (1920, 1080))
+    assert CAMERA_HEIGHT_RANGE_M[0] < camera_height_m(board) < CAMERA_HEIGHT_RANGE_M[1]

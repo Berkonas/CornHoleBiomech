@@ -19,7 +19,10 @@ and trajectory-rectification stages, without a trained network):
    parabola-consistent detection lies on the detected board's deck/front face or
    the floor (contact.py); a flight that ends in the air is `lost_in_flight`,
    and its parabola is extended to an ESTIMATED (predicted) contact instead.
-   Candidates inside person masks (scene.py) cannot seed a flight.
+   Candidates inside person masks (scene.py) cannot seed a flight. A chosen flight that ends in
+   the air is first grown forward to the deck/floor by colour segmentation along its local
+   parabola (`_grow_to_contact`, bag_segment.extend_to_contact), then re-checked by the same
+   physics gates.
 4. Acceptance: enough inliers over enough of the flight with small residuals.
    Otherwise the result is "needs_review" with the reason, never silently used.
 """
@@ -36,12 +39,13 @@ import numpy as np
 
 from .background import build_plate
 from .bag import GRAVITY_M_S2, _robust_polynomial
-from .bag_segment import SEGMENT_REVISION, backfill_to_hand, refine_flight, track_after_contact
-from .board import detect_board, solve_board
-from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
+from .bag_segment import (SEGMENT_REVISION, backfill_to_hand, extend_to_contact, refine_flight,
+                          track_after_contact)
+from .board import CAMERA_HEIGHT_RANGE_M, camera_height_m, detect_board, solve_board
+from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome, surface_at
 from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v16_board_phase"
+AUTO_BAG_REVISION = "auto_motion_parabola_v17_forward_to_contact"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -739,6 +743,98 @@ def _start_after_hand(chosen: dict[str, Any], release: int, fps: float,
     return {**chosen, "points": points, "fit": fit}
 
 
+FORWARD_MAX_SECONDS = 1.0   # longest forward growth after the last tracked centre
+
+
+def _grow_to_contact(chosen: dict[str, Any], refined: dict[int, dict[str, Any]], frames: Sequence[np.ndarray],
+                     chain: dict[int, np.ndarray], to_prev: list[np.ndarray], candidates: list[Candidate],
+                     model, in_person, fps: float, arm_length_px: float | None, target_direction: str
+                     ) -> tuple[dict[str, Any], dict[int, dict[str, Any]], dict[str, Any]]:
+    """Grow the chosen flight forward to first contact when it ends in the air (`extend_to_contact`).
+
+    Seeds are ALL motion candidates of the clip, including those already claimed by another
+    candidate flight: one throw split into two flights is the same bag. With a board model the
+    walk stops at the deck/front/floor (`contact.surface_at`, the same classification as
+    `classify_flight_end`). The grown end then passes the same physics gates as the detected
+    flight: an end that breaks from the local parabola of the preceding frames is trimmed
+    (`_end_breaks_locally`, slide/bounce), and the whole flight must still be a plausible
+    gravity arc toward the target with RMS residual within the acceptance limit, otherwise the
+    growth is discarded and the flight kept as detected. Returns (chosen, refined, info).
+    """
+    last_frame = int(chosen["fit"]["last_frame"])
+    info: dict[str, Any] = {"method": "colour_segmentation_local_parabola", "frames_added": 0,
+                            "previous_last_frame": last_frame}
+    if model is not None and last_frame in chain:
+        end = (chain[last_frame] @ np.array([chosen["points"][-1]["x"], chosen["points"][-1]["y"], 1.0]))[:2]
+        if surface_at(end, model) != "air":
+            return chosen, refined, {**info, "status": "not_needed", "stop": "track_ends_on_a_surface"}
+    seeds: dict[int, list[tuple[float, float]]] = {}
+    for c in candidates:
+        if c.frame > last_frame:
+            seeds.setdefault(c.frame, []).append((c.x, c.y))
+    surface = None
+    if model is not None:
+        surface = lambda f, p: surface_at((chain[f] @ np.array([p[0], p[1], 1.0]))[:2], model) if f in chain else "air"
+    grown = extend_to_contact(frames, chain, [refined[f] for f in sorted(refined)], int(FORWARD_MAX_SECONDS * fps),
+                              seeds, surface, in_person)
+    info.update(stop=grown["stop"], bridged_frames=grown["bridged_frames"],
+                colour_gate_ab=grown.get("colour_gate_ab"), surface_model=model is not None)
+    reached = grown.get("surface_reached")
+    if reached is not None and reached["frame"] in chain:
+        p = chain[reached["frame"]] @ np.array([reached["x"], reached["y"], 1.0])
+        info["predicted_surface"] = {"frame": int(reached["frame"]), "kind": reached["kind"],
+                                     "x_px": float(p[0]), "y_px": float(p[1])}
+    if not grown["rows"]:
+        return chosen, refined, {**info, "status": "no_extension"}
+    added = {r["frame"]: r for r in grown["rows"]}
+    points = list(chosen["points"]) + [{"frame": f, "x": r["x"], "y": r["y"], "area": r["area_px"]}
+                                       for f, r in sorted(added.items())]
+    tol = max(6.0, 0.05 * arm_length_px) if arm_length_px else 8.0
+    as_chosen = {p["frame"]: (Candidate(p["frame"], p["x"], p["y"], p.get("area") or 0.0), 0.0) for p in points}
+    run = [p["frame"] for p in points]
+    while run[-1] > last_frame and _end_breaks_locally(as_chosen, run, fps, 3.0 * tol):
+        run = run[:-1]
+    points = [p for p in points if p["frame"] <= run[-1]]
+    trimmed = len(added) - sum(1 for f in added if f <= run[-1])
+    added = {f: r for f, r in added.items() if f <= run[-1]}
+    if not added:
+        return chosen, refined, {**info, "status": "trimmed_by_local_parabola", "trimmed_frames": trimmed}
+    fit = chosen["fit"]
+    f_ref, first = fit["reference_frame"], int(fit["first_frame"])
+    t = np.array([(p["frame"] - f_ref) / fps for p in points])
+    coef_x, _, _ = _robust_polynomial(t, np.array([p["x"] for p in points]), 2)
+    coef_y, _, _ = _robust_polynomial(t, np.array([p["y"] for p in points]), 2)
+    rms = float(np.sqrt(np.mean(_stabilized_residual(
+        [Candidate(p["frame"], p["x"], p["y"], 0.0) for p in points], to_prev, fps) ** 2)))
+    rms_limit = MAX_RMS_ARM_LENGTHS * arm_length_px if arm_length_px else 8.0
+    sign = 1.0 if target_direction == "left_to_right" else -1.0
+    rejected = []
+    if not _plausible(coef_x, coef_y, sign, _gravity_range(arm_length_px)):
+        rejected.append("the grown flight is not a plausible gravity arc toward the target")
+    if rms > max(rms_limit, fit["rms_residual_px"]):
+        rejected.append(f"the grown flight deviates {rms:.1f} px RMS from one arc (limit {rms_limit:.1f} px)")
+    if rejected:
+        return chosen, refined, {**info, "status": "rejected_by_physics_gate", "reason": "; ".join(rejected),
+                                 "candidate_frames": sorted(added)}
+    last = points[-1]["frame"]
+    new_fit = {**fit, "coef_x": list(map(float, coef_x)), "coef_y": list(map(float, coef_y)),
+               "vertical_acceleration_px_s2": float(2 * coef_y[2]),
+               "horizontal_acceleration_px_s2": float(2 * coef_x[2]), "rms_residual_px": rms,
+               "last_frame": last, "inliers": len(points), "span_seconds": (last - first) / fps,
+               "coverage": len(points) / (last - first + 1)}
+    refined = {**refined, **added}
+    info.update(status="extended", frames_added=len(added), trimmed_frames=trimmed, last_frame=last,
+                added_frames=sorted(added))
+    return {**chosen, "points": points, "fit": new_fit}, refined, info
+
+
+def _same_throw(flight: dict[str, Any], chosen_fit: dict[str, Any]) -> bool:
+    """A candidate flight that lies mostly (>= half its frames) inside the chosen flight is part of it."""
+    a, b = int(flight["fit"]["first_frame"]), int(flight["fit"]["last_frame"])
+    overlap = min(b, int(chosen_fit["last_frame"])) - max(a, int(chosen_fit["first_frame"])) + 1
+    return overlap >= 0.5 * (b - a + 1)
+
+
 def release_from_wrist(fit: dict[str, Any], wrist: np.ndarray, fps: float,
                        search_seconds: float = 0.4) -> tuple[int | None, float | None]:
     """Release = latest frame (up to the first detection) where the backward parabola meets the wrist.
@@ -869,6 +965,14 @@ def _scene_and_board(frames, chain, target_direction, masks, board_corners_px=No
     except ValueError as exc:
         return scene_info, {**found, "status": "not_found", "reasons": [*found.get("reasons", []), str(exc)],
                             "model": None}
+    lift = camera_height_m(model)
+    low, high = CAMERA_HEIGHT_RANGE_M
+    if clicked is None and not low <= lift <= high:
+        # Detected, not clicked: a red rectangle that would put the camera this high is not the board.
+        reason = (f"The red shape found puts the camera {lift:.1f} m above the floor, so it is not the board "
+                  f"(a screen or sign?). Click the four deck corners if the board is in the picture.")
+        return scene_info, {**found, "status": "not_found", "reasons": [*found.get("reasons", []), reason],
+                            "model": None}
     return scene_info, {**found, "model": model}
 
 
@@ -906,6 +1010,37 @@ def _contact_from_board(board, end_point_ref, fit, fps, last_frame, frame_count,
     return {"first_contact_frame": None, "predicted_contact": predicted,
             "contact": {"kind": "lost_in_flight", "state": "unavailable", "plane_xy_m": end["plane_xy_m"],
                         "reason": "The bag was lost while still in the air; first contact was not observed."}}
+
+
+def _local_surface_contact(decided: dict[str, Any], local: dict[str, Any] | None, model, end_point_ref,
+                           fit: dict[str, Any], fps: float, last_frame: int) -> dict[str, Any]:
+    """Observed contact when the forward walk found the bag's LOCAL path on a surface in the very
+    next frame (`extend_to_contact` `surface_reached`) and the bag was not seen in the air there.
+
+    The last tracked frame is then the touchdown frame, as in the near-contact rule, and the
+    landing position is the tracked centre in that frame (`_landing`: observed contact point);
+    the predicted next-frame position is already past the surface by up to a frame of motion
+    (~20 px, which moves the deck's across-board coordinate by ~18 in on Player 1 throw 5A659FED).
+    The local path is used rather than the whole-flight parabola (`predict_contact`), which drifts from the end
+    of a real flight (drag, perspective) and, sampled once per frame, can step over the 6 cm deck
+    band and report the floor behind a bag that landed on the deck (Player 1 throw 5A659FED:
+    whole-flight parabola floor at frame 235, board phase and video: deck at frame 233).
+    A contact that is already measured on a surface is kept.
+    """
+    if model is None or local is None or int(local["frame"]) != last_frame + 1:
+        return decided
+    contact = decided.get("contact") or {}
+    if contact.get("state") == "measured" and contact.get("surface_point_px") is None:
+        return decided
+    t_last = (last_frame - fit["reference_frame"]) / fps
+    if fit["coef_y"][1] + 2 * fit["coef_y"][2] * t_last <= 0:      # not descending (image y down)
+        return decided
+    end = classify_flight_end(end_point_ref, model)
+    return {"first_contact_frame": last_frame, "predicted_contact": None,
+            "contact": {"kind": local["kind"], "state": "measured", "plane_xy_m": end["plane_xy_m"],
+                        "surface_frame": int(local["frame"]), "basis": "local_path_next_frame",
+                        "reason": f"The bag was tracked to frame {last_frame}; its local flight path reaches the "
+                                  f"{local['kind']} in the next frame, where it was not seen in the air."}}
 
 
 def _landing(decided: dict[str, Any], contact_known: bool, contact: int, refined: dict[int, dict[str, Any]],
@@ -1123,14 +1258,24 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     if held or centres[held]["frame"] < first_detection:
         chosen = _start_after_hand(chosen, centres[held]["frame"], fps, to_prev)
         refined = {f: r for f, r in refined.items() if f >= chosen["fit"]["first_frame"]}
-    fit = chosen["fit"]
-    release, contact = int(fit["first_frame"]), int(fit["last_frame"])
-    last = next(p for p in chosen["points"] if p["frame"] == contact)
+    release = int(chosen["fit"]["first_frame"])
     chain = reference_chain(to_prev, release)
     scene_info, board = _scene_and_board(frames, chain, target_direction, masks_info["masks"], board_corners_px,
                                          cache_dir, board_corners_frame, release)
+    # The detector often loses the bag in clutter before it lands (or another candidate flight
+    # claimed the end of this one): grow the flight forward to first contact by segmentation.
+    def in_person(f: int, x: float, y: float) -> bool:
+        probe = tag_bystanders(tag_people([Candidate(f, x, y, 0.0)], masks_info["masks"]), bystander_boxes)
+        return probe[0].in_person
+    chosen, refined, forward = _grow_to_contact(chosen, refined, frames, chain, to_prev, candidates, board.get("model"),
+                                                in_person, fps, arm_length_px, target_direction)
+    fit = chosen["fit"]
+    contact = int(fit["last_frame"])
+    last = next(p for p in chosen["points"] if p["frame"] == contact)
     end_ref = (chain[contact] @ np.array([last["x"], last["y"], 1.0]))[:2]
     decided = _contact_from_board(board, end_ref, fit, fps, contact, len(frames), chain)
+    decided = _local_surface_contact(decided, forward.get("predicted_surface"), board.get("model"), end_ref, fit,
+                                     fps, contact)
     fallback_warning = None
     if board.get("model") is None:
         contact_known, fallback_warning = _no_board_fallback(decided, fit, fps, last, contact, width, height)
@@ -1153,7 +1298,8 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
                       for f, r in refined.items() if f in chain}
         try:
             board_phase = analyze_board_phase(frames, chain, board["model"], release, contact, flight_ref, fps,
-                                              typical_area, touchdown_hint=contact if contact_known else None)
+                                              typical_area, touchdown_hint=contact if contact_known else None,
+                                              target_direction=target_direction)
         except Exception as error:  # never lose the flight because the board stage failed
             board_phase = {"status": "failed", "reason": f"Board-phase tracking failed: {error}"}
         if board_phase.get("status") == "measured":
@@ -1221,8 +1367,9 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     if board.get("model") is not None:
         board_payload.update(board["model"].as_dict())
     board_payload.update({"reference_frame": release, "reference": "release_frame"})
-    if len(accepted) > 1:
-        reasons.append(f"{len(accepted)} flights were found in this clip; the one starting at the throwing hand was used.")
+    throws = 1 + sum(1 for f in accepted if not _same_throw(f, fit))
+    if throws > 1:
+        reasons.append(f"{throws} flights were found in this clip; the one starting at the throwing hand was used.")
     return {
         "status": status, "revision": AUTO_BAG_REVISION, "fps": fps, "reasons": reasons,
         "release_frame": release, "first_contact_frame": contact if contact_known else None,
@@ -1245,7 +1392,8 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
                    for c in raw],
         "centroid_method": SEGMENT_REVISION,
         "centroid_sources": {src: sum(1 for r in refined.values() if r["source"] == src)
-                             for src in ("mask", "detection", "reacquired_mask", "backfilled_mask")},
+                             for src in ("mask", "detection", "reacquired_mask", "backfilled_mask", "extended_mask")},
+        "forward_extension": forward,
         "stabilized_coordinates": "release_frame_pixels_camera_motion_removed",
         "stabilized_points": [{"frame": c.frame, "x": c.x, "y": c.y} for c in stabilized],
         "camera_to_release": camera_to_release,
