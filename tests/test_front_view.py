@@ -1,0 +1,229 @@
+"""Front camera: deck detection on a rendered view, camera model, landing classification, frontal measures."""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pytest
+
+cv2 = pytest.importorskip("cv2")
+
+from cornhole_biomech import front_view as fv  # noqa: E402
+from cornhole_biomech.regulation import INCH_M, Board  # noqa: E402
+
+W, H = 1280, 720
+FLOOR_BGR = (150, 185, 200)       # beige (OpenCV hue ≈ 21): CIELAB b* well above the deck's
+DECK_BGR = (70, 55, 175)
+STRIPE_BGR = (228, 228, 230)
+
+
+def camera(hfov: float = 64.0, centre=(0.03, 4.0, 1.3), pitch_deg: float = 14.0):
+    f = (W / 2) / math.tan(math.radians(hfov) / 2)
+    K = np.array([[f, 0, W / 2], [0, f, H / 2], [0, 0, 1]], float)
+    p = math.radians(pitch_deg)
+    right = np.array([-1.0, 0, 0])                              # facing the thrower: image right = thrower's left
+    forward = np.array([0, -math.cos(p), -math.sin(p)])
+    down = np.cross(forward, right)
+    R = np.vstack([right, down, forward])
+    C = np.asarray(centre, float)
+    return K, R, -R @ C
+
+
+def project(K, R, t, points):
+    cam = (R @ np.asarray(points, float).T).T + t
+    uv = (K @ cam.T).T
+    return uv[:, :2] / uv[:, 2:3]
+
+
+def deck_world(x_in, y_in, lift_m=0.0):
+    """Board inches (thrower's frame) → world metres on the sloped deck."""
+    b = Board()
+    y_m = y_in * INCH_M
+    return np.array([(x_in - 12.0) * INCH_M, y_m * math.cos(b.angle), b.front_height_m + y_m * math.sin(b.angle) + lift_m])
+
+
+def render(cam, bags=()):
+    K, R, t = cam
+    img = np.full((H, W, 3), FLOOR_BGR, np.uint8)
+    rng = np.random.default_rng(0)
+    img = np.clip(img.astype(int) + rng.integers(-6, 7, img.shape), 0, 255).astype(np.uint8)
+    b = Board()
+    # Apron (the board's back end) and legs.
+    back = [deck_world(0, 48), deck_world(24, 48)]
+    apron = np.array([back[0], back[1], back[1] - [0, 0, 0.13], back[0] - [0, 0, 0.13]])
+    cv2.fillPoly(img, [project(K, R, t, apron).round().astype(np.int32)], (30, 26, 26))
+    for x in (1.5, 22.5):
+        top, bottom = deck_world(x, 46), deck_world(x, 46)
+        bottom[2] = 0.0
+        p = project(K, R, t, [top - [0, 0, 0.13], bottom]).round().astype(int)
+        cv2.line(img, tuple(p[0]), tuple(p[1]), (60, 50, 190), 9)
+    corners = np.array([deck_world(0, 0), deck_world(24, 0), deck_world(24, 48), deck_world(0, 48)])
+    quad = project(K, R, t, corners)
+    cv2.fillPoly(img, [quad.round().astype(np.int32)], DECK_BGR)
+    for x0 in (0.0, 24.0):     # white V stripes from the far corners towards the hole
+        stripe = project(K, R, t, [deck_world(x0, 0), deck_world(12 + (x0 - 12) * 0.15, 36)]).round().astype(int)
+        cv2.line(img, tuple(stripe[0]), tuple(stripe[1]), STRIPE_BGR, 4)
+    hole = project(K, R, t, [deck_world(12 + 3 * math.cos(a), 39 + 3 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 40)])
+    cv2.fillPoly(img, [hole.round().astype(np.int32)], (35, 25, 80))
+    for kind, x_in, y_in in bags:
+        if kind == "deck":
+            centre = deck_world(x_in, y_in, 0.02)
+        else:                  # floor
+            centre = np.array([(x_in - 12) * INCH_M, y_in * INCH_M, 0.02])
+        ring = [centre + [0.075 * math.cos(a), 0.075 * math.sin(a), 0] for a in np.linspace(0, 2 * math.pi, 24)]
+        cv2.fillPoly(img, [project(K, R, t, ring).round().astype(np.int32)], (40, 30, 215))
+    return img, quad
+
+
+def test_deck_detection_finds_the_four_corners_in_the_thrower_frame():
+    cam = camera()
+    img, truth = render(cam)
+    found = fv.detect_front_board(img)
+    assert found["status"] == "found", found.get("reason")
+    corners = np.asarray(found["corners_px"])
+    assert np.max(np.linalg.norm(corners - truth, axis=1)) < 3.0
+    # Mirror: the thrower's front-left corner is the far corner on the image's RIGHT.
+    assert corners[0, 0] > corners[1, 0] and corners[3, 0] > corners[2, 0]
+    assert found["checks"]["hole"]["offset_in"] < 1.5
+
+
+def test_deck_homography_maps_hole_and_sides():
+    cam = camera()
+    _, quad = render(cam)
+    Hm = fv.deck_homography(quad)
+    K, R, t = cam
+    hole_px = project(K, R, t, [deck_world(12, 39)])
+    assert np.allclose(fv.to_deck(Hm, hole_px)[0], [12, 39], atol=0.05)
+    left_px = project(K, R, t, [deck_world(3, 30)])   # thrower's left half of the deck
+    assert left_px[0, 0] > hole_px[0, 0]               # appears on the image's right
+
+
+def test_field_of_view_from_the_deck_shape():
+    for hfov in (58.0, 66.0, 72.0):
+        cam = camera(hfov=hfov)
+        _, quad = render(cam)
+        est = fv.deck_shape_hfov(quad, (W, H))
+        assert est["status"] == "measured" and abs(est["hfov_deg"] - hfov) < 1.0
+
+
+def test_camera_pose_puts_the_camera_behind_the_board():
+    cam = camera(centre=(0.05, 4.1, 1.25))
+    _, quad = render(cam)
+    pose = fv.front_camera_pose(quad, (W, H), 64.0)
+    assert np.allclose(pose["centre_m"], [0.05, 4.1, 1.25], atol=0.02)
+    floor = fv.ray_to_floor(pose, project(*cam, [[0.3, -0.5, 0.0]])[0])
+    assert np.allclose(floor, [0.3, -0.5, 0.0], atol=0.01)
+
+
+def test_alignment_follows_a_drifting_camera():
+    cam = camera()
+    img, quad = render(cam)
+    drifted = np.roll(img, (17, -6), axis=(0, 1))
+    reference = {"image": img, "corners_px": quad}
+    out = fv.frame_corners(reference, [img, drifted, drifted])
+    assert out["status"] == "measured"
+    assert np.allclose(out["corners"][-1], quad + [-6, 17], atol=1.0)
+
+
+def _clip(cam, after_bags, n=30, before_bags=()):
+    before, _ = render(cam, before_bags)
+    after, _ = render(cam, tuple(before_bags) + tuple(after_bags))
+    frames = [before] * (n // 2) + [after] * (n - n // 2)
+    return frames, before
+
+
+def test_landing_on_the_deck_gives_the_sideways_position():
+    cam = camera()
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("deck", 6.0, 40.0)])
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, release_frame=12, contact_frame=None,
+                                empty_reference={"image": empty, "corners_px": quad})
+    assert out["where"] == "board"
+    assert abs(out["rest"]["x_in"] - 6.0) < 1.5
+
+
+def test_a_bag_under_the_board_means_it_went_through_the_hole():
+    cam = camera()
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("floor", 12.0, 44.0)])   # floor under the back end, between the legs
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, 12, None, {"image": empty, "corners_px": quad})
+    assert out["where"] == "hole"
+
+
+def test_a_bag_beside_the_board_is_off():
+    cam = camera()
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("floor", 40.0, 10.0)])
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, 12, None, {"image": empty, "corners_px": quad})
+    assert out["where"] == "off"
+
+
+def test_an_old_bag_already_on_the_board_is_ignored():
+    cam = camera()
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("deck", 18.0, 30.0)], before_bags=[("deck", 6.0, 40.0)])
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, 12, None, {"image": empty, "corners_px": quad})
+    assert out["where"] == "board" and abs(out["rest"]["x_in"] - 18.0) < 1.5
+
+
+def _pose_frame(**points):
+    return {name: (x, y, 0.9) for name, (x, y) in points.items()}
+
+
+def test_frontal_measures_use_the_throwers_frame():
+    # Right-hander seen from the front camera: their right shoulder is on the image's LEFT.
+    frame = _pose_frame(right_shoulder=(600, 300), left_shoulder=(680, 300), right_hip=(610, 400), left_hip=(670, 400),
+                        right_wrist=(630, 420), left_wrist=(690, 380), right_ankle=(615, 560), left_ankle=(665, 560))
+    frames = [frame] * 40
+    m = fv.frontal_metrics(frames, 30, 30.0, "right", None, None)
+    assert m["arm_across_body_sw"]["value"] == pytest.approx(30 / 80, abs=1e-6)     # towards the midline: +
+    assert abs(m["trunk_side_lean_deg"]["value"]) < 1e-6
+    leaning = [_pose_frame(right_shoulder=(580, 300), left_shoulder=(660, 300), right_hip=(610, 400), left_hip=(670, 400),
+                           right_wrist=(560, 420))] * 40
+    lean = fv.frontal_metrics(leaning, 30, 30.0, "right", None, None)["trunk_side_lean_deg"]["value"]
+    assert lean > 10                               # shoulders shifted towards the throwing (right) side: +
+    out = fv.frontal_metrics(leaning, 30, 30.0, "right", None, None)["arm_across_body_sw"]["value"]
+    assert out < 0                                 # hand outside the throwing shoulder: −
+
+
+def test_missing_joints_stay_missing():
+    frames = [{"right_shoulder": (None, None, 0.0)}] * 40
+    m = fv.frontal_metrics(frames, 30, 30.0, "right", None, None)
+    assert m["trunk_side_lean_deg"]["value"] is None and m["trunk_side_lean_deg"]["status"] == "unavailable"
+    assert m["trunk_side_lean_deg"]["reason"]
+
+
+def test_heading_separates_aim_from_where_the_hand_released():
+    straight = fv.heading(0.0, 12.0, 6.0, 39.0)
+    assert abs(straight["deg"]) < 1e-9 and abs(straight["sideways_at_hole_in"]) < 1e-9
+    right = fv.heading(0.0, 18.0, 6.0, 30.0)
+    assert right["deg"] > 0 and right["sideways_at_hole_in"] > 6.0
+    offset_only = fv.heading(0.1, 12.0 + 0.1 / INCH_M, 6.0, 39.0)    # stood right, threw parallel
+    assert abs(offset_only["deg"]) < 1e-6 and offset_only["from_release_position_in"] == pytest.approx(0.1 / INCH_M)
+    assert fv.heading(None, None, 6.0, None)["status"] == "unavailable"
+
+
+def test_camera_roll_is_removed_from_frontal_angles():
+    import math as m
+    roll = 4.0
+    r = m.radians(roll)
+
+    def rot(x, y):    # rotate about (640, 360) clockwise by `roll` as displayed (y down)
+        x, y = x - 640, y - 360
+        return (640 + x * m.cos(r) - y * m.sin(r), 360 + x * m.sin(r) + y * m.cos(r))
+
+    upright = dict(right_shoulder=(600, 300), left_shoulder=(680, 300), right_hip=(610, 400), left_hip=(670, 400),
+                   right_wrist=(600, 420))
+    rolled = {k: rot(*v) for k, v in upright.items()}
+    frames = [_pose_frame(**rolled)] * 40
+    corners = np.array([[700, 500], [580, 500], [540, 560], [760, 560]], float)
+    corners = np.array([rot(*c) for c in corners])
+    measured = fv.camera_roll_deg(corners)
+    assert abs(measured - roll) < 0.01
+    out = fv.frontal_metrics(frames, 30, 30.0, "right", None, None, roll_deg=measured)
+    assert abs(out["trunk_side_lean_deg"]["value"]) < 0.05
+    assert abs(out["shoulder_tilt_deg"]["value"]) < 0.05

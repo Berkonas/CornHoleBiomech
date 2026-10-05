@@ -124,7 +124,8 @@ def _board_scale(auto_flight: dict[str, Any] | None, output: Path | None = None)
     points = np.array([[p["x"], p["y"]] for p in stabilized], float)
     frames = np.array([p["frame"] for p in stabilized], float)
     fps = float(auto_flight.get("fps") or 30.0)
-    calib = calibrate_hfov_from_flight(corners, size, points, frames, fps)
+    from .board import SEARCH_HFOV_RANGE_DEG
+    calib = calibrate_hfov_from_flight(corners, size, points, frames, fps, search_range=SEARCH_HFOV_RANGE_DEG)
     per_throw_hfov = calib.get("hfov_deg")
     per_throw_status = calib.get("status")
     release_px = (float(points[0, 0]), float(points[0, 1]))
@@ -237,7 +238,8 @@ def session_grouping_key(trial_context: dict[str, Any]) -> str:
     return f"{trial_context.get('athlete_id')}::{recording_date(trial_context) or 'unknown-date'}"
 
 
-def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, Any]]:
+def pool_session_camera_files(analysis_dirs: list[Path],
+                              groups: dict[str, list[Path]] | None = None) -> dict[str, dict[str, Any]]:
     """Group `analysis_dirs` into recording sessions (`session_grouping_key`, from each
     directory's manifest.json), pool each session's own throws' per-throw board HFOV
     calibrations (`board.pool_session_hfov`, from their own results.json["scale"]), and write the
@@ -254,15 +256,21 @@ def pool_session_camera_files(analysis_dirs: list[Path]) -> dict[str, dict[str, 
     is at most "estimated". A session whose members' recording date is unknown, or whose members
     span more than one date, is also capped at "estimated" with the reason (`recording_dates`
     lists the members' dates).
+
+    `groups` replaces the session grouping when the caller knows better which throws share one camera
+    set-up (two-camera takes: `two_view.side_camera_setups`, the same side phone at the same place on the
+    same day, across athletes).
     """
     from .board import MIN_SESSION_THROWS, pool_library_hfov, pool_session_hfov
     sessions: dict[str, list[Path]] = {}
     dates: dict[str, set[str | None]] = {}
-    for directory in analysis_dirs:
-        manifest = _load_json(Path(directory) / "manifest.json", {})
+    keyed = ([(key, Path(d)) for key, members in groups.items() for d in members] if groups is not None
+             else [(None, Path(d)) for d in analysis_dirs])
+    for given_key, directory in keyed:
+        manifest = _load_json(directory / "manifest.json", {})
         trial_context = manifest.get("trial_context") or {}
-        key = session_grouping_key(trial_context)
-        sessions.setdefault(key, []).append(Path(directory))
+        key = given_key or session_grouping_key(trial_context)
+        sessions.setdefault(key, []).append(directory)
         dates.setdefault(key, set()).add(recording_date(trial_context))
     calibrations: dict[str, list[dict[str, Any]]] = {}
     for key, members in sessions.items():
@@ -1726,6 +1734,36 @@ def compare_trial(
     return result
 
 
+TWO_VIEW_ROW_KEYS = {
+    "front_heading_deg": ("heading", "deg"),
+    "front_arm_across_body_sw": ("frontal", "arm_across_body_sw"),
+    "front_follow_through_across_sw": ("frontal", "follow_through_across_sw"),
+    "front_trunk_side_lean_deg": ("frontal", "trunk_side_lean_deg"),
+    "front_shoulder_tilt_deg": ("frontal", "shoulder_tilt_deg"),
+    "front_release_offset_m": ("frontal", "release_point_offset_m"),
+    "front_stance_offset_m": ("frontal", "stance_offset_m"),
+}
+
+
+def two_view_row(directory: str | Path) -> dict[str, Any]:
+    """Per-throw front-camera values (two_view.json) for the athlete's comparison rows; missing stays None."""
+    record = _load_json(Path(directory) / "two_view.json", None) or {}
+    out: dict[str, Any] = {key: None for key in TWO_VIEW_ROW_KEYS}
+    out.update(front_rest_right_in=None, front_rest_long_in=None)
+    if record.get("status") != "measured":
+        return out
+    for key, (section, name) in TWO_VIEW_ROW_KEYS.items():
+        item = (record.get(section) or {}).get(name)
+        value = item.get("value") if isinstance(item, dict) else item
+        if isinstance(item, dict) and item.get("status") == "unavailable":
+            value = None
+        out[key] = None if value is None or not np.isfinite(value) else float(value)
+    miss = record.get("miss") or {}
+    out["front_rest_right_in"] = miss.get("left_right_in")
+    out["front_rest_long_in"] = miss.get("short_long_in")
+    return out
+
+
 def analyze_relationships(
     analysis_dirs: list[str | Path],
     outcome_records: dict[str, dict[str, Any]],
@@ -1767,6 +1805,7 @@ def analyze_relationships(
             outcome = outcome_summary(parsed)
         row = {"trial_id": result["trial_id"], "score_category": outcome.get("score_category")}
         row.update(result.get("summaries", {}))
+        row.update(two_view_row(directory))
         # Coach metrics carry per-throw reliability: an unreliable value is withheld (None)
         # so it never enters the athlete's comparison.
         for key, metric in (result.get("coach_metrics") or {}).items():

@@ -147,6 +147,9 @@ class TrialContext:
     source_video: str
     source_url: str | None = None
     source_attribution: str | None = None
+    # yyyy-mm-dd the camera recorded the clip (QuickTime creation date of the original take); used to
+    # group throws into recording sessions instead of the clip file's modification date.
+    recording_date: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "TrialContext":

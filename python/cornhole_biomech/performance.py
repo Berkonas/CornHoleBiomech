@@ -73,6 +73,16 @@ VARIABLES: tuple[Variable, ...] = (
              True, 0.3, "~4 px wrist noise differentiated at 60 fps after the 6 Hz filter"),
     Variable("wrist_peak_speed_time_rel_release_ms", "Peak wrist speed timing", "ms", "earlier", "later", 0,
              False, 35.0, "±1 frame on the peak and ±1 frame on release at 60 fps (≈ 2 × 16.7 ms)"),
+    # Front camera (two-camera takes, docs/METHODS_AND_MATH.md §5.2–5.3). Left/right effects are usually
+    # two-sided (misses on both sides), which the spread test below detects.
+    Variable("front_heading_deg", "Sideways aim (heading)", "°", "more to the left", "more to the right", 1, False, 0.5,
+             "front deck homography ±0.25 in at contact and ±3 cm hand position over ~6.5 m (≈ 0.3°), rounded up"),
+    Variable("front_arm_across_body_sw", "Hand across the body at release", "shoulder widths", "further out",
+             "further across", 2, False, 0.15, "~4 px wrist and shoulder noise over a ~35 px shoulder width in the front view"),
+    Variable("front_trunk_side_lean_deg", "Trunk side lean at release", "°", "leaning away from the throwing arm",
+             "leaning towards the throwing arm", 0, False, 6.0, "~4 px landmark noise over a ~50 px hip–shoulder segment"),
+    Variable("front_release_offset_m", "Release point sideways", "m", "further left", "further right", 2, False, 0.03,
+             "wrist landmark ±4 px at ~6 m from the front camera (≈ 2 cm), rounded up"),
 )
 # Same quantity in two unit systems: prefer meters when most throws have them.
 ALTERNATIVES = (("bag_release_speed_m_s", "bag_release_speed_arm_lengths_s"),

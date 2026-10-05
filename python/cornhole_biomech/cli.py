@@ -67,6 +67,7 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--target-direction", choices=("left_to_right", "right_to_left"), required=True)
     analyze.add_argument("--source-url")
     analyze.add_argument("--source-attribution")
+    analyze.add_argument("--recording-date", help="yyyy-mm-dd the camera recorded the take (session grouping)")
     analyze.add_argument("--backend", choices=("sports2d", "rtmpose", "mediapipe"), default="sports2d")
     analyze.add_argument("--device", choices=("cpu", "mps"), default="cpu")
     analyze.add_argument("--pose-input", help="Import a canonical pose_raw.json instead of inference")
@@ -189,7 +190,90 @@ def parser() -> argparse.ArgumentParser:
              "and results.json)")
     session.add_argument("--session-key", help="Label for this session; defaults to a hash of the folder paths")
     session.set_defaults(handler=handle_calibrate_session)
+
+    takes = commands.add_parser("discover-takes",
+        help="List the Take_<n>_<Front|Side> videos in a folder (any capitalisation) and check each camera's role")
+    takes.add_argument("folder")
+    takes.set_defaults(handler=handle_discover_takes)
+
+    prepare_take = commands.add_parser("prepare-take",
+        help="Synchronise a take's side and front videos, find its throws and cut one clip per throw and camera")
+    prepare_take.add_argument("--side", required=True)
+    prepare_take.add_argument("--front")
+    prepare_take.add_argument("--output", required=True, help="Take folder (take.json and the clips are written here)")
+    prepare_take.add_argument("--take-number", type=int, required=True)
+    prepare_take.add_argument("--target-direction", choices=("left_to_right", "right_to_left"), default="left_to_right")
+    prepare_take.add_argument("--expected-throws", type=int, default=4)
+    prepare_take.set_defaults(handler=handle_prepare_take)
+
+    pool_front = commands.add_parser("pool-front-camera",
+        help="Pool the front camera's field of view over several takes recorded with the same set-up")
+    pool_front.add_argument("--takes", nargs="+", required=True, help="take.json files")
+    pool_front.set_defaults(handler=handle_pool_front_camera)
+
+    front_corners = commands.add_parser("set-front-corners",
+        help="Store four clicked deck corners on a take's front reference frame")
+    front_corners.add_argument("--take-record", required=True)
+    front_corners.add_argument("--corners", required=True,
+        help="x,y pixels of front-left, front-right, back-right, back-left as seen by the thrower")
+    front_corners.set_defaults(handler=handle_set_front_corners)
+
+    two_view = commands.add_parser("two-view", help="Front-camera analysis of one analysed throw and the combined result")
+    two_view.add_argument("--analysis", required=True)
+    two_view.add_argument("--throwing-side", choices=("left", "right"), required=True)
+    two_view.add_argument("--no-pose", action="store_true")
+    two_view.set_defaults(handler=handle_two_view)
     return root
+
+
+def handle_discover_takes(args: argparse.Namespace) -> dict[str, Any]:
+    from .takes import assign_camera_roles, camera_signature, discover_takes
+    takes = discover_takes(args.folder)
+    signatures = {p: camera_signature(p) for t in takes for p in (t.front, t.side) if p}
+    roles = assign_camera_roles(takes, signatures)
+    return {"takes": [t.to_dict() for t in takes], "roles": roles,
+            "signatures": {p: {"model": s.model, "size": [s.width, s.height], "fps": s.fps,
+                               "duration_s": s.duration_s, "recorded": s.created} for p, s in signatures.items()}}
+
+
+def handle_prepare_take(args: argparse.Namespace) -> dict[str, Any]:
+    from .takes import prepare_take
+    with analysis_slot(progress):
+        record = prepare_take(args.front, args.side, args.output, take_number=args.take_number,
+                              target_direction=args.target_direction, expected_throws=args.expected_throws,
+                              progress=progress)
+    return {"take_record": str(Path(args.output) / "take.json"), "throws": len(record.get("throws", [])),
+            "sync": record.get("sync"), "notes": record.get("notes"), "front_board": (record.get("front_board") or {}).get("status")}
+
+
+def handle_pool_front_camera(args: argparse.Namespace) -> dict[str, Any]:
+    from .takes import front_setups, pool_front_hfov, share_front_lag
+    # One pool per front camera (device, frame size, date): the field of view belongs to the lens, and the
+    # picture lag (measured on analysed throws, two_view.pool_front_lag) to the set-up.
+    out = {}
+    for key, records in front_setups([Path(p) for p in args.takes]).items():
+        out[key] = pool_front_hfov(records)
+        lag = share_front_lag(records)
+        if lag is not None:
+            out[key]["front_lag_s"] = lag.get("lag_s")
+    return out
+
+
+def handle_set_front_corners(args: argparse.Namespace) -> dict[str, Any]:
+    from .takes import set_front_corners
+    values = [float(v) for v in args.corners.split(",")]
+    if len(values) != 8:
+        raise ValueError("Give eight numbers: x,y of front-left, front-right, back-right and back-left.")
+    return set_front_corners(Path(args.take_record), np.array(values).reshape(4, 2))
+
+
+def handle_two_view(args: argparse.Namespace) -> dict[str, Any]:
+    from .two_view import analyze_two_view
+    with analysis_slot(progress):
+        record = analyze_two_view(args.analysis, throwing_side=args.throwing_side, progress=progress,
+                                  run_pose=not args.no_pose)
+    return {"status": record.get("status"), "reason": record.get("reason"),
+            "explanation": (record.get("explanation") or {}).get("sentence")}
 
 
 def handle_compare_throws(args: argparse.Namespace) -> dict[str, Any]:
@@ -483,6 +567,8 @@ def handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
+    from .two_view import ensure_side_board_corners
+    ensure_side_board_corners(args.output)
     context = TrialContext(
         trial_id=args.trial_id,
         athlete_id=args.athlete_id,
@@ -492,26 +578,47 @@ def _handle_analyze(args: argparse.Namespace) -> dict[str, Any]:
         source_video=str(Path(args.video).expanduser().resolve()),
         source_url=args.source_url,
         source_attribution=args.source_attribution,
+        recording_date=args.recording_date,
     )
-    result = analyze_trial(
-        context,
-        args.output,
-        config_overrides=load_json(args.config),
-        backend=args.backend,
-        pose_input=args.pose_input,
-        corrections_path=args.corrections,
-        events_path=args.events,
-        device=args.device,
-        force_pose=args.force_pose,
-        make_annotated_video=not args.no_annotated_video,
-        app_version=args.app_version,
-        progress=progress,
-        bag_track_input=args.bag_track_input,
-        bag_seed_path=args.bag_seed,
-        bag_corrections_path=args.bag_corrections,
-        calibration_path=args.calibration,
-    )
-    return {"output_dir": result["output_dir"], "results": result["results"]}
+    def run(force_pose: bool) -> dict[str, Any]:
+        return analyze_trial(
+            context,
+            args.output,
+            config_overrides=load_json(args.config),
+            backend=args.backend,
+            pose_input=args.pose_input,
+            corrections_path=args.corrections,
+            events_path=args.events,
+            device=args.device,
+            force_pose=force_pose,
+            make_annotated_video=not args.no_annotated_video,
+            app_version=args.app_version,
+            progress=progress,
+            bag_track_input=args.bag_track_input,
+            bag_seed_path=args.bag_seed,
+            bag_corrections_path=args.bag_corrections,
+            calibration_path=args.calibration,
+        )
+
+    result = run(args.force_pose)
+    from .two_view import TAKE_LINK_FILENAME, analyze_two_view, share_side_board
+    if (Path(args.output) / TAKE_LINK_FILENAME).exists() and \
+            ((result["results"].get("scale") or {}).get("status") == "unavailable") and share_side_board(args.output):
+        # Two-camera throw whose clip hid the deck: use the deck another throw of the athlete found (pose cached).
+        progress("analyzing", 0.9, "Using the board found on another throw of this athlete")
+        result = run(False)
+    data = {"output_dir": result["output_dir"], "results": result["results"]}
+    if (Path(args.output) / TAKE_LINK_FILENAME).exists():
+        try:
+            record = analyze_two_view(args.output, throwing_side=args.throwing_side, progress=progress,
+                                      settings=load_json(args.config))
+            data["two_view"] = {"status": record.get("status"), "reason": record.get("reason")}
+        except Exception as error:  # noqa: BLE001 - the side analysis stands on its own
+            data["two_view"] = {"status": "failed", "reason": f"{type(error).__name__}: {error}"}
+            from .serialization import write_json as _write
+            _write(Path(args.output) / "two_view.json", {"schema_version": 1, "status": "unavailable",
+                                                         "reason": f"Front-camera analysis failed: {error}"})
+    return data
 
 
 def handle_compare(args: argparse.Namespace) -> dict[str, Any]:
