@@ -85,9 +85,17 @@ struct RangeBarModel {
     let values: [Double]
     let current: Double?
     let target: ClosedRange<Double>?
+    /// A scale shared by every throw of the athlete (`MetricScale`), so the bar does not rescale throw to throw.
+    var fixedDomain: ClosedRange<Double>? = nil
 
-    /// Everything that must be visible (values, current, target), padded 10 % of the span each side.
+    init(values: [Double], current: Double?, target: ClosedRange<Double>?, fixedDomain: ClosedRange<Double>? = nil) {
+        self.values = values; self.current = current; self.target = target; self.fixedDomain = fixedDomain
+    }
+
+    /// The fixed athlete-wide scale when given; otherwise everything that must be visible (values, current,
+    /// target), padded 10 % of the span each side.
     var domain: ClosedRange<Double> {
+        if let fixedDomain, fixedDomain.upperBound > fixedDomain.lowerBound { return fixedDomain }
         var points = values.filter(\.isFinite)
         if let current, current.isFinite { points.append(current) }
         if let target { points += [target.lowerBound, target.upperBound] }
@@ -116,30 +124,69 @@ struct RangeBarModel {
 
 struct RangeBar: View {
     let model: RangeBarModel
-    init(model: RangeBarModel) { self.model = model }
+    /// Digits for the scale's end labels; nil hides them.
+    var scaleDigits: Int? = nil
+    var unit: String = ""
+    init(model: RangeBarModel, scaleDigits: Int? = nil, unit: String = "") {
+        self.model = model; self.scaleDigits = scaleDigits; self.unit = unit
+    }
 
     var body: some View {
+        VStack(spacing: 2) {
+            bar
+            if let scaleDigits {
+                HStack {
+                    Text(label(model.domain.lowerBound, scaleDigits))
+                    Spacer()
+                    Text(label(model.domain.upperBound, scaleDigits))
+                }
+                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func label(_ value: Double, _ digits: Int) -> String {
+        // Short units only ("m/s", "m", "°"); long ones are already beside the value above.
+        number(value, digits: digits) + (unit == "°" ? "°" : unit.isEmpty || unit.count > 4 ? "" : " \(unit)")
+    }
+
+    private var bar: some View {
         Canvas { context, size in
             let domain = model.domain
             let span = domain.upperBound - domain.lowerBound
-            func x(_ value: Double) -> CGFloat { CGFloat((value - domain.lowerBound) / span) * size.width }
+            // Values beyond a fixed scale are pinned to its ends (drawn hollow), never off the bar.
+            func x(_ value: Double) -> CGFloat { min(max(CGFloat((value - domain.lowerBound) / span), 0), 1) * size.width }
+            func outside(_ value: Double) -> Bool { !domain.contains(value) }
             let mid = size.height / 2
             context.fill(Path(roundedRect: CGRect(x: 0, y: mid - 1.5, width: size.width, height: 3), cornerRadius: 1.5),
                          with: .color(.secondary.opacity(0.18)))
             if let target = model.target {
-                let rect = CGRect(x: x(target.lowerBound), y: 2, width: max(x(target.upperBound) - x(target.lowerBound), 2), height: size.height - 4)
-                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.18)))
-                context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.55)), lineWidth: 1)
+                if target.upperBound < domain.lowerBound || target.lowerBound > domain.upperBound {
+                    // The hole window is off this scale: a green arrowhead at the end it lies beyond.
+                    let right = target.lowerBound > domain.upperBound
+                    let tip = right ? size.width : 0, back = right ? size.width - 7 : 7
+                    var arrow = Path()
+                    arrow.move(to: CGPoint(x: tip, y: mid)); arrow.addLine(to: CGPoint(x: back, y: mid - 6)); arrow.addLine(to: CGPoint(x: back, y: mid + 6))
+                    arrow.closeSubpath()
+                    context.fill(arrow, with: .color(.green.opacity(0.75)))
+                } else {
+                    let rect = CGRect(x: x(target.lowerBound), y: 2, width: max(x(target.upperBound) - x(target.lowerBound), 2), height: size.height - 4)
+                    context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.18)))
+                    context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.55)), lineWidth: 1)
+                }
             }
             if let (q1, q3) = model.quartiles {
                 let rect = CGRect(x: x(q1), y: mid - 4, width: max(x(q3) - x(q1), 3), height: 8)
                 context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(athleteInk.opacity(0.35)))
             }
             for value in model.values where value.isFinite {
-                context.fill(Path(ellipseIn: CGRect(x: x(value) - 2, y: mid - 2, width: 4, height: 4)), with: .color(.secondary.opacity(0.7)))
+                let dot = Path(ellipseIn: CGRect(x: x(value) - 2, y: mid - 2, width: 4, height: 4))
+                if outside(value) { context.stroke(dot, with: .color(.secondary.opacity(0.7)), lineWidth: 1) }
+                else { context.fill(dot, with: .color(.secondary.opacity(0.7))) }
             }
             if let current = model.current, current.isFinite {
-                let marker = CGRect(x: x(current) - 2, y: 1, width: 4, height: size.height - 2)
+                let marker = CGRect(x: min(max(x(current) - 2, 0), size.width - 4), y: 1, width: 4, height: size.height - 2)
                 context.fill(Path(roundedRect: marker, cornerRadius: 2), with: .color(.primary))
             }
         }
@@ -155,6 +202,38 @@ struct RangeBar: View {
         if let target = model.target { parts.append("target \(number(target.lowerBound, digits: 2)) to \(number(target.upperBound, digits: 2))") }
         parts.append("\(model.values.count) throws")
         return parts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Shared metric scales
+
+/// One scale per headline metric for all of an athlete's throws, so the Release and Body bars read the same
+/// from throw to throw: the athlete's full range (every throw, this one included), never narrower than a
+/// meaningful minimum span, rounded outward to a round step. The hole-window band does not stretch it.
+enum MetricScale {
+    /// Minimum span and rounding step, in the metric's unit.
+    static let spec: [String: (span: Double, step: Double)] = [
+        "bag_release_speed_m_s": (2.0, 0.5), "bag_release_angle_deg": (20, 5), "bag_release_height_m": (0.4, 0.1),
+        "elbow_angle_deg_at_release": (40, 10), "trunk_inclination_deg_at_release": (20, 5),
+        "wrist_peak_speed_arm_lengths_s": (4, 1), "swing_backswing_angle_deg": (40, 10), "swing_tempo_ratio": (1.0, 0.25),
+    ]
+
+    static func domain(key: String, values: [Double]) -> ClosedRange<Double>? {
+        let finite = values.filter(\.isFinite)
+        guard var lo = finite.min(), var hi = finite.max() else { return nil }
+        let rule: (span: Double, step: Double) = spec[key] ?? (span: max(1e-3, 0.2 * max(abs(lo), abs(hi))), step: 0.0)
+        let span = rule.span, step = rule.step
+        if hi - lo < span { let mid = (lo + hi) / 2; lo = mid - span / 2; hi = mid + span / 2 }
+        let pad = 0.08 * (hi - lo)
+        lo -= pad; hi += pad
+        if step > 0 { lo = (lo / step).rounded(.down) * step; hi = (hi / step).rounded(.up) * step }
+        return lo...hi
+    }
+
+    /// Digits for the scale labels (whole steps show no decimals).
+    static func digits(key: String) -> Int {
+        guard let step = spec[key]?.step, step > 0 else { return 1 }
+        return step >= 1 ? 0 : step >= 0.1 && (step * 10).rounded() == step * 10 ? 1 : 2
     }
 }
 
@@ -175,11 +254,14 @@ struct MetricTile: View {
     var target: ClosedRange<Double>? = nil
     var uncertainty: MetricUncertainty? = nil
     var seek: ((Int) -> Void)? = nil
+    /// The athlete-wide scale for this metric (same on every throw); nil fits the bar to the values shown.
+    var scale: ClosedRange<Double>? = nil
     @State private var showsInfo = false
 
     init(row: CoachMetricRow, history: [Double], target: ClosedRange<Double>? = nil,
-         uncertainty: MetricUncertainty? = nil, seek: ((Int) -> Void)? = nil) {
+         uncertainty: MetricUncertainty? = nil, seek: ((Int) -> Void)? = nil, scale: ClosedRange<Double>? = nil) {
         self.row = row; self.history = history; self.target = target; self.uncertainty = uncertainty; self.seek = seek
+        self.scale = scale
     }
 
     var body: some View {
@@ -204,8 +286,9 @@ struct MetricTile: View {
                         .help("± \(uncertainty.kind.rawValue)")
                 }
             }
-            if !history.isEmpty || target != nil {
-                RangeBar(model: RangeBarModel(values: history, current: value, target: target))
+            if !history.isEmpty || target != nil || scale != nil {
+                RangeBar(model: RangeBarModel(values: history, current: value, target: target, fixedDomain: scale),
+                         scaleDigits: scale == nil ? nil : MetricScale.digits(key: row.key ?? ""), unit: row.unit)
             }
             if isFlagged {
                 Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(3)

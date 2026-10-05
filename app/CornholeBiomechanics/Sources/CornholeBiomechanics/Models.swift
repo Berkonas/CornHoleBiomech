@@ -1,7 +1,7 @@
 import Foundation
 
 let applicationName = "Cornhole Biomechanics Lab"
-let applicationVersion = "0.6.1"
+let applicationVersion = "0.6.2"
 let currentProjectSchemaVersion = 4
 
 /// What the detail column shows: an athlete's summary, one throw's report, or the Launch Lab tool.
@@ -108,8 +108,16 @@ struct Trial: Codable, Identifiable, Hashable {
     var name: String?
     var preparedVideoRelativePath: String?
     var preparationDirectoryRelativePath: String?
+    /// Two-camera takes: the take (round) this throw came from, its place in the take, the matching
+    /// front-camera clip, the take record (take.json: sync, clips, front deck) and the recording date.
+    var takeNumber: Int?
+    var throwInTake: Int?
+    var frontVideoRelativePath: String?
+    var takeRecordRelativePath: String?
+    var recordingDate: String?
 
     var shortID: String { String(id.uuidString.prefix(8)) }
+    var isTwoCamera: Bool { frontVideoRelativePath != nil }
     var displayName: String {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? originalFilename : trimmed
@@ -119,6 +127,7 @@ struct Trial: Codable, Identifiable, Hashable {
         case id, athleteID, createdAt, sourceVideoRelativePath, originalFilename, sourceURL, sourceAttribution
         case cameraView, throwingSide, targetDirection, outcome, isReference, analysisRelativePath, analysisStatus
         case sessionID, name, preparedVideoRelativePath, preparationDirectoryRelativePath
+        case takeNumber, throwInTake, frontVideoRelativePath, takeRecordRelativePath, recordingDate
     }
 
     init(
@@ -167,6 +176,11 @@ struct Trial: Codable, Identifiable, Hashable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
         preparedVideoRelativePath = try c.decodeIfPresent(String.self, forKey: .preparedVideoRelativePath)
         preparationDirectoryRelativePath = try c.decodeIfPresent(String.self, forKey: .preparationDirectoryRelativePath)
+        takeNumber = try c.decodeIfPresent(Int.self, forKey: .takeNumber)
+        throwInTake = try c.decodeIfPresent(Int.self, forKey: .throwInTake)
+        frontVideoRelativePath = try c.decodeIfPresent(String.self, forKey: .frontVideoRelativePath)
+        takeRecordRelativePath = try c.decodeIfPresent(String.self, forKey: .takeRecordRelativePath)
+        recordingDate = try c.decodeIfPresent(String.self, forKey: .recordingDate)
     }
 }
 

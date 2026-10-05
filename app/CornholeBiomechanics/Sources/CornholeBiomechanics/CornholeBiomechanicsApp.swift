@@ -7,6 +7,7 @@ extension Notification.Name {
     static let importLegacyProject = Notification.Name("importLegacyProject")
     static let addAthlete = Notification.Name("addAthlete")
     static let importTrialVideo = Notification.Name("importTrialVideo")
+    static let importTakes = Notification.Name("importTakes")
     static let analyzeSelectedTrial = Notification.Name("analyzeSelectedTrial")
     static let addTrialOutcome = Notification.Name("addTrialOutcome")
     static let exportSelectedTrial = Notification.Name("exportSelectedTrial")
@@ -47,6 +48,9 @@ struct CornholeBiomechanicsApp: App {
             CommandMenu("Throw") {
                 Button("Import Videos…") { post(.importTrialVideo) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .disabled(analysis.isRunning)
+                Button("Import Two-Camera Takes…") { post(.importTakes) }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
                     .disabled(analysis.isRunning)
                 Button("Analyze Throw") { post(.analyzeSelectedTrial) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])

@@ -7,10 +7,14 @@ let slideInk = Color(red: 0.99, green: 0.83, blue: 0.25)      // after first con
 let modelInk = Color.white.opacity(0.7)                       // fitted model (secondary)
 
 /// Measured throw replay. View = Video (video + skeleton + measured bag path + fitted model + events)
-/// or Animation (stick figure and bag path on a clean canvas). Both share one timeline and `currentFrame`.
+/// or Animation (stick figure and bag path on a clean canvas; with a metric scale, side on and to scale with the
+/// board, first contact, the slide and where the bag ended). Both share one timeline and `currentFrame`.
 /// The measured path dominates; the drag-free model is a thin dashed reference.
 struct ThrowReplayView: View {
-    enum Mode: String, CaseIterable, Identifiable { case video = "Video", animation = "Animation"; var id: String { rawValue } }
+    enum Mode: String, CaseIterable, Identifiable {
+        case video = "Side", front = "Front", both = "Both", animation = "Animation"
+        var id: String { rawValue }
+    }
 
     let videoURL: URL?
     let replay: ReplayDocument
@@ -18,30 +22,47 @@ struct ThrowReplayView: View {
     let throwingSide: ThrowingSide
     @Binding var currentFrame: Int
     @Binding var seekRequest: Int?
+    /// The synchronised front-camera clip (two-camera takes).
+    var front: FrontReplaySource? = nil
+    /// Scale, release height, board distance and board phase: the animation is then drawn to scale with the board.
+    var stage: ReplayStage? = nil
     @State private var player: AVPlayer
+    @State private var frontPlayer: AVPlayer
     @State private var timeObserver: Any?
     @State private var playing = false
     @State private var rate: Float = 0.5
     @State private var mode: Mode
     @State private var figureBounds: CGRect?
+    @State private var scene: SideScene?
     @State private var clock: (start: Date, frame: Int)?
     @AppStorage("replayShowSkeleton") private var showSkeleton = true
     @AppStorage("replayShowModel") private var showModel = true
     @AppStorage("replayShowTrail") private var showTrail = true
 
     init(videoURL: URL?, replay: ReplayDocument, pose: PoseDocument?, throwingSide: ThrowingSide,
-         currentFrame: Binding<Int>, seekRequest: Binding<Int?>, mode: Mode = .video) {
+         currentFrame: Binding<Int>, seekRequest: Binding<Int?>, mode: Mode = .video, front: FrontReplaySource? = nil,
+         stage: ReplayStage? = nil) {
         self.videoURL = videoURL; self.replay = replay; self.pose = pose; self.throwingSide = throwingSide
         _currentFrame = currentFrame; _seekRequest = seekRequest
+        self.front = front
+        self.stage = stage
         _player = State(initialValue: videoURL.map { AVPlayer(url: $0) } ?? AVPlayer())
-        _mode = State(initialValue: videoURL == nil ? .animation : mode)
+        _frontPlayer = State(initialValue: front.map { AVPlayer(url: $0.url) } ?? AVPlayer())
+        _mode = State(initialValue: videoURL == nil ? .animation : (front != nil && mode == .video ? .both : mode))
     }
+
+    private var availableModes: [Mode] {
+        front == nil ? [.video, .animation] : Mode.allCases
+    }
+
+    /// Front-clip frame showing the same instant as side frame `frame`.
+    private func frontFrame(_ frame: Int) -> Int? { front?.document.frontFrame(forSide: frame) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
             HStack(spacing: Space.m) {
                 Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(availableModes) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .disabled(videoURL == nil)
@@ -49,32 +70,21 @@ struct ThrowReplayView: View {
                 Spacer()
                 showMenu
             }
-            GeometryReader { geometry in
-                ZStack {
-                    if mode == .video {
-                        Color.black
-                        NativeVideoPlayer(player: player, showsControls: false)
-                    } else {
-                        Color(nsColor: .textBackgroundColor)
+            Group {
+                if mode == .both, let front {
+                    HStack(spacing: Space.s) {
+                        sideVideo
+                        frontVideo(front)
                     }
-                    TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
-                        if mode == .video {
-                            ReplayOverlay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
-                                          size: geometry.size, showSkeleton: showSkeleton, showModel: showModel, showTrail: showTrail)
-                        } else {
-                            StickFigureReplay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
-                                              bounds: figureBounds ?? CGRect(x: 0, y: 0, width: replay.width, height: replay.height),
-                                              showModel: showModel, showTrail: showTrail)
-                        }
-                    }.allowsHitTesting(false)
-                    if mode == .video {
-                        legend.padding(Space.s).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
+                    .aspectRatio(2 * CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
+                } else if mode == .front, let front {
+                    frontVideo(front)
+                        .aspectRatio(CGFloat(front.document.frontWidth / max(front.document.frontHeight, 1)), contentMode: .fit)
+                } else {
+                    sideVideo
+                        .aspectRatio(CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-                .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(mode == .video ? 0 : 0.6)))
             }
-            .aspectRatio(CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
             .frame(maxHeight: 520)
             timeline
             controls
@@ -82,14 +92,16 @@ struct ThrowReplayView: View {
         .onAppear {
             installObserver()
             if figureBounds == nil { figureBounds = StickFigureReplay.bounds(pose: pose, replay: replay) }
+            if scene == nil, let stage { scene = SideScene(replay: replay, pose: pose, stage: stage) }
             seek(to: seekRequest ?? replay.events["release"]?.frame ?? currentFrame)
             seekRequest = nil
         }
-        .onDisappear { removeObserver(); player.pause() }
+        .onDisappear { removeObserver(); player.pause(); frontPlayer.pause() }
         .onChange(of: seekRequest) { _, frame in
             if let frame { seek(to: frame); seekRequest = nil }
         }
         .onChange(of: mode) { _, _ in pause(); seek(to: currentFrame) }
+        .onChange(of: stage) { _, value in scene = value.flatMap { SideScene(replay: replay, pose: pose, stage: $0) } }
         .task(id: mode == .animation && playing) {
             // Animation playback runs on its own clock, at the chosen rate.
             guard mode == .animation, playing else { return }
@@ -101,6 +113,64 @@ struct ThrowReplayView: View {
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }
+    }
+
+    /// The side camera (video or animation) with its overlay.
+    private var sideVideo: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if mode == .animation {
+                    Color(nsColor: .textBackgroundColor)
+                } else {
+                    Color.black
+                    NativeVideoPlayer(player: player, showsControls: false)
+                }
+                TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
+                    if mode == .animation, let scene {
+                        SideViewReplay(scene: scene, replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                       showModel: showModel, showTrail: showTrail)
+                    } else if mode == .animation {
+                        StickFigureReplay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                          bounds: figureBounds ?? CGRect(x: 0, y: 0, width: replay.width, height: replay.height),
+                                          showModel: showModel, showTrail: showTrail)
+                    } else {
+                        ReplayOverlay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                      size: geometry.size, showSkeleton: showSkeleton, showModel: showModel, showTrail: showTrail)
+                    }
+                }.allowsHitTesting(false)
+                if mode == .video {
+                    legend.padding(Space.s).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                if mode == .both {
+                    viewLabel("Side camera")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.separator.opacity(mode == .animation ? 0.6 : 0)))
+        }
+    }
+
+    /// The front camera (behind the board) at the same instant, with the deck, the bag's path and the landing.
+    private func frontVideo(_ front: FrontReplaySource) -> some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black
+                NativeVideoPlayer(player: frontPlayer, showsControls: false)
+                TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
+                    FrontReplayOverlay(document: front.document, frontFrame: frontFrame(displayedFrame) ?? 0, size: geometry.size)
+                }.allowsHitTesting(false)
+                viewLabel("Front camera (behind the board)")
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        }
+    }
+
+    private func viewLabel(_ text: String) -> some View {
+        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(Space.s)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
     // MARK: overlay legend and controls
@@ -184,14 +254,14 @@ struct ThrowReplayView: View {
             Spacer()
         }
         .onChange(of: rate) { _, value in
-            if playing && mode == .video { player.rate = value }
+            if playing && mode != .animation { player.rate = value; if front != nil { frontPlayer.rate = value } }
             if playing && mode == .animation { clock = (Date(), currentFrame) }
         }
     }
 
     // MARK: playback
     private var displayedFrame: Int {
-        guard playing, mode == .video else { return currentFrame }
+        guard playing, mode != .animation else { return currentFrame }
         return min(max(0, Int((player.currentTime().seconds * replay.fps).rounded())), replay.frame_count - 1)
     }
     private var currentEventKey: String? {
@@ -203,22 +273,30 @@ struct ThrowReplayView: View {
         let ms = 1000 * Double(frame - release) / replay.fps
         return ms == 0 ? "release" : "\(ms > 0 ? "+" : "−")\(number(abs(ms), digits: 0)) ms"
     }
-    private func pause() { player.pause(); playing = false; clock = nil }
+    private func pause() { player.pause(); frontPlayer.pause(); playing = false; clock = nil }
     private func seek(to frame: Int) {
         pause()
         currentFrame = min(max(0, frame), replay.frame_count - 1)
         if videoURL != nil {
             player.seek(to: CMTime(seconds: Double(currentFrame) / replay.fps, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
         }
+        seekFront(currentFrame)
+    }
+    /// Put the front clip on the same instant as side frame `frame`.
+    private func seekFront(_ frame: Int) {
+        guard let front, let target = frontFrame(frame) else { return }
+        frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+                         toleranceBefore: .zero, toleranceAfter: .zero)
     }
     private func step(_ amount: Int) { seek(to: currentFrame + amount) }
     private func togglePlay() {
         if playing { pause(); return }
         if currentFrame >= replay.frame_count - 2 { seek(to: 0) }
-        if mode == .video {
-            player.playImmediately(atRate: rate)
-        } else {
+        if mode == .animation {
             clock = (Date(), currentFrame)
+        } else {
+            player.playImmediately(atRate: rate)
+            if front != nil { frontPlayer.playImmediately(atRate: rate) }
         }
         playing = true
     }
@@ -226,9 +304,17 @@ struct ThrowReplayView: View {
         guard timeObserver == nil else { return }
         let fps = replay.fps, last = replay.frame_count - 1
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
-            guard playing, mode == .video else { return }
+            guard playing, mode != .animation else { return }
             currentFrame = min(max(0, Int((time.seconds * fps).rounded())), last)
-            if currentFrame >= last { playing = false }
+            if currentFrame >= last { playing = false; frontPlayer.pause() }
+            // Keep the front clip on the side clip's clock (two players drift apart slowly).
+            if let front, let target = frontFrame(currentFrame) {
+                let frontNow = frontPlayer.currentTime().seconds * front.document.frontFPS
+                if abs(frontNow - Double(target)) > 2 {
+                    frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+                                     toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+            }
         }
     }
     private func removeObserver() { if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil } }

@@ -503,6 +503,94 @@ final class ProjectStore: ObservableObject {
         return trial
     }
 
+    // MARK: Two-camera takes
+
+    /// Library folder for a new take of this athlete (relative), e.g. "Athletes/Player-1-1A2B3C4D/takes/Take-03-9F8E7D6C".
+    func newTakeRelativeDirectory(athleteID: UUID, takeNumber: Int) -> String {
+        "\(athleteRelativeDirectory(for: athleteID))/takes/Take-\(String(format: "%02d", takeNumber))-\(String(UUID().uuidString.prefix(8)))"
+    }
+
+    /// Take numbers this athlete already has in the library.
+    func takeNumbers(athleteID: UUID) -> Set<Int> {
+        Set((project?.trials ?? []).filter { $0.athleteID == athleteID }.compactMap(\.takeNumber))
+    }
+
+    /// Register a prepared take (take.json written by the engine's `prepare-take` into `takeRelativeDirectory`):
+    /// one recording session for the take and one throw per clip, each linked to its front clip and the take
+    /// record (take_link.json in its analysis folder). Returns the new throws, ready to analyze.
+    @discardableResult
+    func registerTake(athleteID: UUID, takeRelativeDirectory: String, throwingSide: ThrowingSide,
+                      targetDirection: TargetDirection) throws -> [Trial] {
+        guard var value = project, let root = projectURL else { throw ProjectStoreError.noOpenProject }
+        guard value.athletes.contains(where: { $0.id == athleteID }) else { throw ProjectStoreError.recordNotFound("athlete") }
+        let takeURL = root.appendingPathComponent(takeRelativeDirectory)
+        let data = try Data(contentsOf: takeURL.appendingPathComponent("take.json"))
+        guard let record = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ProjectStoreError.recordNotFound("take record") }
+        let takeNumber = record["take"] as? Int ?? 0
+        let sideInfo = record["side"] as? [String: Any]
+        let recorded = sideInfo?["recorded"] as? String
+        let sideName = (sideInfo?["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Take \(takeNumber)"
+        // One recording session per athlete and day (one camera set-up), so the athlete's takes from that day
+        // are compared together; the take stays on each throw.
+        if value.sessions == nil { value.sessions = [] }
+        let sessionName = "Two-camera session · \(recorded ?? "unknown date")"
+        let session: RecordingSession
+        if let existing = value.sessions?.first(where: { $0.athleteID == athleteID && $0.name == sessionName }) {
+            session = existing
+        } else {
+            session = RecordingSession(athleteID: athleteID, name: sessionName,
+                                       cameraSetup: "Side + front (two cameras)", cameraView: .side,
+                                       throwingSide: throwingSide, targetDirection: targetDirection,
+                                       notes: "Recorded \(recorded ?? "on an unknown date"); takes are kept on each throw.")
+            value.sessions?.append(session)
+        }
+        var added: [Trial] = []
+        let takeFolder = URL(fileURLWithPath: takeRelativeDirectory).lastPathComponent
+        for item in (record["throws"] as? [[String: Any]]) ?? [] {
+            guard let number = item["number"] as? Int, let side = item["side_clip"] as? [String: Any],
+                  let sidePath = side["path"] as? String else { continue }
+            let trialID = UUID()
+            let sideRelative = "\(takeRelativeDirectory)/\(URL(fileURLWithPath: sidePath).lastPathComponent)"
+            let frontRelative = ((item["front_clip"] as? [String: Any])?["path"] as? String)
+                .map { "\(takeRelativeDirectory)/\(URL(fileURLWithPath: $0).lastPathComponent)" }
+            var trial = Trial(id: trialID, athleteID: athleteID, sourceVideoRelativePath: sideRelative,
+                              originalFilename: "\(sideName) · throw \(number)", cameraView: .side,
+                              throwingSide: throwingSide, targetDirection: targetDirection,
+                              analysisStatus: "Not analyzed", sessionID: session.id,
+                              name: "Take \(takeNumber) · Throw \(number)")
+            trial.takeNumber = takeNumber
+            trial.throwInTake = number
+            trial.frontVideoRelativePath = frontRelative
+            trial.takeRecordRelativePath = "\(takeRelativeDirectory)/take.json"
+            trial.recordingDate = recorded
+            // The analysis folder carries the link to the take before the first analysis.
+            let analysisRelative = managedAnalysisRelativePath(athleteID: athleteID, trialID: trialID)
+            let analysisURL = root.appendingPathComponent(analysisRelative)
+            try fileManager.createDirectory(at: analysisURL, withIntermediateDirectories: true)
+            let link: [String: Any] = ["schema_version": 1, "take_record": "../../takes/\(takeFolder)/take.json", "throw_number": number]
+            try JSONSerialization.data(withJSONObject: link, options: [.prettyPrinted, .sortedKeys])
+                .write(to: analysisURL.appendingPathComponent("take_link.json"), options: .atomic)
+            value.trials.append(trial)
+            added.append(trial)
+        }
+        project = value
+        selectedAthleteID = athleteID
+        try save()
+        return added
+    }
+
+    /// Choose the folder that holds one athlete's two-camera takes (Take_1_Front.mov, Take_1_Side.mov, …).
+    func chooseTakeFolder(completion: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Athlete's Takes"
+        panel.message = "Select the folder with one athlete's Take_N_Front and Take_N_Side videos."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        completion(url)
+    }
+
     /// Choose one or more throw videos (a whole session can be imported at once).
     func chooseVideos(completion: @escaping ([URL]) -> Void) {
         let panel = NSOpenPanel()

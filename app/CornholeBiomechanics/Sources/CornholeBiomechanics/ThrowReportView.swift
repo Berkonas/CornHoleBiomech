@@ -66,6 +66,9 @@ struct ThrowReportData {
     var athleteReleases: [MeasuredRelease] = []
     var distanceNote: String?
     var lateralNote: String?
+    /// Two-camera takes: the front camera's analysis (two_view.json) and its clip.
+    var twoView: TwoViewDocument?
+    var frontVideoURL: URL?
 
     // Derived once per load by `derive()`, never per replay frame.
     var timeline = EventTimeline(fps: 30, frames: [:])
@@ -428,6 +431,10 @@ struct ThrowReportView: View {
         next.history = historyByMetric()
         next.staleReason = Self.staleReason(url.appendingPathComponent("needs_reanalysis.json"))
         next.boardPhase = BoardPhase.load(results: resultsURL)
+        next.twoView = TwoViewDocument.load(url)
+        if let front = trial.frontVideoRelativePath.flatMap(store.url(for:)), FileManager.default.fileExists(atPath: front.path) {
+            next.frontVideoURL = front
+        }
         next.athleteReleases = report.athleteReleases
         if let root = store.projectURL,
            let dashboard = AthleteDashboard.load(root.appendingPathComponent("dashboards/\(trial.athleteID.uuidString).json")) {
@@ -506,11 +513,17 @@ struct ThrowReportContent: View {
                                 frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
                                 refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
                                 canRefresh: actions.canEdit && !loading)
+                    if let twoView = data.twoView {
+                        TwoViewCard(document: twoView, phase: data.boardPhase, recorded: trial.outcome?.scoreCategory,
+                                    releaseToBoardM: (data.results?.summaries["release_to_board_front_m"] ?? nil),
+                                    currentFrame: currentFrame, canEdit: actions.canEdit,
+                                    accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+                    }
+                    replayCard
                     if let phase = data.boardPhase {
                         WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
                                          accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
                     }
-                    replayCard
                     keyNumbers
                     ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
                     if let zone = data.personalZone {
@@ -601,6 +614,7 @@ struct ThrowReportContent: View {
         var parts = [athleteName, trial.createdAt.formatted(.dateTime.day().month(.abbreviated).year()),
                      "\(trial.cameraView.label.lowercased()) view"]
         if let fps = data.replay?.fps ?? data.results?.quality.frameRateFPS { parts.append("\(number(fps, digits: 0)) fps") }
+        if trial.isTwoCamera { parts.append("+ front camera") }
         return parts.joined(separator: " · ")
     }
 
@@ -631,7 +645,8 @@ struct ThrowReportContent: View {
         Card("Replay", symbol: "play.rectangle") {
             if let replay = data.replay {
                 ThrowReplayView(videoURL: videoAvailable ? videoURL : nil, replay: replay, pose: data.pose, throwingSide: trial.throwingSide,
-                                currentFrame: $currentFrame, seekRequest: $seekRequest)
+                                currentFrame: $currentFrame, seekRequest: $seekRequest,
+                                front: frontSource, stage: replayStage)
                     .id(trial.id)
                 if let note = replay.model_note {
                     Text("Dashed line: drag-free model fitted to the measured flight, shown as a reference only. \(note)")
@@ -642,6 +657,21 @@ struct ThrowReportContent: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// What the replay's animation needs to draw the throw side on and to scale with the board: the flight chart's
+    /// metric scale and the release height (nil without them: the animation then fits the video pixels), the
+    /// measured release → board distance and the board phase (each drawn only when measured).
+    private var replayStage: ReplayStage? {
+        guard let ppm = data.scale?.pixelsPerMeter, let height = data.value("bag_release_height_m") else { return nil }
+        return ReplayStage(pixelsPerMeter: ppm, releaseHeight: height,
+                           boardDistance: data.results?.summaries["release_to_board_front_m"] ?? nil, phase: data.boardPhase)
+    }
+
+    /// The front clip for the replay, when this throw came from a synchronised two-camera take.
+    private var frontSource: FrontReplaySource? {
+        guard let url = data.frontVideoURL, let document = data.twoView, document.side_to_front_frames?.isEmpty == false else { return nil }
+        return FrontReplaySource(url: url, document: document)
     }
 
     // MARK: Key numbers
@@ -660,8 +690,11 @@ struct ThrowReportContent: View {
     private func tiles(_ specs: [(key: String, label: String, unit: String)], group: String) -> some View {
         let rows = specs.map { row($0, group: group) }
         func tile(_ row: CoachMetricRow) -> some View {
-            MetricTile(row: row, history: data.history[row.key ?? ""] ?? [], target: data.targets[row.key ?? ""],
-                       uncertainty: uncertainty(row), seek: { seekRequest = $0 })
+            let history = data.history[row.key ?? ""] ?? []
+            // One scale for all of this athlete's throws (this one included), so the bars compare throw to throw.
+            let scale = MetricScale.domain(key: row.key ?? "", values: history + [row.usableValue].compactMap { $0 })
+            return MetricTile(row: row, history: history, target: data.targets[row.key ?? ""],
+                              uncertainty: uncertainty(row), seek: { seekRequest = $0 }, scale: scale)
         }
         return ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: Space.m) {
@@ -681,7 +714,7 @@ struct ThrowReportContent: View {
             }
             Card("Body", symbol: "figure.disc.sports", subtitle: "The arm and trunk around release.") {
                 tiles(Self.bodyKeys, group: "Body")
-                Text("Grey dots: this athlete's other throws; shaded box: their usual middle half; tall mark: this throw. Angles are measured in the camera's view.")
+                Text("Grey dots: this athlete's other throws; shaded box: their usual middle half; tall mark: this throw. Each bar keeps the same scale for every throw of this athlete (its ends are labelled). Angles are measured in the camera's view.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -689,11 +722,11 @@ struct ThrowReportContent: View {
 
     private var releaseCaption: String {
         guard let physics = data.insight?.verdict?.physics else {
-            return "Grey dots: this athlete's other throws. — means not measured or not reliable enough to show."
+            return "Grey dots: this athlete's other throws. Each bar keeps the same scale for every throw of this athlete. — means not measured or not reliable enough to show."
         }
         let board = physics.distance_source == "assumed"
             ? "the \(number(physics.distance_m, digits: 1)) m distance assumed in Settings" : "\(number(physics.distance_m, digits: 1)) m to the board"
-        return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board). Grey dots: this athlete's other throws."
+        return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board); a green arrow means it lies beyond the scale. Grey dots: this athlete's other throws. Each bar keeps the same scale for every throw of this athlete."
     }
 
     // MARK: Scientific details

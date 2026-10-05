@@ -20,6 +20,24 @@ enum AnalysisServiceError: LocalizedError {
     }
 }
 
+/// One take found in a folder: its front and side videos (camera roles already checked).
+struct DiscoveredTake: Identifiable, Hashable, Sendable {
+    let take: Int
+    let front: String?
+    let side: String?
+    let notes: [String]
+    var id: Int { take }
+}
+
+struct TakeDiscovery: Identifiable, Sendable {
+    let folder: URL
+    let takes: [DiscoveredTake]
+    /// Why camera roles could not be checked (nil when they were).
+    let rolesNote: String?
+    let swappedTakes: [Int]
+    var id: String { folder.path }
+}
+
 @MainActor
 final class AnalysisService: ObservableObject {
     @Published private(set) var isRunning = false
@@ -39,9 +57,12 @@ final class AnalysisService: ObservableObject {
     @Published private(set) var batchDone = 0
     private var queueTask: Task<Void, Never>?
 
+    /// What the batch counts: throws (analysis) or takes (two-camera import).
+    @Published private(set) var batchUnit = "Throw"
+
     /// "Throw 3 of 12" while a batch runs, else nil.
     var batchPosition: String? {
-        batchTotal > 1 ? "Throw \(min(batchDone + 1, batchTotal)) of \(batchTotal)" : nil
+        batchTotal > 1 ? "\(batchUnit) \(min(batchDone + 1, batchTotal)) of \(batchTotal)" : nil
     }
 
     /// Add throws to the queue; they are analyzed one after another, never at the same time.
@@ -116,6 +137,7 @@ final class AnalysisService: ObservableObject {
                 "--app-version", applicationVersion,
             ]
             if let sourceURL = trial.sourceURL { arguments += ["--source-url", sourceURL] }
+            if let recorded = trial.recordingDate { arguments += ["--recording-date", recorded] }
             if let attribution = trial.sourceAttribution { arguments += ["--source-attribution", attribution] }
             let corrections = output.appendingPathComponent("corrections.json")
             if FileManager.default.fileExists(atPath: corrections.path) {
@@ -142,6 +164,12 @@ final class AnalysisService: ObservableObject {
                 try await summarizeOutcome(outcome, analysisURL: output)
             }
             try store.markAnalysisComplete(trialID: trial.id, relativePath: relativeOutput)
+            // Two-camera throws: record the front camera's result when it is confident and nobody entered one.
+            if let current = store.project?.trials.first(where: { $0.id == trial.id }),
+               current.outcome == nil || current.outcome?.notes.hasPrefix("Recorded automatically") == true,
+               let automatic = TwoViewDocument.load(output)?.auto_outcome, automatic != current.outcome {
+                try? store.saveOutcome(automatic, for: current)
+            }
             let dirty = output.appendingPathComponent("needs_reanalysis.json")
             if FileManager.default.fileExists(atPath: dirty.path) { try FileManager.default.removeItem(at: dirty) }
             if selectWhenDone { store.showAnalyzedThrow(trial) }
@@ -266,6 +294,91 @@ final class AnalysisService: ObservableObject {
         defer { isRunning = false }
         _ = try await run(["athlete-dashboard", "--project", root.path, "--athlete-id", athleteID.uuidString])
         progress = 1; stage = "Dashboard ready"
+    }
+
+    // MARK: Two-camera takes
+
+    /// Pair the Take_<n>_Front / Take_<n>_Side videos in a folder and check which camera recorded each file.
+    func discoverTakes(in folder: URL) async throws -> TakeDiscovery {
+        let result = try await run(["discover-takes", folder.path], updateProgress: false)
+        let takes = ((result["takes"] as? [[String: Any]]) ?? []).compactMap { item -> DiscoveredTake? in
+            guard let number = item["take"] as? Int else { return nil }
+            return DiscoveredTake(take: number, front: item["front"] as? String, side: item["side"] as? String,
+                                  notes: item["notes"] as? [String] ?? [])
+        }
+        let roles = result["roles"] as? [String: Any]
+        return TakeDiscovery(folder: folder, takes: takes, rolesNote: roles?["reason"] as? String,
+                             swappedTakes: roles?["swapped_takes"] as? [Int] ?? [])
+    }
+
+    /// Import takes one at a time: synchronise the two cameras, cut each take into one clip per throw for
+    /// each camera, register the throws, pool the front camera's field of view over all of the athlete's
+    /// takes, then queue the throws for analysis (one at a time). A take that fails is skipped and reported.
+    func importTakes(_ takes: [DiscoveredTake], athleteID: UUID, throwingSide: ThrowingSide,
+                     targetDirection: TargetDirection, analyzeAfter: Bool, store: ProjectStore) async {
+        guard !isRunning, queueTask == nil, let root = store.projectURL else { return }
+        isRunning = true
+        cancelled = false
+        errorMessage = nil
+        batchUnit = "Take"
+        batchTotal = takes.count
+        batchDone = 0
+        progress = 0
+        var added: [Trial] = []
+        var problems: [String] = []
+        for take in takes {
+            if cancelled { break }
+            guard let side = take.side else {
+                problems.append("Take \(take.take): no side-camera video.")
+                batchDone += 1
+                continue
+            }
+            let relative = store.newTakeRelativeDirectory(athleteID: athleteID, takeNumber: take.take)
+            let output = root.appendingPathComponent(relative, isDirectory: true)
+            stage = "Preparing take \(take.take)"
+            detail = "Synchronising the cameras and finding the throws"
+            do {
+                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                var arguments = ["prepare-take", "--side", side, "--output", output.path,
+                                 "--take-number", String(take.take), "--target-direction", targetDirection.rawValue,
+                                 "--expected-throws", "4"]
+                if let front = take.front { arguments += ["--front", front] }
+                let result = try await run(arguments)
+                let throwsFound = result["throws"] as? Int ?? 0
+                if throwsFound == 0 {
+                    problems.append("Take \(take.take): no throws were found in the side video.")
+                    try? FileManager.default.removeItem(at: output)
+                } else {
+                    added += try store.registerTake(athleteID: athleteID, takeRelativeDirectory: relative,
+                                                    throwingSide: throwingSide, targetDirection: targetDirection)
+                    if throwsFound != 4 { problems.append("Take \(take.take): \(throwsFound) throw(s) found instead of 4.") }
+                }
+            } catch {
+                problems.append("Take \(take.take): \(error.localizedDescription)")
+                try? FileManager.default.removeItem(at: output)
+            }
+            batchDone += 1
+        }
+        // The front camera's field of view is pooled over every take the same phone recorded that day (all
+        // athletes; the engine groups the takes by camera and date).
+        let records = Set((store.project?.trials ?? []).compactMap(\.takeRecordRelativePath))
+            .sorted().map { root.appendingPathComponent($0).path }
+        if !records.isEmpty && !cancelled {
+            stage = "Calibrating the front camera"
+            detail = "Pooling the board's shape over \(records.count) take(s)"
+            do { _ = try await run(["pool-front-camera", "--takes"] + records, updateProgress: false) }
+            catch { problems.append("Front camera calibration: \(error.localizedDescription)") }
+        }
+        let wasCancelled = cancelled
+        isRunning = false
+        batchUnit = "Throw"
+        batchTotal = 0
+        batchDone = 0
+        stage = "Ready"
+        detail = added.isEmpty ? "No throws imported." : "\(added.count) throw(s) imported."
+        if !problems.isEmpty { errorMessage = "Some takes need attention:\n" + problems.joined(separator: "\n") }
+        if let first = added.first { store.destination = .throwReport(first.id) }
+        if analyzeAfter && !wasCancelled && !added.isEmpty { enqueue(added, store: store, showLastWhenDone: true) }
     }
 
     func probe() async throws -> [String: Any] { try await run(["probe"], updateProgress: false) }

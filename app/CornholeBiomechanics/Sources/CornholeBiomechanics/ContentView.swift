@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var showsAthleteSheet = false
     @State private var importBatch: ImportBatch?
+    @State private var takeFolder: URL?
     @State private var outcomeTrial: Trial?
     @State private var showsRecordingGuide = false
 
@@ -35,6 +36,7 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
         .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls) }
+        .sheet(item: $takeFolder) { TakeImportForm(folder: $0) }
         .sheet(item: $outcomeTrial) { OutcomeEditor(trial: $0) }
         .sheet(isPresented: $showsRecordingGuide) { RecordingGuideSheet() }
         .alert(applicationName, isPresented: errorPresented) {
@@ -51,6 +53,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .importLegacyProject)) { _ in store.importLegacyProject() }
         .onReceive(NotificationCenter.default.publisher(for: .addAthlete)) { _ in addAthlete() }
         .onReceive(NotificationCenter.default.publisher(for: .importTrialVideo)) { _ in beginImport() }
+        .onReceive(NotificationCenter.default.publisher(for: .importTakes)) { _ in beginTakeImport() }
         .onReceive(NotificationCenter.default.publisher(for: .analyzeSelectedTrial)) { _ in analyzeSelected() }
         .onReceive(NotificationCenter.default.publisher(for: .addTrialOutcome)) { _ in outcomeTrial = shownTrial }
         .onReceive(NotificationCenter.default.publisher(for: .exportSelectedTrial)) { _ in
@@ -67,7 +70,7 @@ struct ContentView: View {
         if store.project == nil {
             EmptyState("No Library", symbol: "externaldrive.badge.questionmark", message: "Choose or create an athlete library.")
         } else if let athleteID = store.selectedAthleteID, store.selectedAthlete != nil {
-            ThrowListView(athleteID: athleteID, beginImport: beginImport)
+            ThrowListView(athleteID: athleteID, beginImport: beginImport, beginTakeImport: beginTakeImport)
         } else if store.project?.athletes.isEmpty == true {
             EmptyState("No Athletes", symbol: "person.2", message: "Add an athlete, then import videos of their throws.",
                        action: ("Add Athlete", addAthlete))
@@ -155,6 +158,12 @@ struct ContentView: View {
         guard store.project != nil, !analysis.isRunning else { return }
         guard store.project?.athletes.isEmpty == false else { showsAthleteSheet = true; return }
         store.chooseVideos { importBatch = ImportBatch(urls: $0) }
+    }
+
+    private func beginTakeImport() {
+        guard store.project != nil, !analysis.isRunning else { return }
+        guard store.project?.athletes.isEmpty == false else { showsAthleteSheet = true; return }
+        store.chooseTakeFolder { takeFolder = $0 }
     }
 
     private func analyzeSelected() {

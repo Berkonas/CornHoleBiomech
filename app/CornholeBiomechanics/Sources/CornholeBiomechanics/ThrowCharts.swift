@@ -20,10 +20,11 @@ struct EventTimeline {
     func ms(_ frame: Int) -> Double { 1000 * Double(frame - (release ?? 0)) / fps }
     func frame(ms: Double) -> Int { (release ?? 0) + Int((ms / 1000 * fps).rounded()) }
 
-    /// Backswing top (or 0.8 s before release) − 150 ms … release + 250 ms.
+    /// The same time axis for every throw: 1 s before release … 250 ms after, reaching further back only when
+    /// the backswing top came earlier than 850 ms before release (so throws compare at a glance).
     var window: ClosedRange<Double> {
-        let start = frames["peak_backswing"].map { ms($0) - 150 } ?? -800
-        return min(start, -300)...250
+        let start = frames["peak_backswing"].map { ms($0) - 150 } ?? -1000
+        return min(start, -1000)...250
     }
 
     /// Markers drawn on the body charts.
@@ -135,12 +136,13 @@ struct JointAngleChart: View {
 
     static let elbowInk = athleteInk
 
-    /// Padded min–max of the plotted angles (at least 20° tall), so negative trunk lean is never clipped.
+    /// One angle scale for every throw: −20…190° (elbow straight = 180°, trunk upright = 0°), widened in 10°
+    /// steps only when a throw goes beyond it, so curves from different throws compare directly.
     static func domain(_ values: [Double]) -> ClosedRange<Double> {
-        guard var lo = values.min(), var hi = values.max() else { return 0...180 }
-        if hi - lo < 20 { let mid = (lo + hi) / 2; lo = mid - 10; hi = mid + 10 }
-        let pad = 0.08 * (hi - lo)
-        return (lo - pad)...(hi + pad)
+        let finite = values.filter(\.isFinite)
+        let lo = min(-20, ((finite.min() ?? 0) / 10).rounded(.down) * 10)
+        let hi = max(190, ((finite.max() ?? 180) / 10).rounded(.up) * 10)
+        return lo...hi
     }
     static let trunkInk = Color.indigo
 
@@ -190,6 +192,12 @@ struct WristSpeedChart: View {
 
     private var timeline: EventTimeline { EventTimeline(fps: fps, frames: events.compactMapValues { $0 }) }
 
+    /// One speed scale for every throw: 0 to at least 12 arm lengths/s, rounded up to the next 2 when a throw is faster.
+    static func domain(_ values: [Double]) -> ClosedRange<Double> {
+        let top = values.filter(\.isFinite).max() ?? 0
+        return 0...max(12, (top * 1.05 / 2).rounded(.up) * 2)
+    }
+
     private var samples: [TimePoint] {
         let window = timeline.window
         return speed.enumerated().compactMap { frame, value in
@@ -215,6 +223,7 @@ struct WristSpeedChart: View {
                 eventRules(timeline, keys: EventTimeline.bodyEvents, now: currentFrame)
             }
             .chartXScale(domain: timeline.window)
+            .chartYScale(domain: Self.domain(samples.map(\.value)))
             .chartXAxisLabel(timeAxisTitle, alignment: .center)
             .chartYAxisLabel("Wrist speed (arm lengths/s)", position: .leading)
             .chartYAxis { AxisMarks(position: .leading) }
@@ -291,9 +300,19 @@ struct FlightChartData: Equatable {
     var unit: String { metres ? "m" : "px" }
 
     private var everything: [Point] { measured + model + board + slide + [landing, end].compactMap { $0 } }
-    /// Tight axis domains: from the smaller of 0 and the data to the data's far edge, 5 % padding.
-    var xDomain: ClosedRange<Double> { Self.domain(everything.map(\.x) + [0]) }
-    var yDomain: ClosedRange<Double> { Self.domain(everything.map(\.y) + [0]) }
+    /// In metres the axes are the same for every throw (release to just past the back of the board, floor to
+    /// 2.5 m), widened only when a throw goes beyond; in pixels they fit this throw.
+    var xDomain: ClosedRange<Double> {
+        let fitted = Self.domain(everything.map(\.x) + [0])
+        guard metres else { return fitted }
+        let back = board.map(\.x).max() ?? 7.5
+        return min(fitted.lowerBound, 0)...max(fitted.upperBound, ((back + 0.3) * 2).rounded(.up) / 2)
+    }
+    var yDomain: ClosedRange<Double> {
+        let fitted = Self.domain(everything.map(\.y) + [0])
+        guard metres else { return fitted }
+        return min(fitted.lowerBound, 0)...max(fitted.upperBound, 2.5)
+    }
     var endLabel: String { endKind == "fell_in_hole" ? "Into the hole" : endKind == "rest" ? "Stopped" : "Last seen" }
     private static func domain(_ values: [Double]) -> ClosedRange<Double> {
         let finite = values.filter(\.isFinite)
@@ -448,11 +467,11 @@ struct TimingStrip: View {
         }
     }
 
-    /// The events' span plus room for the outer labels, so the axis does not run far past the data.
+    /// The same time axis for every throw (−1 s … +1 s around release), widened only when an event lies beyond it,
+    /// with room for the outer labels.
     static func domain(_ values: [Double]) -> ClosedRange<Double> {
-        guard let lo = values.min(), let hi = values.max(), hi > lo else { return -500...500 }
-        let pad = max(0.12 * (hi - lo), 60)
-        return (lo - pad)...(hi + pad)
+        guard let lo = values.min(), let hi = values.max() else { return -1000...1000 }
+        return min(-1000, lo - 120)...max(1000, hi + 120)
     }
 
     var body: some View {

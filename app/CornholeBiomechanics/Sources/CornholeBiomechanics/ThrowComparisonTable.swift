@@ -47,6 +47,19 @@ struct SummaryThrowRow: Identifiable, Equatable, Sendable {
     var endFromHole: Double?
     /// The bag was seen dropping into the hole.
     var endInHole: Bool?
+    /// Where the bag ended on the board (along and left/right), for the athlete's board map.
+    var boardEnd: BoardEndMark?
+    /// This analysis measured left/right on the board (0.6.2 and later).
+    var boardEndHasLeftRight = false
+    /// Left/right measured by the front camera (two-camera takes).
+    var boardEndFromFront = false
+    /// Front camera: signed miss at rest (inches, + right / + long), sideways aim (°) and frontal measures.
+    var leftRight: Double?
+    var shortLong: Double?
+    var heading: Double?
+    var frontal: [String: Double] = [:]
+    /// Take and throw within the take, for two-camera sessions.
+    var take: Int?
 
     /// "Hole", "−9 in", "+3 in" or "—".
     var endText: String {
@@ -125,9 +138,22 @@ extension SummaryThrowRow {
         }
         row.isStale = FileManager.default.fileExists(atPath: source.analysisURL.appendingPathComponent("needs_reanalysis.json").path)
         row.distance = MeasuredRelease.releaseToBoard(results)
+        if let twoView = TwoViewDocument.load(source.analysisURL), twoView.isMeasured {
+            row.leftRight = twoView.miss?.left_right_in
+            row.shortLong = twoView.miss?.short_long_in
+            row.heading = twoView.heading?.deg
+            row.take = twoView.take
+            for (key, metric) in twoView.frontal ?? [:] { if let value = metric.value { row.frontal[key] = value } }
+        }
         if let phase = BoardPhase.load(results: results), let end = phase.end {
+            row.boardEndFromFront = phase.leftRightFromFrontCamera
             row.endInHole = end.kind == "fell_in_hole"
             if end.kind == "rest" { row.endFromHole = end.from_hole_in }
+            if let v = end.v_in, ["rest", "fell_in_hole", "left_deck"].contains(end.kind) {
+                row.boardEnd = BoardEndMark(id: source.id, number: source.number, label: source.label, v: v,
+                                            right: end.right_of_centre_in, kind: end.kind, score: source.score)
+                row.boardEndHasLeftRight = end.right_of_centre_in != nil
+            }
         }
         return row
     }
