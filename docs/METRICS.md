@@ -157,3 +157,15 @@ thrower's frame: + = thrower's right. Noise floors are the smallest differences 
 The coach sentence names the hand across the body only at ≥ 0.25 shoulder widths (≈ 2× its noise) and a stance only
 when ≥ 15 cm off the centre line, and only when either points the same way as the miss. Lateral "on line" is
 within 3 in (the hole radius).
+
+**3D flight** (`flight_3d` in two_view.json, `flight3d.json`; method: [METHODS_AND_MATH.md §5.4](METHODS_AND_MATH.md)).
+Per throw only (not yet in the athlete analyses or the coach sentence); `measured` when both the side scale and the front
+camera are measured, else `estimated`; `unavailable` with a reason otherwise.
+
+| Key | Meaning | Unit | Agreement on the library (72 throws) |
+|---|---|---|---|
+| `release.lateral_m` | Bag's sideways position at release from the board centre line, + thrower's right | m | within ±9 cm of the front pose's release hand (median 1 cm) |
+| `velocity_m_s.lateral` | Sideways velocity of the bag (constant in flight) | m/s | — |
+| `lateral_launch_angle_deg` | atan2(sideways, along-the-throw velocity) at release, + right | ° | median 0.34° from `front_heading_deg` (90th pct 0.79°) |
+| `landing.predicted_x_in` | Sideways landing at first contact, board inches (12 = centre line) | in | flight alone vs the front camera's measured contact: 86 % within 2 in, SD 1.35 in |
+| `path_m` | 60 Hz samples of (t, x along from release, y sideways, z height) | s, m | for the replay animation |

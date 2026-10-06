@@ -14,6 +14,8 @@ adds the front camera (front_view.py) and writes ``two_view.json`` next to ``res
 * ``heading`` — sideways launch direction (front_view.heading) and how much of the sideways miss comes
   from aim versus from where the hand released the bag.
 * ``frontal`` — frontal-plane body measures at release (front_view.frontal_metrics).
+* ``flight_3d`` — the bag's flight in 3D from both cameras (flight3d.py): sideways release position, sideways
+  velocity and launch angle, the 3D path for the animation; its projection replaces ``front_path`` when measured.
 * ``explanation`` — one plain sentence for the coach, built only from measured parts: distance (from the
   side physics) and direction (from the front camera), each with the measured body or release value that
   went with it. Associations, not causes: words like "came with" are used, never "because".
@@ -436,6 +438,17 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     record["miss"] = miss_vector(record["landing"])
     record["front_path"] = front_flight_path(frames, release_front, contact_front, release_px, corners, front_fps,
                                              hfov_deg=camera.get("hfov_deg"))
+    record["front_path_source"] = "front_track"
+    # 8. The flight in 3D (side flight + front camera, flight3d.py). An add-on: it never changes the result above.
+    progress("front_camera", 0.95, "Rebuilding the bag's flight in 3D")
+    record["flight_3d"] = flight_3d_for_throw(out, frames, results, link, corners, record, camera_hfov=camera.get("hfov_deg"),
+                                              corners_suspect=bool(suspect), release_side=release_side,
+                                              release_front=release_front, contact_front=contact_front)
+    if record["flight_3d"].get("status") in ("measured", "estimated") and record["flight_3d"].get("front_path"):
+        # The projected 3D path follows the bag through every frame, also where the front tracker lost it or
+        # followed the thrower (METHODS_AND_MATH §5.4); same shape as before.
+        record["front_path"] = record["flight_3d"]["front_path"]
+        record["front_path_source"] = "flight_3d"
     record["deck_corners_px"] = corners[release_front if release_front is not None and 0 <= release_front < len(corners) else 0].tolist()
     record["deck_corners_by_frame_px"] = corners.round(1).tolist()
     record["front_size"] = [w, h]
@@ -448,6 +461,35 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     write_json(out / "two_view.json", json_ready(record))
     progress("front_camera", 1.0, "Front camera done")
     return record
+
+
+def flight_3d_for_throw(out: Path, frames: list[np.ndarray], results: dict[str, Any], link: dict[str, Any],
+                        corners: np.ndarray, record: dict[str, Any], *, camera_hfov: float | None, corners_suspect: bool,
+                        release_side: int | None, release_front: int | None, contact_front: int | None
+                        ) -> dict[str, Any]:
+    """The 3D flight (flight3d.reconstruct_flight) for this throw, written to flight3d.json; the summary (without
+    the per-frame detections) is returned for two_view.json. Any failure gives ``unavailable`` with the reason and
+    never stops the two-view analysis."""
+    from .flight3d import FLIGHT3D_VERSION, reconstruct_flight, write_flight3d
+    try:
+        auto_flight_path = out / "auto_flight.json"
+        auto_flight = json.loads(auto_flight_path.read_text()) if auto_flight_path.exists() else {}
+        offset = ((record.get("frontal") or {}).get("release_point_offset_m") or {}).get("value")
+        flight = reconstruct_flight(
+            frames=frames, results=results, auto_flight=auto_flight, link=link, corners_per_frame=corners,
+            front_hfov_deg=camera_hfov, camera_status=(record.get("camera") or {}).get("status"),
+            release_side=release_side, contact_side=(record.get("frames") or {}).get("contact_side"),
+            release_front=release_front, contact_front=contact_front,
+            front_contact=(record.get("landing") or {}).get("contact"), corners_suspect=corners_suspect,
+            frontal_release_offset_m=offset, heading_deg=(record.get("heading") or {}).get("deg"))
+    except Exception as error:  # noqa: BLE001 - an add-on: the two-view result stands without it
+        flight = {"method_version": FLIGHT3D_VERSION, "status": "unavailable",
+                  "reason": f"The 3D flight could not be computed ({type(error).__name__}: {error})."}
+    try:
+        write_flight3d(out, flight)
+    except OSError:
+        pass
+    return {k: v for k, v in flight.items() if k != "detections"}
 
 
 def _front_pose(front_path: str, out: Path, settings: dict[str, Any], progress: Progress):

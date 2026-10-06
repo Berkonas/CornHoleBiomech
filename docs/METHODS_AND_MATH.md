@@ -17,6 +17,7 @@ This document collects, in one place, the methods and every equation the system 
 | Bag flight filter | `ca_kalman_rts_v1` | `bag_filter.py` |
 | Board phase (touchdown, slide, end) | `board_phase_v3_deck_footprint_touchdown` | `board_phase.py` |
 | Two-camera combination | `two_view_v5_knocked_confirm` | `two_view.py`, `front_view.py`, `front_track.py` |
+| 3D bag flight (side + front) | `flight3d_v1` | `flight3d.py` (§5.4) |
 
 **Validation status in one line.** Software behaviour is unit-tested; the measurement accuracy of body landmarks, bag centroids and metric scale has **not** been validated against a criterion (motion capture or manual digitisation) for this task. Evidence so far is a light engineering validation on 26 hand-held pilot clips from 3 athletes (17 Sep 2026; [LIGHT_VALIDATION.md](LIGHT_VALIDATION.md), [SCENE_REGRESSION.md](SCENE_REGRESSION.md)). Every noise floor for body metrics is **provisional**.
 
@@ -652,7 +653,7 @@ is one continuous recording per camera: the athlete claps, shows the take number
 then throws four bags. Each athlete has 5–7 takes. The side camera keeps every method in §1–§3; the
 front camera adds what one side camera cannot see: **left/right**, where the bag stopped across the
 board, whether it went in, and frontal-plane body measures. Code: `takes.py` (§5.1), `front_view.py`
-and `front_track.py` (§5.2), `two_view.py` (§5.3).
+and `front_track.py` (§5.2), `two_view.py` (§5.3), `flight3d.py` (§5.4).
 
 | Camera | Device (this collection) | Video | Sees |
 |---|---|---|---|
@@ -908,7 +909,8 @@ the side camera's contact (the front camera sees the bag reach the deck 0–2 fr
 11 throws). Before this, nearest-blob linking of frame differences followed a bystander or the thrower's
 body on 6 of 13 Final Data Collection throws and stayed half on the body on 2 more; now all 13 (and 8 of an
 earlier test library) follow the bag from the hand to the deck, 1.1–1.8 s per throw. Only red bags are
-found; the path is for display and no number is computed from it.
+found; the path is for display and no number is computed from it. When the 3D flight (§5.4) is fitted, its
+projection replaces this path in the replay (`front_path_source`).
 
 **First contact across the board.** The moving bag near the deck is tracked from just before the side
 camera's contact time with the same colour and motion test (blobs with ≥ 15 % moving pixels; a bag at rest
@@ -996,6 +998,138 @@ above, under the same evidence gate (≥ 5 throws per group, Cliff's δ ≥ 0.47
 coarse (that is why y comes from the side). A bag that lands far off the board, outside the front view, is
 `unavailable`, not "off". Frontal body angles are 2D image angles. Sound sync assumes both microphones
 heard the same events; it is checked per throw but not against an external clock.
+
+### 5.4 3D flight from two views
+
+`flight3d.py` (`reconstruct_flight`, called from `two_view.analyze_two_view` after the landing and the heading;
+output `flight_3d` in two_view.json and `flight3d.json`). Method version `flight3d_v1`.
+
+**Why.** Each camera sees the flight badly in one direction. The side camera measures the throw plane well (along
+the throw and height, metric through the board and the gravity-calibrated field of view, §1.7–§1.8) but not
+left/right. The front camera sees left/right, but the bag flies almost straight at it: it moves little in the
+picture, grows 2–3×, and crosses the thrower, bystanders and a busy wall. Tracked on its own (`front_track`, §5.2) the
+path was display-only and, in the QA audit, followed the thrower's body after release on both Player 1 throws checked.
+Here the two views are joined by physics, so the front camera only has to answer one question: *how far left or right*.
+
+**Model** (front_view's world frame: $X$ to the thrower's right, $Y$ along the throw from the board's front edge, $Z$
+up, metres; $\tau$ = time since release on the side clock):
+
+$$Y(\tau) = a_0 + a_1\tau + a_2\tau^2,\qquad Z(\tau) = b_0 + b_1\tau + b_2\tau^2,\qquad X(\tau) = X_0 + V_x\,\tau \tag{5.4.1}$$
+
+$Y$ and $Z$ come from the side camera; only $X_0$, $V_x$ are unknown (plus the nuisance timing offset $\delta$ and the
+front field of view $h$, below). $X$ is linear because nothing pushes a drag-free bag sideways. Quadratic drag would
+slow the sideways motion by the same few per cent as the forward motion (§1.11: no measurable drag on the pilot
+flights); with $|V_x| \le 0.9$ m/s on the library that is under 1 cm at the board.
+
+**Side rays at the bag's lateral position.** The side camera's pose comes from the board corners at the side field of
+view (`board.solve_board`, §3.7). Each accepted flight centre (camera-steadied release-frame pixels; points the Kalman
+gate rejected are left out) is a viewing ray $\mathbf C + s\,\mathbf d$ in the board frame. The throw-plane mapping
+(3.7.3) is that ray met with the centre plane; here it is met with the vertical plane at the bag's own lateral
+position, $s = (X(\tau) - C_z)/d_z$, and the quadratics are refitted each time $X_0$, $V_x$ change. *Effect on the
+library* (side camera 7.8–8.7 m from the centre line): release distance changes by a median 2.6 cm (max 10 cm), the
+along position at landing by 4 cm (max 38 cm, the 9.5°-wide throw). The board phase's touchdown point is **not** used
+as an extra end point: one frame after the last flight centre it sat 3–13 cm off the flight's own arc (a centre
+measured on the deck by another method), and on five throws whose touchdown came 9–28 frames after the flight ended
+it sat 1–4.6 m off and bent the arc to an apparent gravity of 2.8–7.2 m/s² (those five fitted at 9.4–10.1 m/s² without it).
+
+**Time.** Front frame $k$ (container timestamp $t_k$) shows side-clock time $\tau_k = t_k - (\text{sound offset} +
+\ell) - t_\text{release} + \delta$, the mapping of `side_to_front_frame` (§5.1, with the pooled picture lag $\ell$) plus
+a per-throw offset $\delta$, bounded to ±4 front frames, the sync check's own agreement limit (§5.1).
+
+**Front camera.** Pose from the release-frame deck corners by PnP at field of view $h$ (`front_view.front_camera_pose`);
+the phone's drift is the mean shift of the per-frame deck corners. $h$ starts at the pooled deck-shape value (§5.2) and
+may move by ±8° (`MAX_HFOV_DEVIATION_DEG`, beyond which two_view calls the corners suspect). *Why it must move:* with $h$
+fixed at the pooled 66.1° the bag sat a steady 10–18 px above the side camera's prediction at 8–10 m (Player 4 take 1
+throw 1) while the lateral residual was 1–2 px; scanning $h$ moved that vertical bias by ≈ 2.6 px per degree and removed
+it at ≈ 63°. The deck corners alone (4 corners, grazing view) fix the camera height and pitch only weakly; the side
+camera's metric heights pin them. Moving $h$ hardly changes the lateral answer (the bag flies within ≈ 30 px of the image
+centre column on most throws, so a 5 % focal change moves it ≈ 1.5 px, ≈ 1 cm).
+
+**Candidates** in each front frame from release to first contact: front_track's colour + empty-scene + two-frame motion
+test (§5.2, half resolution, up to 15 blobs per frame). Expected image size at depth $d$: the face-on bag
+$A_\text{face} = (f\cdot 0.1524/d)^2$ px², side $s = \sqrt{A_\text{face}}$.
+
+**Fit.**
+1. *Lateral line (RANSAC).* Each candidate's viewing ray is met with the plane $Y = Y(\tau_k)$, giving a lateral position
+   and a height; it is kept if the height is within 30 px + 0.5 $s$ of $Z(\tau_k)$ on the image and its area is
+   0.05–2.5 $A_\text{face}$. 400 pairs of candidates ≥ 3 frames apart define lines $X_0 + V_x\tau$, scored per frame by
+   $1-(r/\text{tol})^2$ for the best candidate within tol = 6 px + 0.5 $s$ (MSAC).
+2. *Timing and field-of-view grid.* $\delta \in [-4, 4]$ frames (0.5 steps) × $h$ ∈ pooled ± 8° (1° steps), same score with
+   the full 2D image distance — the local fit then starts in the right valley.
+3. *Robust least squares* of the image residuals over $(X_0, V_x, \delta, h)$, soft-L1 loss with a 3 px scale,
+   re-associating the nearest candidate per frame (gate 2, 1.5, 1, 1 × tol), the side quadratics refitted at the new
+   lateral position each round:
+   $$\min \sum_k \rho\big(\lVert \pi_k\big(\mathbf P(\tau_k+\delta);\,h\big) - \mathbf p_k\rVert\big) \tag{5.4.2}$$
+4. *End constraint.* The front camera's first contact across the deck (§5.2, $x_c$) adds
+   $(X(\tau_c) - x_c)/\sigma_c \cdot 3$ px with $\sigma_c$ = 1 in (±0.5 in homography precision plus the bag's own size on
+   the deck), but only when the flight alone already lands within one bag width (6 in) of it. The flight-only prediction
+   is kept (`landing.flight_only_x_in`) for the agreement check below.
+
+**First contact** is the side camera's contact time or, if earlier, the moment the arc's centre comes down to 0.6 in
+(half a bag, board_phase) above the deck where the path is over the board, else above the floor — so a contact seen late
+(a bag that flew past the board) or missing (a bag that dropped short) never sends the path below the floor.
+
+**Outputs** (`flight_3d`): `release.lateral_m` ($X_0$, + thrower's right of the centre line), `release.height_m`,
+`release.to_board_front_m`; `velocity_m_s` (along, lateral, vertical, speed); `lateral_launch_angle_deg`
+$= \operatorname{atan2}(V_x, a_1)$; `landing` (predicted lateral at first contact in board inches, measured, difference);
+`release_check` ($X_0$ vs the front pose's release hand, §5.2); `heading_check` (launch angle vs `heading`); `fit`
+(inlier frames, residuals, $\delta$, $h$, coverage); `path_m` (60 Hz samples $t, x$ along from release, $y$ lateral,
+$z$ height) for the app's animation; `front_path` (the model projected into every front frame from release to first
+contact). When the fit is accepted, its `front_path` **replaces** two_view's `front_path` (same shape; `front_path_source`
+says which). Status `measured` needs both a measured side scale and a measured front camera; otherwise `estimated`.
+
+| Gate (code) | Value | Library evidence (92 throws, 72 fitted) |
+|---|---|---|
+| Height gate, first pass (`VERTICAL_GATE_PX` + share) | 30 px + 0.5 $s$ | at the pooled $h$ and $\delta$ = 0 the matched bag sat beyond 0.5 $s$ by ≤ 12 px (95th pct), 32 px (99th) |
+| Size (`AREA_RATIO_MIN/MAX`) | 0.05–2.5 $A_\text{face}$ | matched bags 0.05–1.25 (1st–99th pct 0.14–1.05; a tumbling bag shows its edge) |
+| Inlier tolerance (`LATERAL_TOL_PX` + share) | 6 px + 0.5 $s$ | residuals median 1.8 px, RMS 1.3–5.4 px; RMS of residual/tolerance ≤ 0.29 |
+| Timing offset (`TIMING_LIMIT_FRAMES`) | ±4 front frames | fitted −19 to +46 ms (median −8 ms) |
+| Field of view (`FRONT_HFOV_BAND_DEG`) | pooled ± 8° | fitted 60.7–64.4° against the pooled 66.1° (−5.4 to −1.7°) |
+| Frames on the path (`MIN_INLIER_FRAMES`, `MIN_INLIER_SHARE`) | ≥ 6 and ≥ 30 % | 23–40 frames, 62–100 % |
+| Both ends seen (`MIN_END_COVERAGE`) | ≥ 50 % of the first and of the last third | ≥ 85 % and ≥ 90 %; the middle third can leave the picture on a high arc (Player 1 take 4: 0 %) |
+| Fit quality (`MAX_RMS_TOLERANCE_SHARE`) | RMS(residual/tol) ≤ 0.5 | ≤ 0.29; the five arcs bent by a wrong touchdown point (above) gave 0.46–0.66 |
+| Release position (`MAX_RELEASE_LATERAL_M`) | ±1.5 m | pitcher's box (3 ft either side of the 2 ft board); library −0.10 to +0.24 m |
+| Launch angle (`MAX_LAUNCH_ANGLE_DEG`) | ±15° | library −9.5° to +3.1° |
+| End constraint (`CONTACT_AGREE_IN`) | flight-only within 6 in | flight-only differences −4.1 to +3.0 in |
+
+*Synthetic check* (`tests/test_flight3d.py`): a known projectile through synthetic side and front cameras, with static
+clutter, a rising "arm" blob and a walking bystander, 20 % of bag frames missing: $X_0$ within 2 cm, $V_x$ within
+0.04 m/s, a 3° error in the pooled field of view recovered to ±1°, a one-frame timing error to ±10 ms. With the bag in
+only 4 frames the arm blob alone can fit a line, which the both-ends gate rejects.
+
+**Results on the 92-throw library** (re-run 6 Oct 2026). 72 throws get a 3D flight (38 measured, 34 estimated; Player 1
+16, Player 2 16, Player 3 17, Player 4 23). The other 20 are unavailable with a reason: 12 have suspect front deck corners
+(Player 1 takes 3, 5, 6; §5.2) and 8 have no accepted side flight. Inliers median 32 frames (median 100 % of the searched frames; min 23 frames, 62 %), image RMS
+2.95 px (lateral 1.5 px), about 1.4 s per throw.
+- *Landing across the deck* (66 throws with a front first contact; flight-only prediction, i.e. without the end
+  constraint): difference median |0.8| in, 86 % within 2 in, 94 % within 3 in, mean +0.3 in, SD 1.35 in, range −4.1 to
+  +3.0 in — about the bag's own size on the deck and the front homography's precision.
+- *Launch angle vs the two-view heading* (§5.2, release hand → first contact; 66 throws): median |difference| 0.34°,
+  90th pct 0.79°, max 1.1° — two independent routes (pose wrist + deck contact against the bag in flight).
+- *Release position vs the front pose's release hand*: median 1 cm, all within ±9 cm (the bag sits in the hand, not at
+  the wrist).
+- *Timing*: δ median −8 ms (−0.25 front frame); Player 3 take 3 needs +32 to +46 ms on all four throws, i.e. that take's
+  sound sync is about 1.2 front frames off.
+- *Front field of view*: the bag prefers 62.7° (median; 60.7–64.4°), 3.4° below the pooled deck-shape value 66.1° on
+  every throw — evidence that the deck-shape field of view (§5.2) runs high. Landing, heading and stance still use the
+  pooled value; this is an open item.
+- *Visual check* (32 throws rendered from the final version, 8 per player, plus 8 inspected during development: front
+  frames from release to first contact with the projected path, the matched detections and the old `front_path`): the
+  projected path sits on the bag in every frame where the bag is in the picture, including a 9.5°-wide throw that left
+  the top of the picture and came back (Player 3 take 3 throw 1) and bags that landed on the floor beside or in front of
+  the board; where the bag leaves the top of the frame (Player 1's high arcs) the path continues through it. The old front
+  tracker followed the thrower's body instead of the bag on Player 1 take 4 throw 3 and another object on the wide throw;
+  the 3D path replaces it there. Re-running the whole front stage with the hook changed nothing else in two_view.json
+  (result, landing, heading, miss, sentence identical on all 92 throws), and every file still decodes as the app's
+  `TwoViewDocument`; the front stage took 8 s per throw (median, max 15 s).
+
+**Limits.** The along/height motion is the side camera's: its scale (often `estimated`, §1.8) and its flight's end set
+the depth at which the front camera reads the lateral position (a 5 % depth error moves a 0.3 m offset by 1.5 cm).
+Suspect front deck corners give no 3D flight (missing stays missing). Only red bags are found. The bag tumbles, so the
+blob centre is not its centre of mass (a few px at the end, where it is 40 px across). The field of view and timing are
+fitted per throw as nuisance parameters, so they cannot also validate the sync or the camera; they are reported for
+review, not used elsewhere. The lateral launch angle is a number for the athlete page and the replay; no coaching
+sentence uses it yet.
 
 ---
 
