@@ -39,13 +39,13 @@ import numpy as np
 
 from .background import build_plate
 from .bag import GRAVITY_M_S2, _robust_polynomial
-from .bag_segment import (SEGMENT_REVISION, backfill_to_hand, extend_to_contact, refine_flight,
+from .bag_segment import (BACKFILL_MAX_SECONDS, SEGMENT_REVISION, backfill_to_hand, extend_to_contact, refine_flight,
                           track_after_contact)
 from .board import CAMERA_HEIGHT_RANGE_M, camera_height_m, detect_board, solve_board
 from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome, surface_at
 from .quality import RELEASE_WINDOW_GOOD_FRAMES
 
-AUTO_BAG_REVISION = "auto_motion_parabola_v17_forward_to_contact"
+AUTO_BAG_REVISION = "auto_motion_parabola_v18_hand_to_touchdown"
 ARM_LENGTH_RANGE_M = (0.45, 0.90)   # projected shoulder–wrist length; generous for foreshortening
 MIN_INLIERS = 12
 MIN_SPAN_SECONDS = 0.25
@@ -429,7 +429,12 @@ def _trim_to_projectile(chosen, f_ref, fps, limit, min_points=6):
         # grossly deviating start is removed. The end is judged against a LOCAL parabola of
         # the preceding frames: late free flight drifts from one whole-flight parabola
         # (perspective, drag) but a slide or bounce breaks sharply from the local one.
-        if _end_breaks_locally(chosen, run, fps, limit):
+        # A slide of several frames joins that local window and is absorbed, so an end point
+        # that is grossly off the whole flight (the same 2 x limit as the start) is removed too
+        # (pilot P3 take 1 throw 4: six slide frames after touchdown at frame 218 sat 62-170 px
+        # off the arc, pushed the flight to 32 px RMS and got the real throw rejected, while the
+        # free-flight points of the 14 audited throws stayed within 2 x limit of their arcs).
+        if _end_breaks_locally(chosen, run, fps, limit) or residual[-1] > 2 * limit:
             run = run[:-1]
         elif residual[0] > 2 * limit:
             run = run[1:]
@@ -828,6 +833,17 @@ def _grow_to_contact(chosen: dict[str, Any], refined: dict[int, dict[str, Any]],
     return {**chosen, "points": points, "fit": new_fit}, refined, info
 
 
+def travels_toward_target(flight: dict[str, Any], target_direction: str, arm_length_px: float | None) -> bool:
+    """The flight's detections move at least MIN_TRAVEL_ARM_LENGTHS toward the target (any forward
+    movement when the body scale is unknown) -- the same travel gate `find_flight` applies."""
+    points = flight.get("points") or []
+    if len(points) < 2:
+        return False
+    sign = 1.0 if target_direction == "left_to_right" else -1.0
+    travel = sign * (points[-1]["x"] - points[0]["x"])
+    return travel >= MIN_TRAVEL_ARM_LENGTHS * arm_length_px if arm_length_px else travel > 0
+
+
 def _same_throw(flight: dict[str, Any], chosen_fit: dict[str, Any]) -> bool:
     """A candidate flight that lies mostly (>= half its frames) inside the chosen flight is part of it."""
     a, b = int(flight["fit"]["first_frame"]), int(flight["fit"]["last_frame"])
@@ -1214,7 +1230,11 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     summary = [{"status": f["status"], "first_frame": f["fit"]["first_frame"], "last_frame": f["fit"]["last_frame"],
                 "inliers": f["fit"]["inliers"], "reasons": f["reasons"]} for f in flights]
     accepted = [f for f in flights if f["status"] == "accepted"]
-    pool = accepted or flights
+    # Without an accepted flight, only a candidate that actually travels toward the target can stand
+    # for the throw. A near-static object (pilot P3 take 1 throw 4: 0.1-0.2 arm lengths over 0.2-0.8 s,
+    # a bag lying on the floor flickering in the difference image) picked as "the flight" seeded
+    # release, the board background and touchdown from the wrong frames.
+    pool = accepted or [f for f in flights if travels_toward_target(f, target_direction, arm_length_px)]
     if not pool:
         # No flight gives no release frame, but the board is still worth locating (coach view,
         # session pooling, clicked-corner transfer): use the clip's middle frame as the reference.
@@ -1228,7 +1248,9 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
         return {"status": "not_found", "revision": AUTO_BAG_REVISION, "fps": fps, "flights": summary,
                 "width": width, "height": height,
                 "board": {**board_payload, "reference_frame": reference, "reference": "middle_frame"},
-                "reasons": ["No moving object followed a plausible projectile path. Check that the bag stays in view."]}
+                "reasons": ["No moving object followed a plausible projectile path. Check that the bag stays in view."]
+                + (["Moving objects were found, but none travelled toward the target; a near-static object is not "
+                    "a throw."] if flights else [])}
     def gap_to_wrist(f: dict[str, Any]) -> float:
         start = f["points"][0]
         w = wrist[start["frame"]] if wrist is not None and start["frame"] < len(wrist) else None
@@ -1248,7 +1270,9 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
     first_detection = int(chosen["fit"]["first_frame"])
     in_hand_px = IN_HAND_ARM_LENGTHS * arm_length_px if arm_length_px else None
     # Frames between the hand and the first detection the detector missed (low grey contrast).
-    backfilled = backfill_to_hand(frames, chain, [refined[f] for f in sorted(refined)], wrist, in_hand_px)
+    backfilled = backfill_to_hand(frames, chain, [refined[f] for f in sorted(refined)], wrist, in_hand_px,
+                                  max_frames=int(round(BACKFILL_MAX_SECONDS * fps)),
+                                  gravity_px_per_frame2=float(chosen["fit"]["vertical_acceleration_px_s2"]) / fps ** 2)
     refined.update({r["frame"]: r for r in backfilled})
     # Every refined frame counts, including gaps the segmentation re-acquired between detections.
     centres = [{"frame": f, "x": refined[f]["x"], "y": refined[f]["y"]} for f in sorted(refined)]
@@ -1361,6 +1385,11 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
             landing = _landing(decided, contact_known, contact, refined, chain, model)
         if board_phase and board_phase.get("status") == "measured" and board_phase.get("suggested_outcome"):
             suggested = board_phase["suggested_outcome"]
+        elif ((board_phase or {}).get("end") or {}).get("kind") == "never_on_deck" and contact_known \
+                and (decided.get("contact") or {}).get("kind") == "floor":
+            # Seen over the board only in the air, then a measured first contact on the floor: it missed.
+            suggested = {"score": 0, "basis": "The bag flew over the board without landing on it and hit the floor.",
+                         "confidence": "medium", "needs_confirmation": True, "source": "board_phase"}
         else:
             suggested = _mark_predicted_basis(suggest_outcome(after_contact, model), after_contact_from_predicted)
     board_payload = {k: v for k, v in board.items() if k != "model"}

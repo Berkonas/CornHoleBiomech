@@ -404,7 +404,7 @@ def test_clicked_corners_from_a_frame_outside_the_clip_are_dropped(monkeypatch):
 def test_near_contact_landing_uses_the_predicted_surface_point(monkeypatch):
     import cornhole_biomech.auto_bag as ab
     from cornhole_biomech.auto_bag import AUTO_BAG_REVISION, NEAR_CONTACT_FRAMES
-    assert AUTO_BAG_REVISION == "auto_motion_parabola_v17_forward_to_contact"
+    assert AUTO_BAG_REVISION == "auto_motion_parabola_v18_hand_to_touchdown"
     decided = _near_contact(monkeypatch, [0, 0, 500.0], 80 + NEAR_CONTACT_FRAMES)
     assert decided["contact"]["surface_point_px"] == [1.0, 2.0]
     assert decided["contact"]["surface_frame"] == 80 + NEAR_CONTACT_FRAMES
@@ -421,3 +421,26 @@ def test_near_contact_landing_uses_the_predicted_surface_point(monkeypatch):
                 "contact": {"kind": "deck", "state": "measured", "plane_xy_m": [0.5, 0.2], "reason": None}}
     landing = ab._landing(observed, True, 80, refined, {80: np.eye(3)}, _StubModel())
     assert seen == [(500.0, 300.0)] and landing["position_basis"] == "observed_contact_point"
+
+
+def test_slide_after_touchdown_is_cut_from_the_flight():
+    """Pilot P3 take 1 throw 4: six slide frames after touchdown stayed in the flight (32 px RMS, rejected)."""
+    flight = true_flight(t0=40, n=45)
+    last = flight[84]
+    for k in range(1, 8):                       # touchdown at frame 84, then a slow slide along the deck
+        flight[84 + k] = (last[0] + 6.0 * k, last[1] - 1.0 * k)
+    result = find_flight(candidates_with_clutter(flight, drop=0, clutter_per_frame=2), FPS, "left_to_right",
+                         arm_length_px=PPM * 0.62)
+    assert result["status"] == "accepted"
+    assert 82 <= result["fit"]["last_frame"] <= 85
+    assert result["fit"]["rms_residual_px"] < 5.0
+
+
+def test_near_static_flight_cannot_stand_for_the_throw():
+    from cornhole_biomech.auto_bag import travels_toward_target
+    static = {"points": [{"frame": f, "x": 249.0 - 1.3 * (f - 221), "y": 367.0} for f in range(221, 233)]}
+    throw = {"points": [{"frame": f, "x": 420.0 + 19.0 * (f - 150), "y": 400.0} for f in range(150, 220)]}
+    arm = 106.0
+    assert not travels_toward_target(static, "left_to_right", arm)
+    assert travels_toward_target(throw, "left_to_right", arm)
+    assert not travels_toward_target(throw, "right_to_left", arm)

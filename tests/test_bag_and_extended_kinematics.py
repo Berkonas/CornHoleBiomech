@@ -235,12 +235,13 @@ def test_pipeline_writes_separate_bag_artifacts_and_provenance(tmp_path):
     video = tmp_path / "trial.mp4"
     pose = tmp_path / "pose.json"
     output = tmp_path / "analysis"
-    _video(video, frames=20)
-    _pose(pose, frames=20)
+    # 30 frames: the wrist-only release (peak forward wrist speed + 0.09 s) must leave bag points after it.
+    _video(video, frames=30)
+    _pose(pose, frames=30)
     metadata = read_video_metadata(video)
     points = [
         BagAutomaticPoint(frame, 60 + frame, 55 - frame * 0.3, 0.95, (56 + frame, 51, 8, 8))
-        for frame in range(20)
+        for frame in range(30)
     ]
     raw_track = tmp_path / "bag-raw-input.json"
     BagTrack(
@@ -264,7 +265,7 @@ def test_pipeline_writes_separate_bag_artifacts_and_provenance(tmp_path):
     assert result["results"]["metrics_metadata"]["bag_release_speed_arm_lengths_s"]["units"] == "arm lengths/s"
 
     review = tmp_path / "bag-corrections.json"
-    BagCorrectionSet(reviewed_through_frame=19).save(review)
+    BagCorrectionSet(reviewed_through_frame=29).save(review)
     reviewed = analyze_trial(
         TrialContext("T1", "A1", "side", "right", "left_to_right", str(video)),
         output, backend="rtmpose", pose_input=pose, bag_corrections_path=review,

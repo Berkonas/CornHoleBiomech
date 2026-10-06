@@ -193,57 +193,90 @@ def refine_flight(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray],
     return out
 
 
+# Backward fill from the first measured bag centre to the hand (`backfill_to_hand`). Pilot evidence
+# (METHODS_AND_MATH §1.x, backward fill): the grey-level detector missed the first 10-22 frames of
+# free flight while a red bag crossed the brown slat wall (Player 2 take 4 throw 2: release 168/169,
+# first detection 190; Player 4 take 5 throw 3: release 180, first detection 190-192). A 15-frame
+# cap stopped the walk 6 frames short of the hand on the first, so the flight was left starting
+# 1.8 arm lengths from the wrist and release fell back to the wrist-only proxy. 0.5 s (30 frames at
+# 60 fps) covers the longest observed gap; the hand rule still ends the walk at release.
+BACKFILL_MAX_SECONDS = 0.5
+
+
 def backfill_to_hand(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], rows: list[dict[str, Any]],
-                     wrist: np.ndarray | None, in_hand_px: float | None, max_frames: int = 15,
-                     support: int = 6, max_misses: int = 2) -> list[dict[str, Any]]:
+                     wrist: np.ndarray | None, in_hand_px: float | None, max_frames: int = 30,
+                     support: int = 6, max_misses: int = 2,
+                     gravity_px_per_frame2: float | None = None) -> list[dict[str, Any]]:
     """Bag centres in the frames between the hand and the first detection, found by segmentation.
 
     The detector differences grey levels, so a red bag crossing a wall of similar brightness
-    (brown slats on the 4K pilot clips) goes undetected for its first frames of flight; the
-    colour (LAB) segmentation still separates it. Walking back from the first measured point,
+    (brown slats on the pilot clips) goes undetected for its first frames of flight; the
+    colour (LAB) segmentation still separates it. Walking back from the first mask-measured centre,
     each frame is searched at the position predicted by a parabola through the nearest
-    `support` measured centres, and accepted by the gap-filling rule (within half a bag length
-    of the prediction, typical bag size). The walk stops before a prediction reaches the hand
+    `support` mask-measured centres, and accepted by the gap-filling rule (within half a bag length
+    of the prediction, typical bag size). With `gravity_px_per_frame2` (the flight fit's image
+    gravity, px/frame^2) the prediction is a projectile: y has that fixed curvature and only position
+    and velocity are fitted (x straight). A free quadratic through six early centres extrapolated
+    backwards bends with their noise (pilot Player 4 take 5 throw 3: it missed the bag by 21 px one
+    frame back and by 49 px three frames back, so the walk stopped at once; with gravity fixed the
+    bag was found in every frame back to the hand, 12 frames). Rows whose mask was not found (`source` "detection") are
+    not used to predict: the detector centroid marks the bag's highest-contrast edge, up to ~18 px
+    from its centre on a pilot throw, which bends the backward parabola away from the bag. Such a
+    frame is re-searched; when the mask is found there the row is replaced (its detector centroid
+    kept), otherwise it does not break the walk. The walk stops before a prediction reaches the hand
     (within `in_hand_px` of the wrist: the release rule), after `max_misses` misses in a row, or
-    after `max_frames`. Returns rows (source `backfilled_mask`) in ascending frame order.
+    after `max_frames` (callers pass `BACKFILL_MAX_SECONDS` x fps). Returns rows (source
+    `backfilled_mask`) in ascending frame order.
     """
-    measured = [r for r in rows if r.get("source") in ("mask", "detection", "reacquired_mask")]
-    areas = [r["area_px"] for r in measured if r.get("area_px")]
-    if len(measured) < 4 or not areas or wrist is None or not in_hand_px:
+    masked = [r for r in rows if r.get("source") in ("mask", "reacquired_mask")]
+    areas = [r["area_px"] for r in masked if r.get("area_px")]
+    if len(masked) < 4 or not areas or wrist is None or not in_hand_px:
         return []
+    by_frame = {int(r["frame"]): r for r in rows}
     typical_area = float(np.median(areas))
     bag_length = 2.0 * math.sqrt(typical_area / math.pi)
-    track = [dict(r) for r in measured[:support]]
+    track = [dict(r) for r in masked[:support]]
     found: list[dict[str, Any]] = []
     misses = 0
     for f in range(track[0]["frame"] - 1, max(-1, track[0]["frame"] - 1 - max_frames), -1):
         near = track[:support]
         t = np.array([r["frame"] for r in near], float) - f
-        degree = 2 if len(near) >= 4 else 1
-        guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
-                 float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
+        if gravity_px_per_frame2 is not None:
+            ys = np.array([r["y"] for r in near], float) - 0.5 * gravity_px_per_frame2 * t ** 2
+            guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], 1), 0.0)),
+                     float(np.polyval(np.polyfit(t, ys, 1), 0.0)))
+        else:
+            degree = 2 if len(near) >= 4 else 1
+            guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
+                     float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
         if f >= len(wrist) or not np.isfinite(wrist[f]).all() \
                 or math.hypot(guess[0] - wrist[f][0], guess[1] - wrist[f][1]) < in_hand_px:
             break
+        existing = by_frame.get(f)
         seg = segment_bag(frames, chains, f, guess, typical_area)
         if seg and not seg["touches_window_edge"] and seg["distance_from_prediction_px"] <= 0.5 * bag_length \
                 and math.hypot(seg["x"] - wrist[f][0], seg["y"] - wrist[f][1]) >= in_hand_px:
             row = {"frame": f, "x": seg["x"], "y": seg["y"], "area_px": seg["area_px"],
                    "orientation_deg": seg["orientation_deg"], "source": "backfilled_mask",
-                   "detection_x": None, "detection_y": None}
+                   "detection_x": None if existing is None else existing.get("detection_x"),
+                   "detection_y": None if existing is None else existing.get("detection_y")}
             found.append(row)
             track.insert(0, row)
             misses = 0
+        elif existing is not None:
+            continue   # a detection without a mask: keep it, it neither supports nor breaks the walk
         else:
             misses += 1
             if misses >= max_misses:
                 break
-    # A miss between accepted frames leaves a gap; keep only the run touching the detections.
+    # A miss between accepted frames leaves a gap; keep only the run touching the measured rows.
     found.sort(key=lambda r: r["frame"])
     run: list[dict[str, Any]] = []
-    expected = measured[0]["frame"] - 1
+    expected = masked[0]["frame"] - 1
     for r in reversed(found):
-        if expected - r["frame"] > 1:
+        while expected > r["frame"] and expected in by_frame:
+            expected -= 1
+        if expected != r["frame"]:
             break
         run.insert(0, r)
         expected = r["frame"] - 1

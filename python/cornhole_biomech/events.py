@@ -17,7 +17,15 @@ EVENT_ORDER = (
 )
 
 
-EVENT_METHOD = "filtered_shoulder_relative_wrist_heuristic_v3"
+EVENT_METHOD = "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay"
+
+# Wrist-only release (used only when no accepted bag flight supplies release): the bag leaves the
+# hand AFTER the shoulder-relative wrist reaches its peak forward speed -- the hand decelerates as
+# the arm rises while the bag rolls off the fingers. On 13 pilot throws with a frame-checked release
+# (four players, 59.94 fps) the peak came 4-7 frames before release (median 5.5, mean 5.4 = 90 ms).
+# Release is therefore the peak plus this delay; the residual on those throws was -2 to +1 frames
+# (12 of 13 within +-1). Before this delay the proxy was 4-7 frames early on every throw.
+RELEASE_AFTER_PEAK_WRIST_SPEED_S = 0.09
 
 # The fastest rearward wrist movement of the backswing is sought this far before the top of the
 # backswing. On the six audited throws it came 0.23–0.43 s before the top (whole backswing
@@ -91,7 +99,8 @@ def detect_events(
 
     When supplied, a reviewed bag-track candidate based on persistent bag/wrist
     divergence takes priority over the wrist-only proxy. Otherwise release is
-    peak target-axis wrist velocity after backswing. Both remain frame-limited
+    the frame of peak target-axis wrist velocity plus RELEASE_AFTER_PEAK_WRIST_SPEED_S
+    (0.09 s, pilot calibration), within the motion. Both remain frame-limited
     candidates until manually reviewed.
 
     Moving = shoulder-relative wrist speed ≥ max(0.05, 0.12 × peak) arm lengths/s.
@@ -127,10 +136,15 @@ def detect_events(
     else:
         start, end = int(moving_indices[0]), int(moving_indices[-1])
     x = np.where(valid, wrist[:, 0], np.nan)
-    wrist_release = int(start + np.nanargmax(velocity[start : end + 1, 0]))
-    if wrist_release <= start:
+    wrist_peak = int(start + np.nanargmax(velocity[start : end + 1, 0]))
+    if wrist_peak <= start:
         later = np.flatnonzero(valid & (np.arange(len(valid)) > start) & (np.arange(len(valid)) <= end))
-        if later.size: wrist_release = int(later[0])
+        if later.size: wrist_peak = int(later[0])
+    # Release follows the peak forward wrist speed by RELEASE_AFTER_PEAK_WRIST_SPEED_S (pilot
+    # calibration above); kept inside the motion and on a frame with a valid wrist.
+    wrist_release = min(end, wrist_peak + int(round(RELEASE_AFTER_PEAK_WRIST_SPEED_S * fps)))
+    while wrist_release > wrist_peak and not valid[wrist_release]:
+        wrist_release -= 1
     use_bag = (
         release_candidate is not None
         and release_candidate.automatic_frame is not None

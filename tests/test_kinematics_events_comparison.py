@@ -147,3 +147,18 @@ def test_motion_start_falls_back_when_the_wrist_never_goes_quiet():
     frames = [events[name].effective_frame for name in EVENT_ORDER]
     assert frames == sorted(frames)
     assert events["motion_start"].effective_frame is not None
+
+
+def test_wrist_only_release_follows_the_peak_forward_wrist_speed():
+    """Without a bag flight, release = peak forward wrist speed + 0.09 s (13 pilot throws: the peak came
+    4-7 frames before the frame-checked release at 60 fps; the uncorrected proxy was early on every one)."""
+    from cornhole_biomech.events import EVENT_METHOD, RELEASE_AFTER_PEAK_WRIST_SPEED_S
+    f = np.arange(200)
+    x = -0.4 * np.exp(-((f - 70) / 15.0) ** 2) + 0.8 * np.tanh((f - 100) / 8.0)
+    wrist = np.column_stack((x, 0.1 * np.tanh((f - 100) / 8.0)))
+    events = detect_events(wrist, 60)
+    peak = int(np.argmax(np.gradient(x)))
+    assert events["release"].automatic_frame == peak + round(RELEASE_AFTER_PEAK_WRIST_SPEED_S * 60)
+    assert events["release"].automatic_method == EVENT_METHOD
+    frames = [events[name].effective_frame for name in EVENT_ORDER]
+    assert frames == sorted(frames)

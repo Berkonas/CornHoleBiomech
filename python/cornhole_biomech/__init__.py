@@ -7,7 +7,7 @@ __version__ = "0.6.2"
 # analysed under different method versions are never pooled or compared.
 # The engine source hash stays in each manifest as provenance, but it is not
 # used for compatibility, so edits to comments or UI code keep old analyses usable.
-METHOD_VERSION = "2026.10.05-body-events"
+METHOD_VERSION = "2026.10.05-release-touchdown"
 
 REQUIRED_LANDMARKS = (
     "left_shoulder",

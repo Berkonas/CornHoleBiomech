@@ -51,7 +51,7 @@ from .bag import GRAVITY_M_S2
 from .bag_segment import _local_align, _warp_to
 from .regulation import INCH_M
 
-BOARD_PHASE_REVISION = "board_phase_v2_side_edge"
+BOARD_PHASE_REVISION = "board_phase_v3_deck_footprint_touchdown"
 HOLE_U_IN, HOLE_V_IN, HOLE_RADIUS_IN = 12.0, 39.0, 3.0
 BAG_HALF_IN = 3.0
 # A bag whose centre vanishes within the hole radius + half a bag (along the deck) fell in.
@@ -68,6 +68,32 @@ DECK_WIDTH_IN = 24.0
 # A moving bag whose centre was last seen within half a bag of a side edge already overhangs it; when it
 # then vanishes it went off that side (Player 2 take 5 throw 4: last seen 21.6 in across, on the floor next).
 SIDE_EDGE_IN = BAG_HALF_IN
+# The same half-bag rule for the front and back edges. Along the deck (v) is measured to about an inch,
+# across (u) only to about +-3 in, so a bag within half a bag of the front or back edge is judged off
+# that edge first (Player 4 take 5 throw 3: last seen 1.5-1.7 in up the deck and 2.7 in across; the
+# front camera shows it falling off the front edge, which the side-edge rule had reported).
+END_EDGE_IN = BAG_HALF_IN
+DECK_LENGTH_IN = 48.0
+# Touchdown (see `_on_deck`): a single side view cannot tell "high above the deck" from "on the deck
+# but further across" -- both move the bag up in the picture. The bag's centre is therefore mapped onto
+# the plane BAG_CENTRE_HEIGHT_IN above the deck; it can be ON the deck only if that point lies on the
+# deck, allowing the bag's overhang (half a bag) plus the across precision (+-3 in) at the side edges
+# and the overhang at the front/back. Pilot evidence (14 audited side throws, frame by frame): the
+# frame-checked touchdown samples mapped -4.0 to +15.7 in across and 2.6-36.6 in along; airborne samples
+# mapped 6.2-28 in beyond the far side edge, or past the back edge for the bag that sailed long (Player 3
+# take 2 throw 1: 3.9-11.6 in past it). The older throw-plane height test (within 7 cm of the deck)
+# rejected a bag landing at the far front corner (9-12 cm "height", Player 2 take 3 throw 3, which then
+# fell back to the first airborne sample), was 1 frame late on Player 3 take 1 throw 4 (7.2 cm at the
+# visible touchdown), and could not say "never landed" (Player 3 take 2 throw 1 got an airborne touchdown).
+# Airborne samples can still map onto the deck footprint (5 pilot throws, -0.5 to -5.6 in across, one
+# frame before touchdown), so a second test is needed: in the air the bag still falls quickly in the
+# picture, at impact the centre's drop collapses. Centre drop to the next sample, in bag lengths: -0.03
+# to 0.33 from the 13 frame-checked touchdown frames (0.31-0.33 when a corner lands first: Player 3
+# take 1 throw 4, Player 4 take 5 throw 2, Player 4 take 1 throw 1); 0.42-0.64 from the airborne
+# samples on or next to the footprint (Player 1 take 3 throw 2, Player 1 take 5 throw 1, Player 2 take 1
+# throw 2, Player 2 take 5 throw 4, Player 3 take 2 throw 1, Player 4 take 5 throw 3). The cut-off is
+# midway, 0.38 bag lengths; the margin is small (0.33 vs 0.42), so a touchdown can still be one frame off.
+TOUCHDOWN_FALL_BAG_LENGTHS = 0.38
 
 
 def _bag_length_px(typical_area: float | None) -> float:
@@ -287,8 +313,9 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
             s["right_of_centre_in"] = side * (s["u_in"] - HOLE_U_IN)
             s["plane_x_m"], s["plane_y_m"] = float(px), float(py)
             deck_y = board.deck_height_at(min(max(float(px), 0.0), board.horizontal_length_m))
-            s["on_deck_surface"] = bool(-0.5 * 6 * INCH_M <= px <= board.horizontal_length_m + 3 * INCH_M
-                                        and abs(py - deck_y) <= DECK_TOLERANCE_M)
+            s["lifted_u"] = bool(math.isfinite(u_lift))
+            s["plane_on_deck"] = bool(-0.5 * 6 * INCH_M <= px <= board.horizontal_length_m + 3 * INCH_M
+                                      and abs(py - deck_y) <= DECK_TOLERANCE_M)
             if chains is not None and s["frame"] in chains:
                 raw = np.linalg.inv(chains[s["frame"]]) @ np.array([s["x_release_frame"], s["y_release_frame"], 1.0])
                 s["x"], s["y"] = float(raw[0]), float(raw[1])
@@ -296,6 +323,11 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
                 s["x"], s["y"] = s["x_release_frame"], s["y_release_frame"]
         mid = pts[len(pts) // 2]
         lateral_precision = model.across_precision_in_per_px(mid)
+        across_tol = BAG_HALF_IN + max(3.0, 3.0 * lateral_precision)
+        bag_length = _bag_length_px(typical_area)
+        for i, s in enumerate(present):
+            nxt = present[i + 1] if i + 1 < len(present) else None
+            s["on_deck_surface"] = _on_deck(s, nxt, across_tol, bag_length)
     lateral = {"state": "approximate" if lateral_precision is None or lateral_precision > LATERAL_UNRELIABLE_IN else "estimated",
                "inches_per_pixel": lateral_precision,
                "precision_in": None if lateral_precision is None else float(max(3.0, 3.0 * lateral_precision)),
@@ -308,9 +340,15 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
                 "reason": "The bag was not seen on the board (it may have landed off the board or been hidden).",
                 "end": {"kind": "never_on_deck"},
                 "suggested_outcome": None}
-    # Touchdown: the first on-surface sample (or the flight tracker's observed contact, if earlier).
+    # Touchdown: the first sample that can lie on the deck (or the flight tracker's observed contact, if
+    # earlier). A bag seen only in the air over the board never touched down: it is not given a touchdown.
     on_surface = [s for s in present if s["on_deck_surface"]]
-    touch = on_surface[0] if on_surface else present[0]
+    if not on_surface:
+        return {**base, "status": "not_found", "path": [],
+                "reason": "The bag was seen over the board only in the air; it did not land on the deck.",
+                "end": {"kind": "never_on_deck"}, "suggested_outcome": None,
+                "samples_present": len(present), "samples_total": len(samples)}
+    touch = on_surface[0]
     if touchdown_hint is not None:
         hinted = [s for s in present if s["frame"] >= touchdown_hint]
         if hinted and hinted[0]["frame"] < touch["frame"] and hinted[0]["on_deck_surface"]:
@@ -354,9 +392,10 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
         end = {"kind": "left_deck", "frame": last_seen["frame"] + 1,
                "note": "The bag left the board surface (slid or bounced off)."}
         end_sample = last_seen
-    elif gone and stop is None and (last_seen["v_in"] > 45.0 or last_seen["v_in"] < 1.0):
-        end = {"kind": "left_deck", "frame": last_seen["frame"] + 1,
-               "note": "The bag was last seen at the edge of the board and then disappeared (probably slid off)."}
+    elif gone and stop is None and (last_seen["v_in"] > DECK_LENGTH_IN - END_EDGE_IN or last_seen["v_in"] < END_EDGE_IN):
+        edge = "back" if last_seen["v_in"] > DECK_LENGTH_IN / 2 else "front"
+        end = {"kind": "left_deck", "frame": last_seen["frame"] + 1, "edge": edge,
+               "note": f"The bag was last seen at the {edge} edge of the board and then disappeared (probably slid off)."}
         end_sample = last_seen
     elif gone and stop is None and (last_seen["u_in"] >= DECK_WIDTH_IN - SIDE_EDGE_IN or last_seen["u_in"] <= SIDE_EDGE_IN):
         end = {"kind": "left_deck", "frame": last_seen["frame"] + 1, "edge": "side",
@@ -437,6 +476,27 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
     return {**base, "status": "measured", "touchdown": touchdown, "end": end, "hang": hang, "drained": drained,
             "slide": slide_summary, "path": path, "suggested_outcome": suggested,
             "samples_present": len(present), "samples_total": len(samples)}
+
+
+def _on_deck(sample: dict[str, Any], following: dict[str, Any] | None, across_tol_in: float,
+             bag_length_px: float) -> bool:
+    """Can this sample be the bag lying on the deck? (touchdown test; constants above)
+
+    Its centre, mapped onto the plane half a bag-thickness above the deck, lies on the deck (u within
+    `across_tol_in` of the side edges, v within half a bag of the front/back edge), and it is not still
+    falling: its image centre drops by at most TOUCHDOWN_FALL_BAG_LENGTHS bag lengths per frame to the
+    next sample. Without the camera pose (no lifted mapping) the older throw-plane height test is used.
+    """
+    if not sample.get("lifted_u"):
+        on = bool(sample.get("plane_on_deck"))
+    else:
+        on = (-across_tol_in <= sample["u_in"] <= DECK_WIDTH_IN + across_tol_in
+              and -END_EDGE_IN <= sample["v_in"] <= DECK_LENGTH_IN + END_EDGE_IN)
+    if on and following is not None:
+        gap = max(1, following["frame"] - sample["frame"])
+        if (following["y_release_frame"] - sample["y_release_frame"]) / gap > TOUCHDOWN_FALL_BAG_LENGTHS * bag_length_px:
+            on = False
+    return on
 
 
 def _lifted_u(model, pts: np.ndarray) -> np.ndarray:
