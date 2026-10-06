@@ -357,6 +357,7 @@ DECK_STEP_PX = 90.0               # full-res px per frame: the bag's last flight
 DECK_MIN_MOVING_SHARE = 0.15      # share of a blob's pixels that changed against two frames before/after
 DECK_MAX_GAP = 3                  # frames a track may skip (bag hidden behind the hole's rim, blur)
 DECK_SKIP_COST = 0.5              # per skipped frame, against a reward of 1 per tracked frame
+DECK_HOLE_INTERIOR_SHARE = 0.8    # a blob this much inside the hole's outline is the hole interior, not a bag
 
 
 def _scene_background(frames: Sequence[np.ndarray], before: int, scale: float) -> tuple[np.ndarray, int]:
@@ -369,7 +370,8 @@ def _scene_background(frames: Sequence[np.ndarray], before: int, scale: float) -
 
 
 def track_on_deck(frames: Sequence[np.ndarray], anchors_px: np.ndarray, start: int, stop: int, roi_mask: np.ndarray,
-                  min_area: float, max_area: float, scale: float = SEARCH_SCALE) -> list[dict[str, Any]]:
+                  min_area: float, max_area: float, scale: float = SEARCH_SCALE,
+                  hole_px: Sequence[np.ndarray] | None = None) -> list[dict[str, Any]]:
     """The moving bag near/on the deck from ``start`` to ``stop`` (front-clip frames).
 
     ``anchors_px[f]`` is a fixed deck point in frame f's image (it gives the camera's drift). A candidate is a
@@ -378,6 +380,9 @@ def track_on_deck(frames: Sequence[np.ndarray], anchors_px: np.ndarray, start: i
     track is the best chain through all frames (dynamic programming: +1 per tracked frame, minus the squared
     step relative to 90 px per frame, minus 0.5 per skipped frame), not a greedy nearest-neighbour link. Each
     point is the bag *in that frame* (frame-pair differencing put it one frame early or late, 44–71 px off).
+    ``hole_px[f]`` (optional) is the hole's outline in frame f: a blob lying almost wholly inside it (≥ 80 % of
+    its pixels) is the hole's dark-red interior, which flickers and passes the motion test while nothing moves
+    (Player 3 take 2 throw 1: it was "tracked" for 12 frames after the bag had left the view); it is left out.
     Returns [{"frame", "px", "bottom_px", "area_px"}] in full-resolution pixels."""
     n = len(frames)
     lo, hi = max(1, start), min(n - 1, stop)
@@ -401,6 +406,10 @@ def track_on_deck(frames: Sequence[np.ndarray], anchors_px: np.ndarray, start: i
         moving = np.minimum(_maxdiff(im, prev), _maxdiff(im, nxt)) > TEMPORAL_DIFF
         mask = cv2.morphologyEx(colour.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         count, labels, stats, cents = cv2.connectedComponentsWithStats(mask, 8)
+        hole_mask = None
+        if hole_px is not None and k < len(hole_px) and hole_px[k] is not None:
+            hole_mask = np.zeros(mask.shape, np.uint8)
+            cv2.fillPoly(hole_mask, [np.round(np.asarray(hole_px[k], float) * s).astype(np.int32)], 1)
         frame_nodes = []
         for j in range(1, count):
             area = float(stats[j, cv2.CC_STAT_AREA])
@@ -408,6 +417,8 @@ def track_on_deck(frames: Sequence[np.ndarray], anchors_px: np.ndarray, start: i
                 continue
             ys, xs = np.nonzero(labels == j)
             if float(np.mean(moving[ys, xs])) < DECK_MIN_MOVING_SHARE:
+                continue
+            if hole_mask is not None and float(np.mean(hole_mask[ys, xs])) >= DECK_HOLE_INTERIOR_SHARE:
                 continue
             low = ys >= np.percentile(ys, 85)
             frame_nodes.append({"frame": k, "px": [float(cents[j][0] / s), float(cents[j][1] / s)],

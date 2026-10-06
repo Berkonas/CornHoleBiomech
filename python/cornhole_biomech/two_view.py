@@ -33,7 +33,7 @@ from . import front_view as fv
 from .regulation import INCH_M, Board
 from .serialization import json_ready, write_json
 
-TWO_VIEW_VERSION = "two_view_v3_front_lag"   # bump when the front landing / tracking logic changes
+TWO_VIEW_VERSION = "two_view_v5_knocked_confirm"   # bump when the front landing / tracking logic changes
 TAKE_LINK_FILENAME = "take_link.json"
 LATERAL_ON_LINE_IN = 3.0          # within ±3 in of the hole centre line sideways = "on line" (the hole radius)
 DISTANCE_ON_TARGET_IN = 3.0
@@ -383,7 +383,9 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
         shape_hfov is not None and pooled is not None and abs(float(shape_hfov) - float(pooled)) > MAX_HFOV_DEVIATION_DEG)
     record["camera"]["corners_suspect"] = bool(suspect)
     if suspect:
-        camera = {**camera, "status": "estimated", "pose": None}
+        camera = {**camera, "status": "estimated", "pose": None,
+                  "pose_withheld": "The board's corners in the front camera look misplaced on this take, so positions "
+                                   "on the floor are not measured; click the four deck corners to fix it."}
         record["camera"]["status"] = "estimated"
         record["notes"].append("The board's corners in the front camera look misplaced (the camera fit is poor), so "
                                "where the athlete stood and the aim are not measured on this take; left/right on the "
@@ -399,6 +401,12 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     if landing.get("where") == "off" and not suspect:
         final_camera = fv.calibrate_front_camera(corners[-1], (w, h), None, None, None, camera["hfov_deg"])
     record["landing"] = fuse_landing(landing, phase, results, final_camera)
+    if side_hit_floor_first(results) and record["landing"].get("contact"):
+        # The side camera saw the bag reach the floor first, never on the deck: a deck point the front camera
+        # tracked was the bag passing over the board in the air (Player 3 take 2 throw 1).
+        record["landing"]["contact"] = None
+        record["notes"].append("The side camera saw the bag land on the floor first, so no first contact on the board "
+                               "is given.")
     offset = (record["frontal"].get("release_point_offset_m") or {}).get("value")
     # Heading from first contact; the resting place only for a bag that stayed on the board (a bag that slid
     # or bounced off ends far from where the flight was aimed).
@@ -413,7 +421,10 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
         for key in ("release_point_offset_m",):
             if (record["frontal"].get(key) or {}).get("value") is not None:
                 record["frontal"][key]["status"] = "estimated"
-    record["result"] = decide_result(record["landing"], results)
+    record["sync_check"] = sync_check(landing, contact_front_from_side)
+    record["result"] = decide_result(record["landing"], results, corners_suspect=bool(suspect),
+                                     sync_ok=(record["sync_check"].get("agrees") is not False),
+                                     rest_basis=landing.get("rest_basis"))
     if suspect:
         # Hole / board / off and the board positions come from the same misplaced corners: shown, not recorded.
         record["landing"]["status"] = "estimated"
@@ -423,7 +434,6 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
         if record["result"].get("category") is not None:
             record["result"]["status"] = "needs_confirmation"
     record["miss"] = miss_vector(record["landing"])
-    record["sync_check"] = sync_check(landing, contact_front_from_side)
     record["front_path"] = front_flight_path(frames, release_front, contact_front, release_px, corners, front_fps,
                                              hfov_deg=camera.get("hfov_deg"))
     record["deck_corners_px"] = corners[release_front if release_front is not None and 0 <= release_front < len(corners) else 0].tolist()
@@ -529,6 +539,10 @@ def board_phase_with_front(record: dict[str, Any], results: dict[str, Any]) -> d
         return None
     side = results.get("board_phase") if isinstance(results.get("board_phase"), dict) else {}
     phase: dict[str, Any] = {k: v for k, v in (side or {}).items()}
+    if phase.get("status") != "measured":
+        # The side camera did not see the bag on the board; what follows comes from the front camera only.
+        phase.pop("reason", None)
+        phase["side_status"] = (side or {}).get("status") or "unavailable"
     phase["status"] = "measured"
     precision = ((front.get("precision") or {}).get("across_in_per_px"))
     phase["lateral"] = {"state": "front_camera", "precision_in": None if precision is None else max(0.25, 2 * precision),
@@ -574,14 +588,47 @@ def board_phase_with_front(record: dict[str, Any], results: dict[str, Any]) -> d
     return phase
 
 
-def decide_result(landing: dict[str, Any], results: dict[str, Any]) -> dict[str, Any]:
-    """Hole (3) / board (1) / off (0) from the front camera; the side camera's suggestion is a cross-check."""
+def side_hit_floor_first(results: dict[str, Any]) -> bool:
+    """The side camera measured first contact on the floor and its board phase never saw the bag on the deck.
+
+    The contact kind alone is not enough: on six library throws that stayed on the board or went in (Player 1
+    takes 1, 3, 6, 7; Player 4 takes 1 and 2) the side contact said "floor" while its board phase saw the bag
+    touch down on the deck. Only when no on-deck touchdown backs it (Player 2 take 1 throw 3, Player 3 take 1
+    throw 1 and take 2 throw 1) did the bag really miss the board."""
+    contact = results.get("contact") if isinstance(results.get("contact"), dict) else {}
+    if contact.get("kind") != "floor" or contact.get("state") != "measured":
+        return False
+    touch = (results.get("board_phase") or {}).get("touchdown")
+    return not (isinstance(touch, dict) and touch.get("on_deck"))
+
+
+def decide_result(landing: dict[str, Any], results: dict[str, Any], *, corners_suspect: bool = False,
+                  sync_ok: bool = True, rest_basis: str | None = None) -> dict[str, Any]:
+    """Hole (3) / board (1) / off (0) from the front camera; the side camera's suggestion is a cross-check.
+
+    Guards (METHODS_AND_MATH §5.3): a front hole/board is withheld (no category, needs confirmation) when the
+    side camera saw the bag hit the floor first, when the front deck corners are suspect and the side camera saw
+    the bag leave the board, or when the hole came from the tracked path and the two cameras' contact times
+    disagree (failed sync check)."""
     where = landing.get("where")
     category = {"hole": "throughHole", "board": "onBoard", "off": "offBoard"}.get(where or "")
     side = (results.get("suggested_outcome") or {}).get("category") if isinstance(results.get("suggested_outcome"), dict) else None
     phase_end = ((results.get("board_phase") or {}).get("end") or {}).get("kind")
     side_cat = ("throughHole" if phase_end == "fell_in_hole" else "onBoard" if phase_end == "rest"
                 else "offBoard" if phase_end in SIDE_OFF_ENDS else side)
+    if category in ("throughHole", "onBoard"):
+        withheld = None
+        if side_hit_floor_first(results):
+            withheld = "The side camera saw the bag hit the floor first, never the board."
+        elif corners_suspect and side_cat == "offBoard":
+            withheld = ("The front camera's board corners look misplaced and the side camera saw the bag leave the "
+                        "board.")
+        elif not sync_ok and rest_basis == "tracked path into the hole":
+            withheld = "The two cameras do not agree on when the bag landed, so the tracked path cannot place it."
+        if withheld:
+            return {"category": None, "points": None, "source": None, "side_suggestion": side_cat,
+                    "views_agree": False, "status": "needs_confirmation", "front_category": category,
+                    "reason": withheld}
     source = "front camera" if category else None
     if category is None and landing.get("deck_clear"):
         # No new bag on the deck or in the hole (the front camera sees the whole deck): off the board. It is
@@ -591,12 +638,17 @@ def decide_result(landing: dict[str, Any], results: dict[str, Any]) -> dict[str,
         return {"category": category, "points": 0, "source": source, "side_suggestion": side_cat, "views_agree": agree,
                 "status": "suggested" if agree else "needs_confirmation"}
     agree = None if category is None or side_cat is None else category == side_cat
-    if landing.get("ambiguous_resolved_by"):
-        # The side ending chose between the front camera's two candidates, so it cannot also confirm the choice.
+    knocked = bool(landing.get("ambiguous_resolved_by"))
+    if knocked:
+        # The side ending chose between the front camera's two candidates, so it cannot also confirm the choice,
+        # and from the side the thrown and the knocked bag overlap: on the 92-throw library it chose right on 5
+        # of 7 such throws (two bags that slid into the hole while nudging an old one were read as "rest").
+        # Shown as the suggestion, never recorded automatically.
         agree = None
     return {"category": category, "points": {"throughHole": 3, "onBoard": 1, "offBoard": 0}.get(category or ""),
             "source": source, "side_suggestion": side_cat, "views_agree": agree,
-            "status": "needs_confirmation" if category is None or agree is False else "suggested"}
+            "status": "needs_confirmation" if category is None or agree is False or knocked else "suggested",
+            **({"reason": "This throw moved another bag; check which one went in."} if knocked else {})}
 
 
 def miss_vector(landing: dict[str, Any]) -> dict[str, Any]:
@@ -629,7 +681,10 @@ def sync_check(front_landing: dict[str, Any], contact_front: int | None) -> dict
 FRONT_LAG_MIN_THROWS = 8       # throws with both contacts seen before a set-up's picture lag is estimated
 FRONT_LAG_MAX_S = 0.10         # 3 front frames: beyond that it is not exposure/readout lag but a sync or tracking fault
 FRONT_LAG_MAX_IQR_S = 0.07     # about 2 front frames of spread between throws
-LAG_COMPATIBLE_VERSIONS = {"two_view_v2", "two_view_v3_front_lag"}   # same front tracker (front_track.py)
+LAG_COMPATIBLE_VERSIONS = {"two_view_v2", "two_view_v3_front_lag", "two_view_v4_landing_guards",
+                           "two_view_v5_knocked_confirm"}   # same front tracker
+# (v4 only leaves the hole interior out of the deck track and bags out of the deck alignment; the first on-deck
+# frame used for the lag is unchanged on the library: see METHODS_AND_MATH §5.1)
 
 
 def pool_front_lag(analysis_dirs: list[Path]) -> dict[str, Any]:
@@ -749,6 +804,8 @@ def explain(record: dict[str, Any], results: dict[str, Any]) -> dict[str, Any]:
     parts: list[dict[str, Any]] = []
     if result.get("category") == "throughHole":
         return {"sentence": "In the hole — nothing to correct on this throw.", "parts": [], "kind": "made"}
+    if result.get("category") is None and result.get("reason"):
+        return {"sentence": f"{result['reason']} Check the video.", "parts": [], "kind": "unknown"}
     sentence_bits: list[str] = []
     long = miss.get("short_long_in")
     right = miss.get("left_right_in")
@@ -782,8 +839,10 @@ def explain(record: dict[str, Any], results: dict[str, Any]) -> dict[str, Any]:
         if result.get("category") == "offBoard":
             aim = (f" — aimed {abs(heading['deg']):.1f}° {_side(heading['deg'])}"
                    if heading.get("deg") is not None and abs(heading["deg"]) >= 0.3 else "")
-            return {"sentence": f"Off the board{aim}; where it stopped was out of the front camera's view.",
-                    "parts": parts, "kind": "miss"}
+            seen = ((record.get("landing") or {}).get("rest") or {}).get("on") == "floor"
+            where = ("it stopped on the floor, but how far could not be measured on this take" if seen
+                     else "where it stopped was out of the front camera's view")
+            return {"sentence": f"Off the board{aim}; {where}.", "parts": parts, "kind": "miss"}
         if result.get("category") == "onBoard":
             return {"sentence": "On the board close to the hole — distance and line were both within 3 in.",
                     "parts": parts, "kind": "close"}

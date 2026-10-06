@@ -512,11 +512,12 @@ def board_window(corners_px: np.ndarray, size: tuple[int, int]) -> tuple[int, in
 
 
 def align_to_reference(reference_gray: np.ndarray, gray: np.ndarray, window: tuple[int, int, int, int],
-                       initial: np.ndarray | None = None) -> dict[str, Any]:
+                       initial: np.ndarray | None = None, ignore_mask: np.ndarray | None = None) -> dict[str, Any]:
     """Affine warp W (2×3) mapping reference pixels to this frame's pixels, by ECC on the board window.
 
     Phase correlation gives the starting translation; ECC refines a full affine. ``ok`` is False when
     ECC does not converge or its correlation is below 0.6 (the board is hidden or the scene changed).
+    ``ignore_mask`` (frame-sized, non-zero = leave out) removes pixels of this frame from the fit, e.g. bags.
     """
     x, y, w, h = window
     ref = reference_gray[y:y + h, x:x + w].astype(np.float32)
@@ -525,6 +526,11 @@ def align_to_reference(reference_gray: np.ndarray, gray: np.ndarray, window: tup
     X0, Y0 = max(0, x - pad), max(0, y - pad)
     X1, Y1 = min(gray.shape[1], x + w + pad), min(gray.shape[0], y + h + pad)
     cur = gray[Y0:Y1, X0:X1].astype(np.float32)
+    input_mask = None
+    if ignore_mask is not None:
+        keep = (np.asarray(ignore_mask)[Y0:Y1, X0:X1] == 0).astype(np.uint8)
+        if keep.mean() >= 0.5:               # most of the window must still be usable
+            input_mask = keep
     if initial is None:
         big = np.zeros_like(cur)
         oy, ox = y - Y0, x - X0
@@ -542,7 +548,7 @@ def align_to_reference(reference_gray: np.ndarray, gray: np.ndarray, window: tup
         warp[:, 2] = A0 @ np.array([x, y], float) + t0 - np.array([X0, Y0], float)
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, ECC_ITERATIONS, ECC_EPSILON)
     try:
-        cc, warp = cv2.findTransformECC(ref, cur, warp, cv2.MOTION_AFFINE, criteria, None, 5)
+        cc, warp = cv2.findTransformECC(ref, cur, warp, cv2.MOTION_AFFINE, criteria, input_mask, 5)
     except cv2.error:
         return {"ok": False, "warp": None, "correlation": None}
     # window→search warp  →  full reference → full frame:  p_frame = A (p_ref - [x,y]) + t + [X0,Y0]
@@ -552,6 +558,19 @@ def align_to_reference(reference_gray: np.ndarray, gray: np.ndarray, window: tup
     full[:, :2] = A
     full[:, 2] = t + np.array([X0, Y0]) - A @ np.array([x, y], float)
     return {"ok": bool(cc >= 0.6), "warp": full, "correlation": float(cc)}
+
+
+ALIGN_BAG_DILATE_PX = 9          # bag mask grown by about a third of a near bag's size (blur, shadow at its edge)
+ALIGN_SHAPE_TOLERANCE_PX = 3.0   # deck shape change (translation removed) beyond which a key frame is not trusted
+ALIGN_MAX_LINEAR = 0.02          # affine scale/shear a drifting tripod camera can show (real: ≤ 0.3 %, 1 px on the deck)
+
+
+def bag_red_mask(image: np.ndarray) -> np.ndarray:
+    """Bag-coloured pixels (hue ≤ 12 or ≥ 150, S ≥ 60, V ≥ 35: the bags, not the deck paint at S 25–60), grown."""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    red = (((h <= RED_HUE_LOW) | (h >= RED_HUE_HIGH)) & (s >= BAG_MIN_SATURATION) & (v >= 35)).astype(np.uint8)
+    return cv2.dilate(red, np.ones((ALIGN_BAG_DILATE_PX, ALIGN_BAG_DILATE_PX), np.uint8)) > 0
 
 
 def warp_points(warp: np.ndarray, points: np.ndarray) -> np.ndarray:
@@ -568,16 +587,40 @@ def frame_corners(reference: dict[str, Any], frames: Sequence[np.ndarray], step:
     ref_img = reference["image"]
     ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
     corners = np.asarray(reference["corners_px"], float)
-    window = board_window(corners, (ref_img.shape[1], ref_img.shape[0]))
+    size = (ref_img.shape[1], ref_img.shape[0])
+    window = board_window(corners, size)
     keys = sorted(set(list(range(0, len(frames), step)) + [len(frames) - 1]))
     solved: dict[int, np.ndarray] = {}
     scores: list[float] = []
     previous = None
+    ref_bags = bag_red_mask(ref_img)
+
+    def solve(gray: np.ndarray, frame_bags: np.ndarray, seed: np.ndarray | None) -> dict[str, Any]:
+        result = align_to_reference(ref_gray, gray, window, seed, frame_bags)
+        if result["ok"]:
+            carried = cv2.warpAffine(ref_bags.astype(np.uint8), result["warp"], (gray.shape[1], gray.shape[0]),
+                                     flags=cv2.INTER_NEAREST) > 0
+            refined = align_to_reference(ref_gray, gray, window, result["warp"], frame_bags | carried)
+            if refined["ok"]:
+                result = refined
+        return result
+
+    def rigid(result: dict[str, Any]) -> bool:
+        return bool(result["ok"]) and float(np.max(np.abs(result["warp"][:, :2] - np.eye(2)))) <= ALIGN_MAX_LINEAR
+
     for k in keys:
         gray = cv2.cvtColor(frames[k], cv2.COLOR_BGR2GRAY)
-        result = align_to_reference(ref_gray, gray, window, previous)
-        if not result["ok"] and previous is not None:
-            result = align_to_reference(ref_gray, gray, window, None)
+        # Bags pull the fit towards themselves where this frame and the reference differ (Player 2 take 4
+        # throw 2: the far corners rose 27 px when a bag landed by the far edge, the camera still). Bag-red
+        # pixels of this frame, and those of the reference carried into this frame, are left out of the fit.
+        # With less texture left the fit can settle on a stretched warp, so it is solved from the previous
+        # frame's warp and from a fresh phase-correlation start, and the better plausible one is kept.
+        frame_bags = bag_red_mask(frames[k])
+        tries = [solve(gray, frame_bags, previous)]
+        if previous is not None and not rigid(tries[0]):
+            tries.append(solve(gray, frame_bags, None))
+        ok = [t for t in tries if t["ok"]]
+        result = max(ok, key=lambda t: (rigid(t), t["correlation"])) if ok else tries[0]
         if result["ok"]:
             solved[k] = warp_points(result["warp"], corners)
             previous = result["warp"]
@@ -585,6 +628,17 @@ def frame_corners(reference: dict[str, Any], frames: Sequence[np.ndarray], step:
     if not solved:
         return {"status": "unavailable", "reason": "The board could not be aligned with the take's reference frame.",
                 "corners": None}
+    # Guard: the phone drifts as a whole, so the deck keeps its shape in the picture (translation removed, the
+    # far and near edges move together: ≤ 1.2 px on all 92 library throws once bags are masked). A key frame
+    # whose deck shape departs from the clip's median shape by more than ALIGN_SHAPE_TOLERANCE_PX was pulled
+    # by something in the scene; it is dropped and its corners interpolated from the good key frames.
+    shapes = {k: c - c.mean(axis=0) for k, c in solved.items()}
+    median_shape = np.median(np.stack(list(shapes.values())), axis=0)
+    deviation = {k: float(np.max(np.linalg.norm(s - median_shape, axis=1))) for k, s in shapes.items()}
+    good = {k: c for k, c in solved.items() if deviation[k] <= ALIGN_SHAPE_TOLERANCE_PX}
+    rejected = len(solved) - len(good)
+    if good:
+        solved = good
     known = np.array(sorted(solved))
     stack = np.stack([solved[k] for k in known])                 # (n, 4, 2)
     per_frame = np.empty((len(frames), 4, 2))
@@ -594,7 +648,8 @@ def frame_corners(reference: dict[str, Any], frames: Sequence[np.ndarray], step:
     drift = float(np.max(np.linalg.norm(per_frame - per_frame[0], axis=2)))
     return {"status": "measured", "corners": per_frame, "aligned_frames": int(len(known)),
             "attempted_frames": len(keys), "median_correlation": float(np.median(scores)),
-            "max_drift_px": drift}
+            "max_drift_px": drift, "max_shape_change_px": float(max(deviation.values())),
+            "shape_rejected_frames": int(rejected)}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -612,6 +667,10 @@ CONTACT_DECK_MARGIN_IN = 6.0             # first contact: a tracked point within
 MIN_OFF_DECK_AREA_FRACTION = 0.6         # a whole bag on the floor (under the board or beside it), of the deck bag area
 BAG_MIN_SATURATION = 60                  # the Final Data Collection bags are red: hue as the deck paint, S 88-166
 MIN_BAG_COLOUR_FRACTION = 0.4            # off the deck, at least this share of a blob's pixels must be bag red
+MIN_ON_DECK_AREA_FRACTION = 1.0          # a bag at rest on the deck: at least one bag top face at that place (rests 1.3–11×)
+MIN_ON_DECK_VS_EMPTY = CHANGE_LAB_THRESHOLD   # ... and differing from the empty board like a changed pixel (rests ≥ 22)
+PATH_START_MAX_FRAMES = 3                # the deck track must start within this many frames after the mapped contact
+PATH_OFF_DECK_POINTS = 3                 # last tracked points more than a bag width off the deck: the bag left it
 
 
 def read_clip_frames(video_path: str, scale: float = 1.0) -> tuple[list[np.ndarray], float]:
@@ -642,6 +701,34 @@ def expected_bag_area_px(H: np.ndarray, at_in: Sequence[float] = (12.0, 24.0)) -
     x, y = at_in
     square = to_image(H, np.array([[x - 3, y - 3], [x + 3, y - 3], [x + 3, y + 3], [x - 3, y + 3]]))
     return float(abs(cv2.contourArea(square.astype(np.float32))))
+
+
+def floor_bag_area_px(pose: dict[str, Any] | None, floor_point: Sequence[float] | None) -> float | None:
+    """Image area of a 6 × 6 in bag lying on the floor at a floor point (X, Y in m), from the camera pose."""
+    if pose is None or floor_point is None:
+        return None
+    half = 3.0 * INCH_M
+    x, y = float(floor_point[0]), float(floor_point[1])
+    square = np.array([[x - half, y - half, 0.0], [x + half, y - half, 0.0], [x + half, y + half, 0.0],
+                       [x - half, y + half, 0.0]])
+    projected = cv2.projectPoints(square, pose["rvec"], pose["tvec"], pose["K"], None)[0].reshape(-1, 2)
+    if not np.isfinite(projected).all():
+        return None
+    return float(abs(cv2.contourArea(projected.astype(np.float32))))
+
+
+def local_bag_area_px(blob: dict[str, Any], H: np.ndarray, pose: dict[str, Any] | None, fallback: float) -> float:
+    """Expected image area of a bag where this blob lies: on the deck from the deck homography at its centre,
+    elsewhere on the floor from the camera pose at its lowest point; without a pose the deck-centre value."""
+    deck = to_deck(H, np.array([blob["centroid_px"]]))[0]
+    if -DECK_MARGIN_IN <= deck[0] <= DECK_W_IN + DECK_MARGIN_IN and -3.0 <= deck[1] <= DECK_L_IN + 6.0:
+        at = (float(np.clip(deck[0], 3.0, DECK_W_IN - 3.0)), float(np.clip(deck[1], 3.0, DECK_L_IN - 3.0)))
+        return expected_bag_area_px(H, at)
+    if pose is not None:
+        area = floor_bag_area_px(pose, ray_to_floor(pose, blob["bottom_px"], height_m=0.0))
+        if area is not None:
+            return max(area, fallback)       # never below the deck-centre bag (the old, fixed reference)
+    return fallback
 
 
 def change_blobs(before: np.ndarray, after: np.ndarray, roi_mask: np.ndarray, min_area: float, max_area: float
@@ -689,8 +776,11 @@ def track_bag_on_deck(frames: Sequence[np.ndarray], homographies: Sequence[np.nd
     """
     from .front_track import track_on_deck
     anchors = np.array([to_image(H, np.array([[12.0, 24.0]]))[0] for H in homographies])
+    ring = np.array([[HOLE_X_IN + HOLE_R_IN * math.cos(a), HOLE_Y_IN + HOLE_R_IN * math.sin(a)]
+                     for a in np.linspace(0, 2 * math.pi, 24, endpoint=False)])
+    holes = [to_image(H, ring) for H in homographies]
     path = []
-    for point in track_on_deck(frames, anchors, start, stop, roi_mask, min_area, max_area):
+    for point in track_on_deck(frames, anchors, start, stop, roi_mask, min_area, max_area, hole_px=holes):
         f = point["frame"]
         deck = to_deck(homographies[f], np.array([point["bottom_px"]]))[0]
         path.append({"frame": f, "px": point["px"], "bottom_px": point["bottom_px"],
@@ -822,7 +912,17 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
     band_top = int(max(0, deck_top - FLOOR_BAND_DECK_HEIGHTS * max(1.0, deck_bottom - deck_top)))
     roi[band_top:, :] = 1
     min_area, max_area = MIN_BAG_AREA_FRACTION * bag_area, MAX_BAG_AREA_FRACTION * bag_area * 3
-    blobs = change_blobs(before, after, roi, min_area, max_area)
+    # A bag's image size depends on where it lies: one on the floor near the camera is many times the deck-centre
+    # bag (Player 1 take 5 throw 4: a bag that slid off the back end was 3069 px² against 176 px² at the deck
+    # centre, beyond the old fixed limit of 15 × 176). Blobs are found up to the largest size a bag can have in
+    # the searched area, then each is held to the size a bag has at its own place (``local_bag_area_px``).
+    nearest_floor = floor_bag_area_px(after_pose, ray_to_floor(after_pose, (w / 2, h - 1))) if after_pose else None
+    blob_cap = MAX_BAG_AREA_FRACTION * 3 * max(bag_area, nearest_floor or 0.0)
+    blobs = []
+    for blob in change_blobs(before, after, roi, min_area, blob_cap):
+        blob["expected_area_px"] = local_bag_area_px(blob, H_after, after_pose, bag_area)
+        if blob["area_px"] <= MAX_BAG_AREA_FRACTION * 3 * blob["expected_area_px"]:
+            blobs.append(blob)
     empty_lab = None
     if empty_reference is not None:
         to_after = cv2.getPerspectiveTransform(np.asarray(empty_reference["corners_px"], np.float32),
@@ -869,14 +969,23 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
     floor_gate = _floor_gate(c_after, (w, h), hfov_deg)
     deck_cx = float(c_after[:, 0].mean())
     deck_half_w = float(c_after[:, 0].max() - c_after[:, 0].min()) / 2
-    on_deck, in_under, elsewhere = [], [], []
+    on_deck, in_under, elsewhere, small_on_deck = [], [], [], []
     for blob in blobs:
         # The blob's centre (the bag's top) maps to the deck; at this grazing view the bag's own thickness
         # pushes its lowest pixels past the deck's back edge, so the along range is generous (−3 to 54 in).
         deck = to_deck(H_after, np.array([blob["centroid_px"]]))[0]
         blob["deck_in"] = [float(deck[0]), float(deck[1])]
+        blob["area_fraction"] = blob["area_px"] / max(1.0, blob["expected_area_px"])
         if -DECK_MARGIN_IN <= deck[0] <= DECK_W_IN + DECK_MARGIN_IN and -3.0 <= deck[1] <= DECK_L_IN + 6.0:
-            on_deck.append(blob)
+            # A bag at rest on the deck is a whole bag that the empty board does not have. On a red deck the
+            # colour test says little (paint and bag share the hue), so size and difference decide: smaller
+            # changes are specks, shadows or a nudged bag's edge, not a bag (library: 0.24–0.76 of a bag's top
+            # face, against 1.3–11 for every bag at rest; the top face plus the visible side).
+            if blob["area_fraction"] >= MIN_ON_DECK_AREA_FRACTION and \
+                    blob.get("vs_empty_after", MIN_ON_DECK_VS_EMPTY) >= MIN_ON_DECK_VS_EMPTY:
+                on_deck.append(blob)
+            else:
+                small_on_deck.append(blob)
         elif cv2.pointPolygonTest(under_path, tuple(map(float, blob["centroid_px"])), False) >= 0:
             # A bag through the hole lies on the floor nearer the camera than the deck centre, so it is at least
             # this big; shadow specks under the board are much smaller (Player 1 take 3: bag 996 px², specks ~70).
@@ -895,16 +1004,45 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
                 elsewhere.append(blob)
         elif abs(blob["centroid_px"][0] - deck_cx) <= deck_half_w * (1 + 2 * FLOOR_SEARCH_DECK_WIDTHS):
             elsewhere.append(blob)
-    removed_from_deck = [b for b in removed if point_in_deck(to_deck(H_after, np.array([b["bottom_px"]]))[0])]
     result["changes"] = {"new_on_deck": len(on_deck), "new_under_board": len(in_under), "new_elsewhere": len(elsewhere),
-                         "bags_moved_or_knocked": len(removed)}
+                         "bags_moved_or_knocked": len(removed), "small_on_deck": len(small_on_deck)}
+    result["candidates"] = [
+        {"kind": kind, "px": [round(b["centroid_px"][0], 1), round(b["centroid_px"][1], 1)],
+         "area_px": b["area_px"], "area_fraction": round(b["area_fraction"], 2),
+         "bag_colour_fraction": round(b["bag_colour_fraction"], 2),
+         "vs_empty": None if b.get("vs_empty_after") is None else round(b["vs_empty_after"], 1)}
+        for kind, group in (("deck", on_deck), ("small_on_deck", small_on_deck), ("under_board", in_under),
+                            ("elsewhere", elsewhere)) for b in group]
     end_px = np.asarray(path[-1]["px"]) if path else None
+    # The tracked path is only evidence about this throw when it starts at the bag's first contact: a track
+    # that begins later followed something else (Player 3 take 2 throw 1: it began 36 frames after contact, on
+    # the flickering hole, after the bag had sailed off the back of the board and out of view).
+    path_starts_at_contact = bool(path) and contact_frame is not None and \
+        path[0]["frame"] <= contact_frame + PATH_START_MAX_FRAMES
+    result["path_starts_at_contact"] = path_starts_at_contact
 
     def nearest(candidates: list[dict[str, Any]]) -> dict[str, Any]:
-        if end_px is None:
+        if end_px is None or not path_starts_at_contact:
             return candidates[0]
         return min(candidates, key=lambda c: float(np.linalg.norm(np.asarray(c["centroid_px"]) - end_px)))
 
+    def image_gap(blob: dict[str, Any]) -> float:
+        return float(np.linalg.norm(np.asarray(blob["centroid_px"]) - end_px))
+
+    # A bag tracked from first contact to well off the deck (its last PATH_OFF_DECK_POINTS points more than a
+    # bag width outside it) that ends next to a new bag on the floor slid or bounced off: a change on the deck
+    # is then something else, a knocked bag or a small disturbance (Player 1 take 5 throw 4: the bag slid off
+    # the back end and lay on the floor 6 px from the track's end, while a 95 px² speck changed on the deck).
+    left_deck = path_starts_at_contact and len(path) >= PATH_OFF_DECK_POINTS and all(
+        not point_in_deck(p["deck_in"], CONTACT_DECK_MARGIN_IN) for p in path[-PATH_OFF_DECK_POINTS:])
+    result["path_left_deck"] = bool(left_deck)
+    if left_deck and elsewhere and (on_deck or in_under):
+        floor_end = min(elsewhere, key=image_gap)
+        if image_gap(floor_end) < min(image_gap(b) for b in on_deck + in_under):
+            result["notes"] = ["The bag was followed off the board to the floor; the other change on the board or "
+                               "under it is another bag that moved."]
+            result["other_changes_not_thrown_bag"] = len(on_deck) + len(in_under)
+            on_deck, in_under = [], []
     ambiguous = bool(on_deck and in_under)
     if ambiguous:
         # Two bags changed place: the thrown one and one it knocked. The thrown bag is the one at the end
@@ -916,23 +1054,29 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
         result["ambiguous_candidates"] = {
             "board": {"x_in": deck_end["deck_in"][0], "y_in_front": deck_end["deck_in"][1], "px": deck_end["centroid_px"]},
             "hole": {"x_in": HOLE_X_IN, "y_in_front": HOLE_Y_IN, "px": under_end["centroid_px"]}}
-        if end_px is not None and np.linalg.norm(np.asarray(under_end["centroid_px"]) - end_px) < \
-                np.linalg.norm(np.asarray(deck_end["centroid_px"]) - end_px):
+        if end_px is not None and path_starts_at_contact and image_gap(under_end) < image_gap(deck_end):
             on_deck = []
         else:
             in_under = []
         result["ambiguous"] = True
+    # With no bag seen under the board, the hole is still the answer when the bag was tracked from its first
+    # contact on the deck into the hole and nothing new lies elsewhere.
+    tracked_into_hole = path_starts_at_contact and result["contact"] is not None and \
+        in_hole(path[-1]["deck_in"], extra_in=2.0) and \
+        any(not in_hole(p["deck_in"], extra_in=2.0) and point_in_deck(p["deck_in"], 0.0) for p in path[:-1])
     if on_deck:
         bag = nearest(on_deck)
         result.update(where="board", rest={"x_in": bag["deck_in"][0], "y_in_front": bag["deck_in"][1],
-                                           "px": bag["centroid_px"]})
-    elif in_under or (path and in_hole(path[-1]["deck_in"], extra_in=2.0) and not elsewhere):
+                                           "px": bag["centroid_px"], "area_fraction": round(bag["area_fraction"], 2)},
+                      rest_basis="new bag on the deck")
+    elif in_under or (tracked_into_hole and not elsewhere):
         result.update(where="hole", rest={"x_in": HOLE_X_IN, "y_in_front": HOLE_Y_IN,
-                                          "px": (in_under[0]["centroid_px"] if in_under else path[-1]["px"])})
+                                          "px": (in_under[0]["centroid_px"] if in_under else path[-1]["px"])},
+                      rest_basis="new bag under the board" if in_under else "tracked path into the hole")
     elif elsewhere:
         bag = nearest(elsewhere)
         result.update(where="off", rest={"x_in_deck_plane": bag["deck_in"][0], "px": bag["centroid_px"],
-                                         "bottom_px": bag["bottom_px"]})
+                                         "bottom_px": bag["bottom_px"]}, rest_basis="new bag on the floor")
     else:
         # Nothing new on the deck, under the board or on the floor in view. The deck is fully visible, so the
         # bag is not on the board and not in the hole; where it went is unknown (hidden in front of the board
@@ -1043,16 +1187,24 @@ def frontal_metrics(pose_frames: Sequence[dict[str, Any]], release_frame: int, f
     else:
         put("arm_across_body_sw", None, "shoulder widths", "Hand across the body at release", missing)
         put("follow_through_across_sw", None, "shoulder widths", "Hand across the body after release", missing)
-    # Metric positions need the camera model.
+    # Metric positions need the camera model. When it is withheld (misplaced deck corners) that is the reason
+    # given, not a missing joint.
     pose = (camera or {}).get("pose")
     status = "measured" if (camera or {}).get("status") == "measured" else "estimated"
+    no_camera = (camera or {}).get("pose_withheld") or (camera or {}).get("reason") \
+        or "The front camera's position could not be worked out from the board."
     if pose is not None and wrist is not None and release_distance_m is not None:
         point = ray_to_plane_y(pose, wrist, -release_distance_m)
         put("release_point_offset_m", None if point is None else point[0], "m",
             "Release hand's distance from the board's centre line (+ thrower's right)", status=status)
+    elif pose is None:
+        put("release_point_offset_m", None, "m", "Release hand's distance from the board's centre line", no_camera)
+    elif wrist is None:
+        put("release_point_offset_m", None, "m", "Release hand's distance from the board's centre line",
+            "The front camera did not see the release hand clearly.")
     else:
         put("release_point_offset_m", None, "m", "Release hand's distance from the board's centre line",
-            "Needs the release hand in the front view and the side camera's release distance.")
+            "Needs the side camera's release distance.")
     setup = max(0, f - int(round(1.0 * fps)))
     feet = []
     for side in ("left", "right"):
@@ -1063,8 +1215,9 @@ def frontal_metrics(pose_frames: Sequence[dict[str, Any]], release_frame: int, f
             "Feet midpoint from the board's centre line 1 s before release (+ thrower's right)", status=status)
         put("stance_width_m", float(abs(feet[0][0] - feet[1][0])), "m", "Sideways distance between the ankles", status=status)
     else:
-        put("stance_offset_m", None, "m", "Feet midpoint from the board's centre line", "Ankles not seen clearly.")
-        put("stance_width_m", None, "m", "Sideways distance between the ankles", "Ankles not seen clearly.")
+        why = no_camera if pose is None else "Ankles not seen clearly."
+        put("stance_offset_m", None, "m", "Feet midpoint from the board's centre line", why)
+        put("stance_width_m", None, "m", "Sideways distance between the ankles", why)
     return out
 
 

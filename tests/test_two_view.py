@@ -251,3 +251,67 @@ def test_new_takes_of_a_setup_get_its_measured_lag(tmp_path: Path):
     new.write_text(json.dumps({}))
     share_front_lag([measured, new])
     assert json.loads(new.read_text())["front_lag_s"] == 0.03
+
+
+def test_a_bag_the_side_camera_saw_hit_the_floor_first_is_not_called_hole_or_board():
+    """Player 3 take 2 throw 1: the side camera saw floor contact and no touchdown on the deck."""
+    floor_first = {"contact": {"kind": "floor", "state": "measured"},
+                   "board_phase": {"status": "measured", "touchdown": {"on_deck": False}, "end": {"kind": "left_deck"}}}
+    held = tv.decide_result({"where": "hole"}, floor_first)
+    assert held["category"] is None and held["points"] is None and held["status"] == "needs_confirmation"
+    assert held["front_category"] == "throughHole" and "floor" in held["reason"]
+    assert tv.decide_result({"where": None, "deck_clear": True}, floor_first)["category"] == "offBoard"
+    # A floor contact the board phase contradicts (touchdown seen on the deck) does not veto.
+    on_deck = {"contact": {"kind": "floor", "state": "measured"},
+               "board_phase": {"status": "measured", "touchdown": {"on_deck": True}, "end": {"kind": "fell_in_hole"}}}
+    assert tv.decide_result({"where": "hole"}, on_deck)["category"] == "throughHole"
+    text = tv.explain({"result": held, "miss": {}, "heading": {}, "frontal": {}}, {})
+    assert text["kind"] == "unknown" and text["sentence"].endswith("Check the video.")
+
+
+def test_suspect_corners_and_a_side_camera_exit_leave_hole_or_board_open():
+    side_off = {"board_phase": {"status": "measured", "end": {"kind": "left_deck"}}}
+    held = tv.decide_result({"where": "board"}, side_off, corners_suspect=True)
+    assert held["category"] is None and held["status"] == "needs_confirmation"
+    assert tv.decide_result({"where": "board"}, side_off)["category"] == "onBoard"        # corners fine: shown
+    assert tv.decide_result({"where": "off"}, side_off, corners_suspect=True)["category"] == "offBoard"
+
+
+def test_a_failed_sync_check_voids_a_hole_taken_from_the_tracked_path():
+    held = tv.decide_result({"where": "hole"}, {}, sync_ok=False, rest_basis="tracked path into the hole")
+    assert held["category"] is None
+    seen = tv.decide_result({"where": "hole"}, {}, sync_ok=False, rest_basis="new bag under the board")
+    assert seen["category"] == "throughHole"
+
+
+def test_landing_guard_version_still_pools_the_front_lag():
+    assert tv.TWO_VIEW_VERSION in tv.LAG_COMPATIBLE_VERSIONS
+
+
+def test_an_off_board_bag_seen_on_the_floor_is_not_called_out_of_view():
+    record = {"result": {"category": "offBoard"}, "miss": {"left_right_in": -1.0, "short_long_in": None},
+              "heading": {}, "frontal": {}, "landing": {"rest": {"x_in": 11.0, "y_in": None, "on": "floor"}}}
+    assert "on the floor" in tv.explain(record, {})["sentence"]
+    record["landing"] = {"rest": None}
+    assert "out of the front camera's view" in tv.explain(record, {})["sentence"]
+
+
+def test_a_bag_only_seen_in_the_air_by_the_side_camera_is_not_hole_or_board():
+    """The side board phase can end 'never_on_deck' with status not_found and no touchdown (bag seen only in the air)."""
+    results = {"contact": {"kind": "floor", "state": "measured"},
+               "board_phase": {"status": "not_found", "end": {"kind": "never_on_deck"}}}
+    assert tv.side_hit_floor_first(results)
+    assert tv.decide_result({"where": "hole"}, results)["category"] is None
+    clear = tv.decide_result({"where": None, "deck_clear": True}, results)
+    assert clear["category"] == "offBoard" and clear["views_agree"] is True and clear["status"] == "suggested"
+    fused = tv.fuse_landing({"where": "board", "contact": {"x_in": 9.0, "y_in_front": 30.0},
+                             "rest": {"x_in": 8.0, "y_in_front": 40.0}}, results["board_phase"], results, {})
+    assert fused["contact"]["y_source"] == "front camera"
+
+
+def test_a_knocked_bag_resolved_by_the_side_camera_is_never_recorded_automatically():
+    landing = {"where": "board", "ambiguous_resolved_by": "side camera",
+               "rest": {"x_in": 12.0, "y_in": 38.0, "on": "board"}}
+    result = tv.decide_result(landing, {"board_phase": {"status": "measured", "end": {"kind": "rest"}}})
+    assert result["category"] == "onBoard" and result["status"] == "needs_confirmation"
+    assert result["views_agree"] is None

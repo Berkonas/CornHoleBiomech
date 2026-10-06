@@ -70,8 +70,11 @@ def render(cam, bags=()):
             centre = deck_world(x_in, y_in, 0.02)
         else:                  # floor
             centre = np.array([(x_in - 12) * INCH_M, y_in * INCH_M, 0.02])
-        ring = [centre + [0.075 * math.cos(a), 0.075 * math.sin(a), 0] for a in np.linspace(0, 2 * math.pi, 24)]
-        cv2.fillPoly(img, [project(K, R, t, ring).round().astype(np.int32)], (40, 30, 215))
+        # A 6 × 6 in bag about 4 cm thick: its silhouette is the hull of the box's corners (top face + side).
+        half = 3.0 * INCH_M
+        box = [centre + [dx, dy, dz] for dx in (-half, half) for dy in (-half, half) for dz in (-0.02, 0.02)]
+        hull = cv2.convexHull(project(K, R, t, box).astype(np.float32)).round().astype(np.int32)
+        cv2.fillPoly(img, [hull], (40, 30, 215))
     return img, quad
 
 
@@ -227,3 +230,120 @@ def test_camera_roll_is_removed_from_frontal_angles():
     out = fv.frontal_metrics(frames, 30, 30.0, "right", None, None, roll_deg=measured)
     assert abs(out["trunk_side_lean_deg"]["value"]) < 0.05
     assert abs(out["shoulder_tilt_deg"]["value"]) < 0.05
+
+
+def test_alignment_ignores_a_bag_that_lands_by_the_far_edge():
+    """Player 2 take 4 throw 2: a bag landing by the far edge pulled the far corners 27 px, the camera still."""
+    cam = camera()
+    img, quad = render(cam)
+    with_bags, _ = render(cam, [("deck", 18.0, 4.0), ("deck", 6.0, 4.0), ("deck", 12.0, 8.0)])
+    out = fv.frame_corners({"image": img, "corners_px": quad}, [img] * 6 + [with_bags] * 6)
+    assert np.allclose(out["corners"][-1], quad, atol=0.3)     # unmasked: 0.7 px on this clean synthetic view
+
+
+def test_a_key_frame_whose_deck_changes_shape_is_dropped(monkeypatch):
+    cam = camera()
+    img, quad = render(cam)
+    marked = np.clip(img.astype(int) + 3, 0, 255).astype(np.uint8)      # same scene, told apart by brightness
+    marker = float(cv2.cvtColor(marked, cv2.COLOR_BGR2GRAY).mean())
+    original = fv.align_to_reference
+
+    def pulled(reference_gray, gray, window, initial=None, ignore_mask=None):
+        result = original(reference_gray, gray, window, initial, ignore_mask)
+        if result["ok"] and abs(float(gray.mean()) - marker) < 0.01:
+            centre = quad.mean(axis=0)
+            result = {**result, "warp": np.array([[1.0, 0.0, 0.0], [0.0, 1.15, -0.15 * centre[1]]])}
+        return result
+    monkeypatch.setattr(fv, "align_to_reference", pulled)
+    out = fv.frame_corners({"image": img, "corners_px": quad}, [img] * 5 + [marked] + [img] * 5)
+    assert out["shape_rejected_frames"] == 1 and out["max_shape_change_px"] > fv.ALIGN_SHAPE_TOLERANCE_PX
+    assert np.allclose(out["corners"][5], quad, atol=1.0)
+
+
+def test_a_bag_on_the_floor_near_the_camera_is_found_at_its_own_size():
+    """Player 1 take 5 throw 4: the bag slid off the back end and lay near the camera, 17× the deck-centre bag."""
+    cam = camera(pitch_deg=22.0)                                # looking down enough to see the floor near the camera
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("floor", 10.0, 95.0)])
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, 12, None, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert out["where"] == "off"
+    assert out["candidates"][0]["area_px"] > 15 * out["expected_bag_area_px"]
+
+
+def _speck(cam, frames, x_in, y_in, radius_m=0.04):
+    K, R, t = cam
+    centre = deck_world(x_in, y_in, 0.005)
+    ring = [centre + [radius_m * math.cos(a), radius_m * math.sin(a), 0] for a in np.linspace(0, 2 * math.pi, 16)]
+    poly = project(K, R, t, ring).round().astype(np.int32)
+    out = []
+    for k, frame in enumerate(frames):
+        frame = frame.copy()
+        if k >= len(frames) // 2:
+            cv2.fillPoly(frame, [poly], (40, 30, 215))
+        out.append(frame)
+    return out
+
+
+def test_a_change_smaller_than_a_bag_on_the_deck_is_not_a_bag_at_rest():
+    cam = camera()
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [])
+    frames = _speck(cam, frames, 16.0, 42.0)
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    out = fv.landing_from_front(frames, 30.0, corners, 12, None, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert out["where"] is None and out["deck_clear"] is True
+    assert out["changes"]["small_on_deck"] == 1
+
+
+def _fake_track(monkeypatch, points):
+    """Replace the deck tracker by a fixed path of (frame, px, deck_in)."""
+    path = [{"frame": f, "px": list(px), "bottom_px": list(px), "deck_in": list(d)} for f, px, d in points]
+    monkeypatch.setattr(fv, "track_bag_on_deck", lambda *a, **k: path)
+
+
+def test_a_bag_followed_off_the_deck_to_the_floor_is_off_even_if_the_deck_changed(monkeypatch):
+    cam = camera()
+    K, R, t = cam
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [("deck", 6.0, 40.0), ("floor", 18.0, 70.0)])   # a nudged bag + the thrown one
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    floor_px = project(K, R, t, [[(18.0 - 12) * INCH_M, 70.0 * INCH_M, 0.02]])[0]
+    deck_px = project(K, R, t, [deck_world(17.0, 30.0)])[0]
+    _fake_track(monkeypatch, [(14, deck_px, (17.0, 30.0)), (15, deck_px, (17.0, 31.0)),
+                              (17, floor_px - [0, 20], (18.0, 62.0)), (18, floor_px - [0, 5], (18.0, 66.0)),
+                              (19, floor_px, (18.0, 68.0))])
+    out = fv.landing_from_front(frames, 30.0, corners, 2, 14, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert out["path_left_deck"] is True and out["where"] == "off"
+    # The same changes with the bag tracked to a stop on the deck: the deck bag is the thrown one.
+    _fake_track(monkeypatch, [(14, deck_px, (17.0, 30.0)), (15, deck_px, (16.0, 34.0)), (16, deck_px, (7.0, 39.0)),
+                              (17, deck_px, (6.0, 40.0))])
+    out = fv.landing_from_front(frames, 30.0, corners, 2, 14, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert out["where"] == "board"
+
+
+def test_the_hole_from_the_tracked_path_needs_a_path_from_first_contact(monkeypatch):
+    """Player 3 take 2 throw 1: a 'path' that began 36 frames after contact, in the hole, said hole."""
+    cam = camera()
+    K, R, t = cam
+    _, quad = render(cam)
+    frames, empty = _clip(cam, [])
+    corners = np.repeat(quad[None], len(frames), axis=0)
+    hole_px = project(K, R, t, [deck_world(12.0, 39.0)])[0]
+    on_deck = project(K, R, t, [deck_world(12.0, 28.0)])[0]
+    _fake_track(monkeypatch, [(f, hole_px, (12.0, 39.5)) for f in range(24, 29)])          # late, static
+    late = fv.landing_from_front(frames, 30.0, corners, 2, 14, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert late["where"] is None and late["path_starts_at_contact"] is False
+    _fake_track(monkeypatch, [(14, on_deck, (12.0, 28.0)), (15, on_deck, (12.0, 32.0)), (16, hole_px, (12.0, 37.0)),
+                              (17, hole_px, (12.0, 39.0))])
+    tracked = fv.landing_from_front(frames, 30.0, corners, 2, 14, {"image": empty, "corners_px": quad}, hfov_deg=64.0)
+    assert tracked["where"] == "hole" and tracked["rest_basis"] == "tracked path into the hole"
+
+
+def test_withheld_camera_gives_the_true_reason_for_missing_positions():
+    frame = _pose_frame(right_shoulder=(600, 300), left_shoulder=(680, 300), right_hip=(610, 400), left_hip=(670, 400),
+                        right_wrist=(630, 420), right_ankle=(615, 560), left_ankle=(665, 560))
+    camera_record = {"status": "estimated", "pose": None, "pose_withheld": "The board's corners look misplaced."}
+    m = fv.frontal_metrics([frame] * 40, 30, 30.0, "right", camera_record, 6.0)
+    for key in ("release_point_offset_m", "stance_offset_m", "stance_width_m"):
+        assert m[key]["value"] is None and m[key]["reason"] == "The board's corners look misplaced."

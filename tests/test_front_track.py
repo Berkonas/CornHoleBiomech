@@ -163,3 +163,25 @@ def test_bag_on_the_deck_is_placed_in_its_own_frame():
     assert sum(k in got for k in moving) >= 12
     for k, (x, y) in got.items():
         assert math.hypot(x - truth[k][0], y - truth[k][1]) < 4.0, k
+
+
+def test_the_flickering_hole_interior_is_not_tracked_as_a_bag():
+    """Player 3 take 2 throw 1: the hole's dark-red interior flickered and was 'tracked' after the bag had gone."""
+    rng = np.random.default_rng(5)
+    base = np.clip(np.full((H, W, 3), FLOOR_BGR, int) + rng.integers(-4, 5, (H, W, 3)), 0, 255).astype(np.uint8)
+    cv2.fillPoly(base, [np.array([[480, 420], [800, 420], [900, 640], [380, 640]], np.int32)], DECK_BGR)
+    hole = np.array([[600, 520], [680, 520], [680, 545], [600, 545]], float)
+    roi = np.ones((H, W), np.uint8)
+    frames = []
+    for k in range(60):
+        img = base.copy()
+        if k >= 30:              # dark red that changes brightness every frame, in the same place
+            shade = (60, 40, 120) if (k // 2) % 2 else (30, 20, 80)
+            cv2.rectangle(img, (608, 524), (672, 541), shade, -1)
+        frames.append(img)
+    anchors = np.tile([640.0, 530.0], (len(frames), 1))
+    seen = ft.track_on_deck(frames, anchors, 31, 59, roi, min_area=300.0, max_area=4000.0)
+    assert seen, "without the hole outline the flicker looks like a moving bag"
+    masked = ft.track_on_deck(frames, anchors, 31, 59, roi, min_area=300.0, max_area=4000.0,
+                              hole_px=[hole] * len(frames))
+    assert masked == []
