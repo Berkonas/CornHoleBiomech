@@ -38,7 +38,7 @@ struct TopDownScene: Equatable {
         var centre: PlanPoint
         var spreadAlong: Double
         var spreadAcross: Double
-        var throws: Int
+        var throwCount: Int
     }
 
     static let inch = 0.0254
@@ -125,11 +125,11 @@ struct TopDownScene: Equatable {
         var group: UsualGroup?
         if let usual = attribution?.usual, let n = usual.throwCount, n >= 8, let sa = usual.spread_depth_in, let sr = usual.spread_lateral_in {
             group = UsualGroup(centre: PlanPoint(v: 39 + (usual.centre_depth_in ?? 0), right: usual.centre_lateral_in ?? 0),
-                               spreadAlong: sa, spreadAcross: sr, throws: n)
+                               spreadAlong: sa, spreadAcross: sr, throwCount: n)
         } else if others.count >= 8, let along = MedianSD.of(others.map(\.v)), let across = MedianSD.of(others.map(\.right)),
                   let sa = along.sd, let sr = across.sd {
             group = UsualGroup(centre: PlanPoint(v: along.median, right: across.median), spreadAlong: sa, spreadAcross: sr,
-                               throws: others.count)
+                               throwCount: others.count)
         }
 
         var miss: String?
@@ -587,7 +587,7 @@ struct BoardHeroCard: View {
             }
             if let group = scene.usualGroup {
                 item(Ellipse().stroke(Color.secondary, style: StrokeStyle(lineWidth: 1.2, dash: [4, 3])).frame(width: 18, height: 10),
-                     "your usual group (\(group.throws) throws)")
+                     "your usual group (\(group.throwCount) throws)")
             }
             if scene.usualContactV != nil {
                 item(Rectangle().fill(Color.secondary).frame(width: 2, height: 11), "usual landing")
