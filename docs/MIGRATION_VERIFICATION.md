@@ -3,6 +3,8 @@
 Verified on 10 October 2026 (America/Chicago):
 
 - All five moved folder trees matched their pre-move SHA-256/symlink inventories.
+- All 32,426 original dataset files match their committed Git/LFS content byte-for-byte.
+  Only five macOS metadata/Python cache files were excluded from version control.
 - 562 Python tests passed before and after relocation.
 - 86 Swift tests ran: 83 passed, 3 opt-in visual/real-video tests skipped.
 - The new repository-resolution test chooses the moved bundle ahead of an old source path.

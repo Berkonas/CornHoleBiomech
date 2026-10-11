@@ -22,7 +22,7 @@
 A native macOS app with a Python science engine, built for **Biomechanics of Human Movement (Fall 2026), Project 1** at Vanderbilt. Coaches import throw videos. The app tracks the athlete's body and the bag automatically, then links **body → release → flight → outcome**. Every number carries its uncertainty and a reliability grade, and the app never fills a missing value with a guess.
 
 > [!NOTE]
-> This is a course research prototype, not a validated clinical or coaching system. All measurements are **projected 2D** from a single side camera. See [limitations](#limitations).
+> This is a course research prototype, not a validated clinical or coaching system. Body and flight measurements from the side camera are **projected 2D**. An optional front camera adds board-plane left/right measurements and frontal-plane body observations; this is not full 3D motion capture. See [limitations](#limitations).
 
 ---
 
@@ -35,7 +35,8 @@ A native macOS app with a Python science engine, built for **Biomechanics of Hum
 | 📐 **Metric scale from gravity** | The bag's own fall calibrates pixels per metre. A meter stick in the throwing plane also works. |
 | 🎯 **Release → landing model** | Drag-free flight to a regulation board gives the hole window, landing sensitivity and a per-throw verdict. |
 | 📊 **Evidence, not scores** | Scored-vs-missed differences are reported only when there are ≥ 5 throws per group, Cliff's δ ≥ 0.474 and the difference exceeds measurement noise. |
-| 🔒 **Local and private** | All analysis runs on the Mac. The app does not upload recordings automatically; this repository includes the shared project dataset. |
+| 🎥 **Two-camera takes** | Import paired side/front recordings, synchronize from sound, split throws, and review both views with board-plane landing results. |
+| 🔒 **Local analysis, shared dataset** | All analysis runs on the Mac. The app does not upload recordings automatically; this repository includes the shared project dataset. |
 
 ## Screenshots
 
@@ -69,6 +70,8 @@ flowchart LR
 ```
 
 The **SwiftUI app** (`app/`) manages athletes, throws and outcomes and draws every chart. For each analysis it runs the **Python engine** (`python/cornhole_biomech`) as a worker process. The engine streams progress as JSON lines and writes transparent CSV, JSON and plot outputs for each throw. A small Swift helper (`SceneVision`) uses Apple Vision to produce person masks, so background people are boxed out of the bag search.
+
+For the current paired-camera collection, use **Import Takes** with matching `Take_<n>_Side` and `Take_<n>_Front` files. The app synchronizes the recordings, splits each take into throws, and combines side-view release analysis with front-view landing and body observations. See [two-camera takes](docs/APP_GUIDE.md#two-camera-takes-side--front).
 
 The full derivations (projectile model, Kalman smoother, PnP, gravity calibration, effect sizes) are in **[Methods & Mathematics](docs/METHODS_AND_MATH.md)**.
 
@@ -126,7 +129,7 @@ Every metric is reported as `measured`, `estimated` (with a reason) or `unavaila
 
 ## Limitations
 
-These are projected 2D measurements from one camera. They are **not** true 3D joint angles, joint forces, torques, muscle activation or joint loading. The flight model is drag-free, and one camera cannot separate drag from motion away from the lens. Similarity to a reference throw does not prove better technique, and associations with outcomes do not establish cause and effect. Record at least 20 throws per athlete, preferably 30–40.
+Side-camera measurements are projected 2D. A paired front camera adds a separate frontal view and board-plane measurements. They are **not** true 3D joint angles, joint forces, torques, muscle activation or joint loading. The flight model is drag-free, and one camera cannot separate drag from motion away from the lens. Similarity to a reference throw does not prove better technique, and associations with outcomes do not establish cause and effect. Record at least 20 throws per athlete, preferably 30–40.
 
 ## Repository layout
 
