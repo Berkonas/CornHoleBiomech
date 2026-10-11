@@ -23,7 +23,7 @@ end) and how many are within ±1 frame.
 Prerequisite: a scratch re-analysis of the library (never the library itself), e.g.
 
     PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
-        --library "~/Documents/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
+        --library "data/libraries/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
 
 then
 

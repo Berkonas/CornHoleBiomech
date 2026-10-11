@@ -1,0 +1,559 @@
+{
+  "athlete": "Player 1",
+  "athlete_id": "6DBB9920-7804-454D-BB27-3D6BA3693B1B",
+  "cohort": {
+    "base_trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+    "excluded": [
+      {
+        "label": "Take 1 \u00b7 Throw 1",
+        "reason": "recorded in a different session (camera setup may differ)",
+        "trial_id": "AFC619DC-0713-4386-B0A7-0561278D751C"
+      },
+      {
+        "label": "Take 1 \u00b7 Throw 2",
+        "reason": "recorded in a different session (camera setup may differ)",
+        "trial_id": "BBA0E0DC-C9A5-4FD0-A4F6-59217BDACBA4"
+      },
+      {
+        "label": "Take 1 \u00b7 Throw 3",
+        "reason": "recorded in a different session (camera setup may differ)",
+        "trial_id": "699CB7E0-80AC-466B-BDFC-E755E04365A6"
+      },
+      {
+        "label": "Take 1 \u00b7 Throw 4",
+        "reason": "recorded in a different session (camera setup may differ)",
+        "trial_id": "22C5FB11-C7A8-447E-8185-CBE5C758A496"
+      }
+    ],
+    "included": [
+      "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+      "635819B6-DC31-4232-A8A5-AAD81221BC12",
+      "84FC87A6-3369-40D1-9F12-DD63474832B5",
+      "615EBA29-74B1-4C46-9161-37487D27DB2B"
+    ]
+  },
+  "compensation": {
+    "message": "Needs \u2265 8 throws with release speed, angle and height in metres.",
+    "n": 4,
+    "ratio": null,
+    "status": "insufficient_data"
+  },
+  "consistency": {
+    "components": [],
+    "curves": {},
+    "message": "More trials needed: record at least 5 comparable throws with usable tracking.",
+    "minimum_trials": 5,
+    "n": 4,
+    "traces": []
+  },
+  "distance": {
+    "n_measured": 4,
+    "note": "Measured from the videos: release point to the front of the board. The regulation pitch is 27 ft between board fronts (about 7.7 m from a typical release point); this session was shorter, so zones and advice use the measured distance.",
+    "regulation_release_to_board_m": 7.7,
+    "release_to_board_m": 5.815477272801722,
+    "source": "measured_median"
+  },
+  "evidence_chain": [
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_speed_at_release_arm_lengths_s",
+      "from_label": "Wrist speed at release",
+      "n": 1,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_speed_m_s",
+      "to_label": "Release speed"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "swing_release_arm_angle_deg",
+      "from_label": "Arm angle at release",
+      "n": 1,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_angle_deg",
+      "to_label": "Release angle"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_peak_speed_time_rel_release_ms",
+      "from_label": "Peak wrist speed timing",
+      "n": 2,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_angle_deg",
+      "to_label": "Release angle"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_angle_deg",
+      "from_label": "Release angle",
+      "n": 4,
+      "rho": null,
+      "stage": "Release \u2192 flight",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_trajectory_apex_rise_m",
+      "to_label": "Apex height"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_speed_m_s",
+      "from_label": "Release speed",
+      "n": 4,
+      "rho": null,
+      "stage": "Release \u2192 flight",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_time_of_flight_seconds",
+      "to_label": "Flight time"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_angle_deg",
+      "from_label": "Release angle",
+      "n": 2,
+      "rho": null,
+      "stage": "Release \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_speed_m_s",
+      "from_label": "Release speed",
+      "n": 2,
+      "rho": null,
+      "stage": "Release \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_peak_speed_time_rel_release_ms",
+      "from_label": "Peak wrist speed timing",
+      "n": 2,
+      "rho": null,
+      "stage": "Body \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    }
+  ],
+  "headline": "No release feature clearly separated scored throws from misses yet; keep recording.",
+  "lateral": {
+    "measured": false,
+    "note": "The green zone covers distance along the throw line only; left/right aim is not modelled. Where each bag ended left/right is estimated from the side camera (about \u00b13 in) and drawn on the board; a board camera measures it precisely."
+  },
+  "method": "Everything is within one athlete (their throws compared with each other); the\nstatistics are those of `performance.py` (Cliff's \u03b4 with family-wise control,\nnoise floors). This module decides what a coach sees and how strongly it is worded.\n\nDifference \u2192 association \u2192 action (brief \u00a741). A variable becomes a\nCOACHING PRIORITY only if all of these hold:\n  1. associated with outcome: `performance.py` says it distinguishes scored throws\n     from misses (\u22655 throws per group, large \u03b4 above the chance level for this many\n     tests), either as a shift or as misses lying further from the scored value;\n  2. larger than measurement uncertainty: the median difference exceeds the\n     variable's noise floor;\n  3. repeatable: a bootstrap 95% CI of the median difference excludes 0;\n  4. measured reliably: \u226580% of the athlete's values passed the per-throw\n     reliability rules (reliability.py);\n  5. interpretable and modifiable: a movement or release feature an athlete can\n     change on purpose (not an exploratory derivative).\nA difference passing 2 but not all of the rest is an OBSERVED DIFFERENCE: shown,\nnever phrased as advice.\n\nConsistency: typical variation (SD, CV for ratio-scale variables, IQR) is judged\nagainst the measurement noise floor, and with Hopkins' smallest worthwhile change\n(0.2 \u00d7 between-throw SD) as the smallest difference worth discussing.\n\nRelease compensation (after M\u00fcller & Sternad 2004, tolerance\u2013noise\u2013covariation):\nwith release speed, angle and height in metres, the drag-free model predicts each\nthrow's first-contact distance. If the athlete's speed and angle co-vary so that\nerrors cancel, the spread of predicted distances is smaller than when the same\nvalues are recombined at random. ratio = SD(shuffled) / SD(observed) > 1 means\ncompensation. Model-based and descriptive; needs \u2265 8 scaled throws.\n\nEvidence chain (body \u2192 release \u2192 flight \u2192 outcome) is a hypothesis structure:\neach link is a within-athlete Spearman correlation with a bootstrap CI; a link is\n\"supported\" only when the CI excludes 0 with \u2265 8 throws. Not causal.\n",
+  "most_variable": {
+    "key": "bag_release_height_m",
+    "label": "Release height",
+    "sd": 0.05484100115974393,
+    "sd_to_noise": 1.8280333719914643,
+    "unit": "m"
+  },
+  "observed_differences": [],
+  "performance": {
+    "counts": {
+      "board": 2,
+      "hole": 0,
+      "miss": 0,
+      "unknown": 2
+    },
+    "hole_percent": 0.0,
+    "landing_dispersion": {
+      "centroid": {
+        "x_inches": 7.88,
+        "y_inches": 15.42
+      },
+      "endpoint": "first_contact_point",
+      "lateral_sd_inches": 6.816509370638318,
+      "longitudinal_sd_inches": 2.2910259710444127,
+      "missing": 2,
+      "n": 2,
+      "note": "Visible board-plane points only; excludes unlocated misses. Grouping is not target accuracy.",
+      "rms_radius_inches": 5.084958210251092
+    },
+    "mean_target_error_inches": null,
+    "scored_percent": 100.0,
+    "sports": {
+      "bags": 2,
+      "definition": "PPR = 4 \u00d7 mean points per bag (gross, no cancellation), as reported by the American Cornhole League.",
+      "in_percent": 0.0,
+      "off_percent": 0.0,
+      "on_percent": 100.0,
+      "points_per_bag": 1.0,
+      "ppr": 4.0,
+      "unknown": 2
+    }
+  },
+  "personal_zone": {
+    "angle_limits_deg": [
+      33.94369577250845,
+      55.49110656569032
+    ],
+    "best": {
+      "angle_deg": 40.0,
+      "p_green": 0.7330219745635986,
+      "speed_m_s": 7.5400000000000045
+    },
+    "current": {
+      "angle_deg": 44.93798217253829,
+      "p_green": 0.15842659771442413,
+      "speed_m_s": 7.9483194694037795,
+      "speed_window_m_s": [
+        7.380000000000004,
+        7.740000000000004
+      ]
+    },
+    "distance_m": 5.815477272801722,
+    "distance_measured_n": 4,
+    "distance_source": "measured_median",
+    "height_m": 1.1126365821032418,
+    "method": "Personal inputs: median measured release HEIGHT (stature, knee bend and arm length show up here),\n    the measured release-to-board DISTANCE, the athlete's measured SLIDE on the board, and their\n    throw-to-throw SPREAD of speed and angle (biomechanical consistency). For every aim point\n    (speed, angle) the probability that a release scattered by that spread lands in the hole window\n    is the green map blurred by a Gaussian of the athlete's SDs (speed and angle treated as\n    independent; see the compensation analysis for their covariation). The best aim is searched\n    within the athlete's own angle range \u00b1 8\u00b0, so the suggestion stays a change they can make.\n    A drag-free model: a guide for practice, not a guarantee.",
+    "most_forgiving_angle": {
+      "angle_deg": 34.0,
+      "speed_window_m_s": 0.42
+    },
+    "n": 4,
+    "regulation_distance_m": 7.7,
+    "sd_angle_deg": 2.4567372314741993,
+    "sd_speed_m_s": 0.1775649490064713,
+    "sentence": "Aiming for about 40\u00b0 at 7.5 m/s instead of the usual 45\u00b0 at 7.9 m/s would raise the model's chance of reaching the hole window from 16% to 73%, with this athlete's current consistency.",
+    "slide_allowance_m": 0.445133272466093,
+    "slide_source": "measured_median_slide",
+    "slides_measured": 4,
+    "status": "available",
+    "throws_in_green": 0
+  },
+  "physics": {
+    "demand_ratio": 0.9864719389248372,
+    "half_width": 0.1800000000000006,
+    "label": "Release speed",
+    "sd": 0.1775649490064713,
+    "unit": "m/s",
+    "variable": "speed"
+  },
+  "priorities": [],
+  "release_profile": [
+    {
+      "consistency": "moderate",
+      "cv_percent": 2.2271870072727804,
+      "group": "Release",
+      "key": "bag_release_speed_m_s",
+      "label": "Release speed",
+      "median": 7.9483194694037795,
+      "n": 4,
+      "noise_floor": 0.15,
+      "q25": 7.872505135363901,
+      "q75": 8.04842500510795,
+      "sd": 0.1775649490064713,
+      "sd_to_noise": 1.1837663267098086,
+      "smallest_worthwhile_change": 0.03551298980129426,
+      "unit": "m/s",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": 7.900849146612998
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": 8.206330643848116
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": 7.99578979219456
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": 7.787473101616609
+        }
+      ]
+    },
+    {
+      "consistency": "within measurement noise",
+      "cv_percent": null,
+      "group": "Release",
+      "key": "bag_release_angle_deg",
+      "label": "Release angle",
+      "median": 44.93798217253829,
+      "n": 4,
+      "noise_floor": 3.0,
+      "q25": 43.32266002878444,
+      "q75": 46.443013814572694,
+      "sd": 2.4567372314741993,
+      "sd_to_noise": 0.8189124104913997,
+      "smallest_worthwhile_change": 0.4913474462948399,
+      "unit": "\u00b0",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": 47.49110656569032
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": 46.09364956420015
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": 43.78231478087643
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": 41.94369577250845
+        }
+      ]
+    },
+    {
+      "consistency": "moderate",
+      "cv_percent": 4.900037283880221,
+      "group": "Release",
+      "key": "bag_release_height_m",
+      "label": "Release height",
+      "median": 1.1126365821032418,
+      "n": 4,
+      "noise_floor": 0.03,
+      "q25": 1.073498451914736,
+      "q75": 1.1583337195803618,
+      "sd": 0.05484100115974393,
+      "sd_to_noise": 1.8280333719914643,
+      "smallest_worthwhile_change": 0.010968200231948786,
+      "unit": "m",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": 1.1511020967478587
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": 1.1800285880778707
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": 1.074171067458625
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": 1.0714806052830692
+        }
+      ]
+    },
+    {
+      "consistency": "within measurement noise",
+      "cv_percent": null,
+      "group": "Arm",
+      "key": "swing_backswing_angle_deg",
+      "label": "Backswing",
+      "median": -46.82770207148096,
+      "n": 4,
+      "noise_floor": 5.0,
+      "q25": -47.74875500254578,
+      "q75": -46.15996875954978,
+      "sd": 1.5758654908081442,
+      "sd_to_noise": 0.31517309816162886,
+      "smallest_worthwhile_change": 0.31517309816162886,
+      "unit": "\u00b0",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": -46.38305491400274
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": -45.490710296190876
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": -47.27234922895917
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": -49.17797232330558
+        }
+      ]
+    },
+    {
+      "consistency": "within measurement noise",
+      "cv_percent": null,
+      "group": "Trunk",
+      "key": "trunk_inclination_deg_at_release",
+      "label": "Trunk lean at release",
+      "median": 19.65712659032991,
+      "n": 4,
+      "noise_floor": 5.0,
+      "q25": 19.611857698964528,
+      "q75": 20.548578649906354,
+      "sd": 1.7966802772763597,
+      "sd_to_noise": 0.3593360554552719,
+      "smallest_worthwhile_change": 0.359336055455272,
+      "unit": "\u00b0",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": 23.196100115216144
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": 19.666071494803088
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": 19.64818168585673
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": 19.50288573828792
+        }
+      ]
+    },
+    {
+      "consistency": "within measurement noise",
+      "cv_percent": 3.8537147723456924,
+      "group": "Timing",
+      "key": "swing_tempo_ratio",
+      "label": "Tempo",
+      "median": 1.4565217391304346,
+      "n": 4,
+      "noise_floor": 0.15,
+      "q25": 1.4239130434782608,
+      "q75": 1.4891304347826086,
+      "sd": 0.05613019342329595,
+      "sd_to_noise": 0.3742012894886397,
+      "smallest_worthwhile_change": 0.011226038684659191,
+      "unit": "back \u00f7 forward",
+      "values": [
+        {
+          "score": 1,
+          "trial_id": "DABDD4E6-260C-4646-BD3F-BAF481CCF106",
+          "value": 1.5217391304347827
+        },
+        {
+          "score": null,
+          "trial_id": "635819B6-DC31-4232-A8A5-AAD81221BC12",
+          "value": 1.434782608695652
+        },
+        {
+          "score": null,
+          "trial_id": "84FC87A6-3369-40D1-9F12-DD63474832B5",
+          "value": 1.4782608695652173
+        },
+        {
+          "score": 1,
+          "trial_id": "615EBA29-74B1-4C46-9161-37487D27DB2B",
+          "value": 1.391304347826087
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "throws": 4,
+  "throws_with_outcome": 2,
+  "trial_analysis_paths": {
+    "22C5FB11-C7A8-447E-8185-CBE5C758A496": "Athletes/Player-1-6DBB9920/analyses/Throw-22C5FB11",
+    "615EBA29-74B1-4C46-9161-37487D27DB2B": "Athletes/Player-1-6DBB9920/analyses/Throw-615EBA29",
+    "635819B6-DC31-4232-A8A5-AAD81221BC12": "Athletes/Player-1-6DBB9920/analyses/Throw-635819B6",
+    "699CB7E0-80AC-466B-BDFC-E755E04365A6": "Athletes/Player-1-6DBB9920/analyses/Throw-699CB7E0",
+    "84FC87A6-3369-40D1-9F12-DD63474832B5": "Athletes/Player-1-6DBB9920/analyses/Throw-84FC87A6",
+    "AFC619DC-0713-4386-B0A7-0561278D751C": "Athletes/Player-1-6DBB9920/analyses/Throw-AFC619DC",
+    "BBA0E0DC-C9A5-4FD0-A4F6-59217BDACBA4": "Athletes/Player-1-6DBB9920/analyses/Throw-BBA0E0DC",
+    "DABDD4E6-260C-4646-BD3F-BAF481CCF106": "Athletes/Player-1-6DBB9920/analyses/Throw-DABDD4E6"
+  },
+  "trial_labels": {
+    "22C5FB11-C7A8-447E-8185-CBE5C758A496": "Take 1 \u00b7 Throw 4",
+    "615EBA29-74B1-4C46-9161-37487D27DB2B": "Take 3 \u00b7 Throw 4",
+    "635819B6-DC31-4232-A8A5-AAD81221BC12": "Take 3 \u00b7 Throw 2",
+    "699CB7E0-80AC-466B-BDFC-E755E04365A6": "Take 1 \u00b7 Throw 3",
+    "84FC87A6-3369-40D1-9F12-DD63474832B5": "Take 3 \u00b7 Throw 3",
+    "AFC619DC-0713-4386-B0A7-0561278D751C": "Take 1 \u00b7 Throw 1",
+    "BBA0E0DC-C9A5-4FD0-A4F6-59217BDACBA4": "Take 1 \u00b7 Throw 2",
+    "DABDD4E6-260C-4646-BD3F-BAF481CCF106": "Take 3 \u00b7 Throw 1"
+  },
+  "trust": {
+    "grades": {
+      "bag": {
+        "GOOD": 4,
+        "POOR": 0,
+        "WARNING": 0
+      },
+      "calibration": {
+        "GOOD": 3,
+        "POOR": 0,
+        "WARNING": 1
+      },
+      "pose": {
+        "GOOD": 4,
+        "POOR": 0,
+        "WARNING": 0
+      },
+      "release": {
+        "GOOD": 4,
+        "POOR": 0,
+        "WARNING": 0
+      }
+    },
+    "overall": {
+      "bag": "GOOD",
+      "calibration": "GOOD",
+      "pose": "GOOD",
+      "release": "GOOD"
+    },
+    "reliable_metric_share": 0.75,
+    "throws": 4
+  }
+}

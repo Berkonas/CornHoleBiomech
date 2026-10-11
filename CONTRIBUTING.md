@@ -8,7 +8,7 @@ Thanks for helping with the Cornhole Biomechanics Lab. This guide covers the tea
 git clone https://github.com/Berkonas/CornHoleBiomech.git
 cd CornHoleBiomech
 ./setup.sh          # once per Mac: Python runtime and pose models
-./build_app.sh      # builds and installs the app, then links dist/
+./build_app.sh      # builds the app directly inside dist/
 ```
 
 To work on the Python engine without the app, any machine with Python 3.11 or 3.12 works:
@@ -43,4 +43,8 @@ python -m pytest tests
 
 ## Data and privacy
 
-Never commit participant video, identifiable names, course PDFs or model weights. Recordings live in `data/` and course material in `research/`; both are git-ignored. Use participant codes such as `Player 1` in examples and fixtures.
+This public repository includes the owner-approved project dataset and references. Only contribute recordings and materials you have permission to share publicly. Prefer participant codes such as `Player 1` in new examples. Never commit credentials or private account information. Large media is tracked by Git LFS; install LFS before adding files. Review data changes as carefully as source changes.
+
+## Repository location
+
+Keep your checkout in `~/GitHub/CornHoleBiomech` (or another local directory outside Desktop/iCloud). Setup creates `.venv` in that checkout. The app resolves its repository from its bundle location, uses the current Python source, and keeps preferences in `.local/app-support`. See [repository workflow](docs/REPOSITORY_WORKFLOW.md). Rebuild after Swift changes; commit and push changes to synchronize them with GitHub.

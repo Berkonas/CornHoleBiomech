@@ -8,7 +8,9 @@ struct LibraryPaths {
     static var live: LibraryPaths {
         let manager = FileManager.default
         let environment = ProcessInfo.processInfo.environment
+        let repository = RepositoryLocation.resolve()
         let support = environment["CORNHOLE_APP_SUPPORT_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? repository?.appendingPathComponent(".local/app-support", isDirectory: true)
             ?? manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent(applicationName, isDirectory: true)
         let overriddenLibrary = environment["CORNHOLE_LIBRARY_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -17,6 +19,7 @@ struct LibraryPaths {
         return LibraryPaths(
             applicationSupportURL: support,
             defaultLibraryURL: overriddenLibrary
+                ?? repository?.appendingPathComponent("data/libraries/Cornhole Biomechanics Lab Data", isDirectory: true)
                 ?? documents.appendingPathComponent("Cornhole Biomechanics Lab Data", isDirectory: true),
             libraryRootWasOverridden: overriddenLibrary != nil
         )

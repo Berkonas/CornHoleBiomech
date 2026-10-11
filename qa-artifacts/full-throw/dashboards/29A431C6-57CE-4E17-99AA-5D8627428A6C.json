@@ -1,0 +1,211 @@
+{
+  "athlete": "Player 3",
+  "athlete_id": "29A431C6-57CE-4E17-99AA-5D8627428A6C",
+  "compensation": {
+    "message": "Needs \u2265 8 throws with release speed, angle and height in metres.",
+    "n": 0,
+    "ratio": null,
+    "status": "insufficient_data"
+  },
+  "evidence_chain": [
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_speed_at_release_arm_lengths_s",
+      "from_label": "Wrist speed at release",
+      "n": 0,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_speed_m_s",
+      "to_label": "Release speed"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "swing_release_arm_angle_deg",
+      "from_label": "Arm angle at release",
+      "n": 0,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_angle_deg",
+      "to_label": "Release angle"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_peak_speed_time_rel_release_ms",
+      "from_label": "Peak wrist speed timing",
+      "n": 0,
+      "rho": null,
+      "stage": "Body \u2192 release",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_release_angle_deg",
+      "to_label": "Release angle"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_angle_deg",
+      "from_label": "Release angle",
+      "n": 0,
+      "rho": null,
+      "stage": "Release \u2192 flight",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_trajectory_apex_rise_m",
+      "to_label": "Apex height"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_speed_m_s",
+      "from_label": "Release speed",
+      "n": 0,
+      "rho": null,
+      "stage": "Release \u2192 flight",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "bag_time_of_flight_seconds",
+      "to_label": "Flight time"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_angle_deg",
+      "from_label": "Release angle",
+      "n": 0,
+      "rho": null,
+      "stage": "Release \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "bag_release_speed_m_s",
+      "from_label": "Release speed",
+      "n": 0,
+      "rho": null,
+      "stage": "Release \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    },
+    {
+      "ci": [
+        null,
+        null
+      ],
+      "from": "wrist_peak_speed_time_rel_release_ms",
+      "from_label": "Peak wrist speed timing",
+      "n": 0,
+      "rho": null,
+      "stage": "Body \u2192 outcome",
+      "status": "insufficient_data",
+      "supported": false,
+      "to": "score_category",
+      "to_label": "Points"
+    }
+  ],
+  "headline": "Record hole / board / miss for these throws to find what separates this athlete's good throws.",
+  "method": "Everything is within one athlete (their throws compared with each other); the\nstatistics are those of `performance.py` (Cliff's \u03b4 with family-wise control,\nnoise floors). This module decides what a coach sees and how strongly it is worded.\n\nDifference \u2192 association \u2192 action (brief \u00a741). A variable becomes a\nCOACHING PRIORITY only if all of these hold:\n  1. associated with outcome: `performance.py` says it distinguishes scored throws\n     from misses (\u22655 throws per group, large \u03b4 above the chance level for this many\n     tests), either as a shift or as misses lying further from the scored value;\n  2. larger than measurement uncertainty: the median difference exceeds the\n     variable's noise floor;\n  3. repeatable: a bootstrap 95% CI of the median difference excludes 0;\n  4. measured reliably: \u226580% of the athlete's values passed the per-throw\n     reliability rules (reliability.py);\n  5. interpretable and modifiable: a movement or release feature an athlete can\n     change on purpose (not an exploratory derivative).\nA difference passing 2 but not all of the rest is an OBSERVED DIFFERENCE: shown,\nnever phrased as advice.\n\nConsistency: typical variation (SD, CV for ratio-scale variables, IQR) is judged\nagainst the measurement noise floor, and with Hopkins' smallest worthwhile change\n(0.2 \u00d7 between-throw SD) as the smallest difference worth discussing.\n\nRelease compensation (after M\u00fcller & Sternad 2004, tolerance\u2013noise\u2013covariation):\nwith release speed, angle and height in metres, the drag-free model predicts each\nthrow's first-contact distance. If the athlete's speed and angle co-vary so that\nerrors cancel, the spread of predicted distances is smaller than when the same\nvalues are recombined at random. ratio = SD(shuffled) / SD(observed) > 1 means\ncompensation. Model-based and descriptive; needs \u2265 8 scaled throws.\n\nEvidence chain (body \u2192 release \u2192 flight \u2192 outcome) is a hypothesis structure:\neach link is a within-athlete Spearman correlation with a bootstrap CI; a link is\n\"supported\" only when the CI excludes 0 with \u2265 8 throws. Not causal.\n",
+  "most_variable": null,
+  "observed_differences": [],
+  "performance": {
+    "counts": {
+      "board": 0,
+      "hole": 0,
+      "miss": 0,
+      "unknown": 1
+    },
+    "hole_percent": null,
+    "landing_dispersion": {
+      "centroid": null,
+      "endpoint": "first_contact_point",
+      "lateral_sd_inches": null,
+      "longitudinal_sd_inches": null,
+      "missing": 1,
+      "n": 0,
+      "note": "Visible board-plane points only; excludes unlocated misses. Grouping is not target accuracy.",
+      "rms_radius_inches": null
+    },
+    "mean_target_error_inches": null,
+    "scored_percent": null,
+    "sports": {
+      "bags": 0,
+      "definition": "PPR = 4 \u00d7 mean points per bag (gross, no cancellation), as reported by the American Cornhole League.",
+      "in_percent": null,
+      "off_percent": null,
+      "on_percent": null,
+      "points_per_bag": null,
+      "ppr": null,
+      "unknown": 1
+    }
+  },
+  "physics": null,
+  "priorities": [],
+  "release_profile": [],
+  "schema_version": 1,
+  "throws": 1,
+  "throws_with_outcome": 0,
+  "trial_analysis_paths": {
+    "D2BF81C9-033B-40A6-BC0B-6020EAC1E8DF": "Athletes/Player-3-29A431C6/analyses/Throw-D2BF81C9"
+  },
+  "trial_labels": {
+    "D2BF81C9-033B-40A6-BC0B-6020EAC1E8DF": "testsep17 - 17.mov"
+  },
+  "trust": {
+    "grades": {
+      "bag": {
+        "GOOD": 0,
+        "POOR": 1,
+        "WARNING": 0
+      },
+      "calibration": {
+        "GOOD": 0,
+        "POOR": 1,
+        "WARNING": 0
+      },
+      "pose": {
+        "GOOD": 1,
+        "POOR": 0,
+        "WARNING": 0
+      },
+      "release": {
+        "GOOD": 0,
+        "POOR": 1,
+        "WARNING": 0
+      }
+    },
+    "overall": {
+      "bag": "POOR",
+      "calibration": "POOR",
+      "pose": "GOOD",
+      "release": "POOR"
+    },
+    "reliable_metric_share": 1.0,
+    "throws": 1
+  }
+}

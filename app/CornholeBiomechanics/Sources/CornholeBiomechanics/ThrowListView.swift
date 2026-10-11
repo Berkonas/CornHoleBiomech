@@ -6,6 +6,7 @@ struct ThrowListView: View {
     @EnvironmentObject private var analysis: AnalysisService
     let athleteID: UUID
     let beginImport: () -> Void
+    var beginTakeImport: () -> Void = {}
     @State private var summaries: [UUID: ThrowRowSummary] = [:]
     @State private var deleting: Trial?
 
@@ -15,8 +16,8 @@ struct ThrowListView: View {
                 ScrollView {
                     VStack(spacing: Space.l) {
                         EmptyState("No Throws Yet", symbol: "video.badge.plus",
-                                   message: "Import side-view videos of this athlete's throws.",
-                                   action: store.project == nil || analysis.isRunning ? nil : ("Import Videos", beginImport))
+                                   message: "Import this athlete's two-camera takes (Take_N_Front and Take_N_Side), or single side-view videos.",
+                                   action: store.project == nil || analysis.isRunning ? nil : ("Import Two-Camera Takes", beginTakeImport))
                         RecordingGuide().padding(.horizontal, Space.l)
                     }
                     .padding(.vertical, Space.xl)
@@ -30,15 +31,17 @@ struct ThrowListView: View {
                         }
                     } icon: { Image(systemName: "chart.bar.xaxis") }
                         .tag(Destination.summary(athleteID))
-                    Section("Throws") {
-                        ForEach(trials) { trial in
-                            ThrowRow(trial: trial, summary: summaries[trial.id],
-                                     isAnalyzing: analysis.activeTrialID == trial.id && analysis.isRunning,
-                                     videoMissing: !store.videoState(for: trial).isAvailable,
-                                     canAnalyze: !analysis.isRunning && store.videoState(for: trial).isAvailable,
-                                     analyze: { analyze(trial) })
-                                .tag(Destination.throwReport(trial.id))
-                                .contextMenu { menu(for: trial) }
+                    ForEach(groups, id: \.title) { group in
+                        Section(group.title) {
+                            ForEach(group.trials) { trial in
+                                ThrowRow(trial: trial, summary: summaries[trial.id],
+                                         isAnalyzing: analysis.activeTrialID == trial.id && analysis.isRunning,
+                                         videoMissing: !store.videoState(for: trial).isAvailable,
+                                         canAnalyze: !analysis.isRunning && store.videoState(for: trial).isAvailable,
+                                         analyze: { analyze(trial) })
+                                    .tag(Destination.throwReport(trial.id))
+                                    .contextMenu { menu(for: trial) }
+                            }
                         }
                     }
                 }
@@ -48,8 +51,11 @@ struct ThrowListView: View {
         .navigationTitle(store.project?.athletes.first { $0.id == athleteID }?.displayName ?? "Throws")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Import Videos", systemImage: "plus", action: beginImport)
-                    .help("Import throw videos (⇧⌘I)")
+                Menu {
+                    Button("Import Two-Camera Takes… (⇧⌘T)", action: beginTakeImport)
+                    Button("Import Single Videos… (⇧⌘I)", action: beginImport)
+                } label: { Label("Import", systemImage: "plus") }
+                    .help("Import throws")
                     .disabled(store.project == nil || analysis.isRunning)
             }
         }
@@ -64,7 +70,26 @@ struct ThrowListView: View {
     }
 
     private var trials: [Trial] {
-        (store.project?.trials ?? []).filter { $0.athleteID == athleteID }.sorted { $0.createdAt < $1.createdAt }
+        (store.project?.trials ?? []).filter { $0.athleteID == athleteID }.sorted { a, b in
+            switch (a.takeNumber, b.takeNumber) {
+            case let (x?, y?) where x != y: return x < y
+            case let (x?, y?) where x == y: return (a.throwInTake ?? 0) < (b.throwInTake ?? 0)
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.createdAt < b.createdAt
+            }
+        }
+    }
+
+    /// Two-camera throws are grouped by take; single videos stay together under "Throws".
+    private var groups: [(title: String, trials: [Trial])] {
+        var result: [(title: String, trials: [Trial])] = []
+        for trial in trials {
+            let title = trial.takeNumber.map { "Take \($0)" } ?? "Throws"
+            if let last = result.indices.last, result[last].title == title { result[last].trials.append(trial) }
+            else { result.append((title, [trial])) }
+        }
+        return result
     }
 
     /// Reload row summaries whenever an analysis finishes or a throw's analysis changes.

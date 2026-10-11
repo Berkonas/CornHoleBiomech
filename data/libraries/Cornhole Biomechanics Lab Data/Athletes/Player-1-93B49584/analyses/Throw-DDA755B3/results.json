@@ -1,0 +1,5587 @@
+{
+  "arm_motion": {
+    "coverage": 1.0,
+    "message": "Lower elbow excursion describes a more fixed elbow during this swing. Mean flexion describes how bent it is. Neither establishes accuracy or better technique; a fixed bent elbow can also act as one rigid link.",
+    "minimum_coverage": 0.8,
+    "minimum_samples": 5,
+    "radius_coverage": 1.0,
+    "release_frame": 167,
+    "sample_count": 22,
+    "schema_version": 1,
+    "start_frame": 146,
+    "status": "available",
+    "summaries": {
+      "arm_motion_flexion_rom_deg": 19.35544840932147,
+      "arm_motion_flexion_sd_deg": 7.604218520461297,
+      "arm_motion_mean_flexion_deg": 10.27642426112915,
+      "arm_motion_radius_cv_ratio": 0.039434481859000836
+    },
+    "valid_sample_count": 22
+  },
+  "athlete_id": "93B49584-B5BB-4341-A96D-BBEC92617E91",
+  "bag": {
+    "analysis_coordinate_system": "target_forward_x_up_y",
+    "automatic_tracking_coverage_percent": 42.44186046511628,
+    "camera_motion_removed_for_fits": true,
+    "coordinate_system": "raw_video_pixels_x_right_y_down",
+    "effective_tracking_coverage_percent": 42.44186046511628,
+    "flight_filter": {
+      "assumptions": "Single fixed pixel frame (camera motion removed); free flight between the first and last measurement; acceleration approximately constant but allowed to drift. Not extrapolated beyond the measured flight.",
+      "coordinates": "release_frame_pixels_camera_motion_removed",
+      "first_frame": 167,
+      "jerk_spectral_density_px2_s5": 100000.0,
+      "last_frame": 238,
+      "longest_gap_frames": 2,
+      "mean_nis": 1.8778878024064571,
+      "measurement_count": 72,
+      "measurement_sigma_px": 0.75,
+      "model": "constant_acceleration_white_jerk_per_axis",
+      "noise_selection": "maximum_innovation_likelihood",
+      "predicted_gap_frames": 0,
+      "raw_minus_filtered_rms_px": 0.9842897747853625,
+      "rejected_outlier_frames": [
+        232,
+        233,
+        238
+      ],
+      "revision": "ca_kalman_rts_v1",
+      "status": "filtered"
+    },
+    "interpolated_sample_count": 0,
+    "launch": {
+      "acceleration": {
+        "forward_arm_lengths_s2": -2.9575846707582047,
+        "forward_m_s2": -1.5262940064365764,
+        "forward_px_s2": -323.0624877484613,
+        "interpretation": "exploratory_noise_sensitive_projected_measurement",
+        "magnitude_arm_lengths_s2": 23.03633659865865,
+        "magnitude_m_s2": 11.888154151060904,
+        "magnitude_px_s2": 2516.3019959343105,
+        "status": "estimated_exploratory",
+        "vertical_arm_lengths_s2": -22.84568880121578,
+        "vertical_m_s2": -11.789768264274848,
+        "vertical_px_s2": -2495.4771815732497,
+        "warning": "Do not interpret this as gravity, force, or a validated aerodynamic estimate."
+      },
+      "coordinate_system": "target_forward_x_up_y",
+      "fit_degree": 2,
+      "fit_method": "iteratively_reweighted_local_polynomial_huber",
+      "fit_rmse_arm_lengths": 0.009863767907685327,
+      "fit_rmse_pixels": 1.0774377587010344,
+      "fit_time_origin": "release_frame",
+      "fit_window_seconds": 0.13346680013346682,
+      "frame_interval_seconds": 0.016683350016683352,
+      "gravity_constrained": {
+        "angle_deg": 45.745630683438606,
+        "fit_rmse_px": 1.1639616018171084,
+        "forward_m_s": 5.26271006088516,
+        "forward_px_s": 1113.9296868090437,
+        "model": "gravity_constrained_linear",
+        "speed_m_s": 7.541372999129433,
+        "speed_px_s": 1596.2420817113186,
+        "standard_error": {
+          "angle_deg": 0.2278459975845676,
+          "forward_px_s": 7.2725314652273125,
+          "speed_m_s": 0.029737942601336876,
+          "speed_px_s": 6.294471233454364,
+          "vertical_px_s": 5.198476695839274
+        },
+        "vertical_m_s": 5.4014988222767,
+        "vertical_px_s": 1143.30636151103
+      },
+      "physical_units": {
+        "calibration": {
+          "frame_index": null,
+          "known_length_m": null,
+          "observed_length_px": null,
+          "pixels_per_meter": 211.6646507069186,
+          "plane": "bag_flight_plane_gravity",
+          "schema_version": 1,
+          "source": "reviewed_flight_gravity_fit",
+          "valid": true
+        },
+        "status": "available_from_explicit_athlete_plane_scale",
+        "velocity": {
+          "forward_m_s": 5.367496751820514,
+          "speed_m_s": 7.70536237905297,
+          "vertical_m_s": 5.528344056923472
+        }
+      },
+      "primary_model": "gravity_constrained_linear",
+      "release_confirmed_by": "automatic_physics",
+      "release_event_method": "auto_motion_parabola_v18_hand_to_touchdown",
+      "release_event_was_manually_reviewed": false,
+      "release_frame": 167,
+      "release_height": {
+        "floor_reference": "lowest_heel_or_toe",
+        "height_arm_lengths": 2.0203647147719566,
+        "height_m": 1.0426313692591098,
+        "height_px": 220.68820459030576
+      },
+      "sample_count": 9,
+      "sample_frames": [
+        167,
+        168,
+        169,
+        170,
+        171,
+        172,
+        173,
+        174,
+        175
+      ],
+      "status": "estimated",
+      "uncertainty_note": "Standard errors come from the fit residuals (tracking noise within this window) and exclude release-frame choice, camera motion and scale error; they are a lower bound on total uncertainty.",
+      "velocity": {
+        "angle_deg": 45.84575412975929,
+        "forward_arm_lengths_s": 10.40089658125017,
+        "forward_px_s": 1136.1093251446093,
+        "speed_arm_lengths_s": 14.93110865850145,
+        "speed_px_s": 1630.9528365324782,
+        "vertical_arm_lengths_s": 10.712579338241353,
+        "vertical_px_s": 1170.155013796376
+      },
+      "velocity_standard_error": {
+        "angle_deg": 0.787018903922556,
+        "forward_px_s": 28.656856570731915,
+        "speed_px_s": 21.96506361497352,
+        "vertical_px_s": 12.772541317656698
+      }
+    },
+    "manual_correction_count": 0,
+    "median_automatic_quality": 0.95,
+    "quality_note": "Tracker confidence is an uncalibrated appearance-consistency score; manual review determines whether the bag identity is correct.",
+    "release_candidate": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 167,
+      "automatic_method": "auto_motion_parabola_v18_hand_to_touchdown",
+      "manual_frame": null,
+      "name": "release",
+      "suppressed_reason": null
+    },
+    "review": {
+      "covers_launch_fit": true,
+      "note": "Automatic physics verification (auto_motion_parabola_v18_hand_to_touchdown): 66 detections on one projectile path, 4.8 px RMS.",
+      "required_through_frame_for_launch": 175,
+      "reviewed_at": "2026-10-06T03:50:37.990196+00:00",
+      "reviewed_through_frame": 239
+    },
+    "tracker": {
+      "effective_method": "auto_motion_parabola_v18_hand_to_touchdown",
+      "failure_frames": [],
+      "fallback_reason": null,
+      "quality_note": "Tracker confidence is an uncalibrated appearance-consistency score; manual review determines whether the bag identity is correct.",
+      "requested_method": "automatic",
+      "status": "automatic_physics_verified"
+    },
+    "units": "pixels_and_arm_lengths; physical_units_only_with_explicit_athlete_plane_calibration",
+    "view_applicability": "primary_stage1_side_view"
+  },
+  "board": {
+    "clicked_in_frame": 0,
+    "confidence": 1.0,
+    "corners_px": [
+      [
+        1580.627870929365,
+        644.84094518381
+      ],
+      [
+        1618.6226714648355,
+        668.31651966855
+      ],
+      [
+        1898.0140500042373,
+        627.238230964519
+      ],
+      [
+        1831.07319271411,
+        606.3440867814106
+      ]
+    ],
+    "deck_H": [
+      [
+        -0.06544672237039076,
+        -0.42577080933825295,
+        378.0013672179152
+      ],
+      [
+        -0.07677413193122253,
+        0.12425734684257188,
+        41.22511257205121
+      ],
+      [
+        -0.00033406252439520514,
+        -0.0014654073288902678,
+        1.0
+      ]
+    ],
+    "front_height_in": 2.9999999999999996,
+    "hfov_deg": 65.0,
+    "hole_offset_in": null,
+    "phi_deg": 5.4947173889571586,
+    "phi_reason": null,
+    "phi_status": "measured",
+    "plane_H": [
+      [
+        1407.6499337095302,
+        -90.42747798001534,
+        11654.767850875354
+      ],
+      [
+        -17.057854139857927,
+        -1558.2077791614631,
+        4899.028523094243
+      ],
+      [
+        -0.095753977622882,
+        -0.11314055281026199,
+        7.294266192223965
+      ]
+    ],
+    "reasons": [
+      "clicked corners"
+    ],
+    "reference": "release_frame",
+    "reference_frame": 167,
+    "status": "found"
+  },
+  "board_phase": {
+    "drained": true,
+    "end": {
+      "frame": 267,
+      "from_hole_in": 0.0,
+      "kind": "fell_in_hole",
+      "note": "The bag slid into the hole. It shrank from view as it tipped in.",
+      "right_of_centre_in": -0.09821187332715553,
+      "u_in": 11.901788126672844,
+      "v_in": 40.519259495597346,
+      "x": 1813.8306965488812,
+      "x_release_frame": 1813.1515151515152,
+      "y": 620.6356412341527,
+      "y_release_frame": 620.5505050505051
+    },
+    "flight_accepted": true,
+    "hang": null,
+    "lateral": {
+      "inches_per_pixel": 0.824813398089014,
+      "note": "Left/right on the board is approximate from a side camera (about \u00b13 in): the across direction runs along the camera's line of sight. The result is decided from the along-board position; the board camera measures left/right precisely.",
+      "precision_in": 3.0,
+      "state": "approximate"
+    },
+    "path": [
+      {
+        "area_px": 914.0,
+        "frame": 239,
+        "right_of_centre_in": -5.976690567481428,
+        "u_in": 6.023309432518572,
+        "v_in": 29.853784537307977,
+        "x": 1740.3510931852484,
+        "x_release_frame": 1740.4638949671773,
+        "y": 624.2909072975476,
+        "y_release_frame": 624.3468271334792
+      },
+      {
+        "area_px": 502.0,
+        "frame": 240,
+        "right_of_centre_in": -0.695233181822239,
+        "u_in": 11.304766818177761,
+        "v_in": 29.995785307173712,
+        "x": 1752.8614899936326,
+        "x_release_frame": 1752.9541832669322,
+        "y": 628.863757980628,
+        "y_release_frame": 628.8844621513945
+      },
+      {
+        "area_px": 578.0,
+        "frame": 241,
+        "right_of_centre_in": -1.69204558058882,
+        "u_in": 10.30795441941118,
+        "v_in": 32.036178569142294,
+        "x": 1761.8329001706832,
+        "x_release_frame": 1761.9221453287198,
+        "y": 626.2429935418355,
+        "y_release_frame": 626.3010380622837
+      },
+      {
+        "area_px": 725.0,
+        "frame": 242,
+        "right_of_centre_in": -1.2559161471941778,
+        "u_in": 10.744083852805822,
+        "v_in": 33.73784796498244,
+        "x": 1772.2693285863668,
+        "x_release_frame": 1772.336551724138,
+        "y": 625.2407009432649,
+        "y_release_frame": 625.2675862068966
+      },
+      {
+        "area_px": 812.0,
+        "frame": 243,
+        "right_of_centre_in": -1.8972407897433996,
+        "u_in": 10.1027592102566,
+        "v_in": 35.4448534560651,
+        "x": 1780.2329550370991,
+        "x_release_frame": 1780.295566502463,
+        "y": 623.2700082191778,
+        "y_release_frame": 623.2758620689655
+      },
+      {
+        "area_px": 681.0,
+        "frame": 244,
+        "right_of_centre_in": -3.541460879662024,
+        "u_in": 8.458539120337976,
+        "v_in": 37.07546343892697,
+        "x": 1785.3698200595356,
+        "x_release_frame": 1785.4287812041116,
+        "y": 620.4917114516162,
+        "y_release_frame": 620.4875183553597
+      },
+      {
+        "area_px": 678.0,
+        "frame": 245,
+        "right_of_centre_in": -3.4782777420477835,
+        "u_in": 8.521722257952216,
+        "v_in": 38.33153210313552,
+        "x": 1792.4804368309995,
+        "x_release_frame": 1792.5442477876106,
+        "y": 619.4910991420301,
+        "y_release_frame": 619.4896755162242
+      },
+      {
+        "area_px": 580.0,
+        "frame": 246,
+        "right_of_centre_in": -3.1703252805446738,
+        "u_in": 8.829674719455326,
+        "v_in": 39.20898282533471,
+        "x": 1798.1368845859743,
+        "x_release_frame": 1798.1724137931035,
+        "y": 619.0183125513933,
+        "y_release_frame": 619.0155172413793
+      },
+      {
+        "area_px": 594.0,
+        "frame": 247,
+        "right_of_centre_in": -2.9248870704735968,
+        "u_in": 9.075112929526403,
+        "v_in": 40.33418778691906,
+        "x": 1805.0402020898484,
+        "x_release_frame": 1805.057239057239,
+        "y": 618.2858825559675,
+        "y_release_frame": 618.2760942760942
+      },
+      {
+        "area_px": 552.0,
+        "frame": 248,
+        "right_of_centre_in": -3.8938683141901507,
+        "u_in": 8.10613168580985,
+        "v_in": 41.89393964148099,
+        "x": 1811.4103049818164,
+        "x_release_frame": 1811.3804347826087,
+        "y": 616.1356362649416,
+        "y_release_frame": 616.1376811594203
+      },
+      {
+        "area_px": 635.0,
+        "frame": 249,
+        "right_of_centre_in": -4.868395696260001,
+        "u_in": 7.131604303739999,
+        "v_in": 42.99658529168098,
+        "x": 1815.1870673015528,
+        "x_release_frame": 1815.1133858267717,
+        "y": 614.3820227222429,
+        "y_release_frame": 614.3905511811024
+      },
+      {
+        "area_px": 614.0,
+        "frame": 250,
+        "right_of_centre_in": -5.323235608589,
+        "u_in": 6.676764391411,
+        "v_in": 43.49410370364145,
+        "x": 1816.864483480051,
+        "x_release_frame": 1816.7540716612377,
+        "y": 613.6079004144965,
+        "y_release_frame": 613.5928338762214
+      },
+      {
+        "area_px": 660.0,
+        "frame": 251,
+        "right_of_centre_in": -5.2180030051194715,
+        "u_in": 6.7819969948805285,
+        "v_in": 43.95471817953513,
+        "x": 1819.7456520433682,
+        "x_release_frame": 1819.590909090909,
+        "y": 613.3191168859715,
+        "y_release_frame": 613.290909090909
+      },
+      {
+        "area_px": 643.0,
+        "frame": 252,
+        "right_of_centre_in": -5.082159275220728,
+        "u_in": 6.917840724779272,
+        "v_in": 43.79906595687084,
+        "x": 1819.2566343328544,
+        "x_release_frame": 1819.0622083981339,
+        "y": 613.5596885149445,
+        "y_release_frame": 613.5349922239502
+      },
+      {
+        "area_px": 634.0,
+        "frame": 253,
+        "right_of_centre_in": -4.919052781510284,
+        "u_in": 7.080947218489716,
+        "v_in": 43.6833313213808,
+        "x": 1819.06540054606,
+        "x_release_frame": 1818.8249211356467,
+        "y": 613.8148333620419,
+        "y_release_frame": 613.7681388012618
+      },
+      {
+        "area_px": 626.0,
+        "frame": 254,
+        "right_of_centre_in": -4.750157867475818,
+        "u_in": 7.249842132524182,
+        "v_in": 43.442882456722614,
+        "x": 1818.1828211746615,
+        "x_release_frame": 1817.9041533546326,
+        "y": 614.1568092467064,
+        "y_release_frame": 614.111821086262
+      },
+      {
+        "area_px": 621.0,
+        "frame": 255,
+        "right_of_centre_in": -4.521730474891013,
+        "u_in": 7.478269525108987,
+        "v_in": 43.34684902473421,
+        "x": 1818.2687953419788,
+        "x_release_frame": 1817.940418679549,
+        "y": 614.4444390532592,
+        "y_release_frame": 614.3832528180354
+      },
+      {
+        "area_px": 544.0,
+        "frame": 256,
+        "right_of_centre_in": -3.8692060036651004,
+        "u_in": 8.1307939963349,
+        "v_in": 42.78081249324269,
+        "x": 1816.7661514177041,
+        "x_release_frame": 1816.4080882352941,
+        "y": 615.4666852119263,
+        "y_release_frame": 615.4080882352941
+      },
+      {
+        "area_px": 525.0,
+        "frame": 257,
+        "right_of_centre_in": -3.414427071748108,
+        "u_in": 8.585572928251892,
+        "v_in": 42.50653200437494,
+        "x": 1816.3916896844385,
+        "x_release_frame": 1816.0114285714285,
+        "y": 616.092279044441,
+        "y_release_frame": 616.0228571428571
+      },
+      {
+        "area_px": 510.0,
+        "frame": 258,
+        "right_of_centre_in": -3.5389452227952667,
+        "u_in": 8.461054777204733,
+        "v_in": 42.321804043389974,
+        "x": 1815.1030798953216,
+        "x_release_frame": 1814.6627450980393,
+        "y": 616.1484216188438,
+        "y_release_frame": 616.0745098039216
+      },
+      {
+        "area_px": 518.0,
+        "frame": 259,
+        "right_of_centre_in": -3.9891426248212536,
+        "u_in": 8.010857375178746,
+        "v_in": 42.50318579837923,
+        "x": 1815.0493840733736,
+        "x_release_frame": 1814.5521235521235,
+        "y": 615.6259925143926,
+        "y_release_frame": 615.542471042471
+      },
+      {
+        "area_px": 527.0,
+        "frame": 260,
+        "right_of_centre_in": -3.941905256701263,
+        "u_in": 8.058094743298737,
+        "v_in": 42.50716626143538,
+        "x": 1815.2328450294342,
+        "x_release_frame": 1814.6925996204934,
+        "y": 615.6570325630813,
+        "y_release_frame": 615.5787476280835
+      },
+      {
+        "area_px": 513.0,
+        "frame": 261,
+        "right_of_centre_in": -2.862604544340952,
+        "u_in": 9.137395455659048,
+        "v_in": 41.97079785367136,
+        "x": 1814.9597959512002,
+        "x_release_frame": 1814.3879142300195,
+        "y": 617.0326797050855,
+        "y_release_frame": 616.9434697855751
+      },
+      {
+        "area_px": 424.0,
+        "frame": 262,
+        "right_of_centre_in": -3.0775941689900286,
+        "u_in": 8.922405831009971,
+        "v_in": 41.94811239818375,
+        "x": 1814.3183145066587,
+        "x_release_frame": 1813.7216981132076,
+        "y": 616.8540342078055,
+        "y_release_frame": 616.7806603773585
+      },
+      {
+        "area_px": 311.0,
+        "frame": 263,
+        "right_of_centre_in": -2.9801050527916324,
+        "u_in": 9.019894947208368,
+        "v_in": 41.12996123174729,
+        "x": 1809.9919348387918,
+        "x_release_frame": 1809.3762057877814,
+        "y": 617.6410261037742,
+        "y_release_frame": 617.556270096463
+      },
+      {
+        "area_px": 274.0,
+        "frame": 264,
+        "right_of_centre_in": -2.136202285612743,
+        "u_in": 9.863797714387257,
+        "v_in": 40.80040164366936,
+        "x": 1810.2652294344657,
+        "x_release_frame": 1809.6277372262773,
+        "y": 618.6342638252346,
+        "y_release_frame": 618.5547445255474
+      },
+      {
+        "area_px": 296.0,
+        "frame": 265,
+        "right_of_centre_in": -1.310179437187788,
+        "u_in": 10.689820562812212,
+        "v_in": 41.01054534941329,
+        "x": 1813.541105691417,
+        "x_release_frame": 1812.8783783783783,
+        "y": 619.1640163519738,
+        "y_release_frame": 619.0844594594595
+      },
+      {
+        "area_px": 198.0,
+        "frame": 266,
+        "right_of_centre_in": -0.09821187332715553,
+        "u_in": 11.901788126672844,
+        "v_in": 40.519259495597346,
+        "x": 1813.8306965488812,
+        "x_release_frame": 1813.1515151515152,
+        "y": 620.6356412341527,
+        "y_release_frame": 620.5505050505051
+      }
+    ],
+    "revision": "board_phase_v3_deck_footprint_touchdown",
+    "samples_present": 29,
+    "samples_total": 105,
+    "slide": {
+      "deceleration_m_s2": null,
+      "distance_in": 10.66547495828937,
+      "duration_s": 0.45045045045045046,
+      "entry_speed_m_s": 1.6613212680054918,
+      "fit_rmse_in": null,
+      "mu_effective": null,
+      "reason": "Slide too short or too few samples for a friction estimate. Fitted on the plain deck before the hole.",
+      "samples": 28,
+      "state": "unavailable"
+    },
+    "status": "measured",
+    "suggested_outcome": {
+      "basis": "The bag slid into the hole. It shrank from view as it tipped in.",
+      "confidence": "high",
+      "needs_confirmation": true,
+      "score": 3,
+      "source": "board_phase"
+    },
+    "touchdown": {
+      "basis": "on_deck_surface",
+      "frame": 239,
+      "from_hole_in": -9.146215462692023,
+      "on_deck": true,
+      "right_of_centre_in": -5.976690567481428,
+      "u_in": 6.023309432518572,
+      "v_in": 29.853784537307977,
+      "x": 1740.3510931852484,
+      "x_release_frame": 1740.4638949671773,
+      "y": 624.2909072975476,
+      "y_release_frame": 624.3468271334792
+    }
+  },
+  "camera_view": "side",
+  "chain": {
+    "joints_plane_m": {
+      "elbow": [
+        [
+          -6.896,
+          0.557
+        ],
+        [
+          -6.92,
+          0.555
+        ],
+        [
+          -6.941,
+          0.5555
+        ],
+        [
+          -6.961,
+          0.5577
+        ],
+        [
+          -6.978,
+          0.5617
+        ],
+        [
+          -6.993,
+          0.5672
+        ],
+        [
+          -7.007,
+          0.5734
+        ],
+        [
+          -7.018,
+          0.5798
+        ],
+        [
+          -7.026,
+          0.5854
+        ],
+        [
+          -7.032,
+          0.5899
+        ],
+        [
+          -7.035,
+          0.5932
+        ],
+        [
+          -7.036,
+          0.5953
+        ],
+        [
+          -7.036,
+          0.5963
+        ],
+        [
+          -7.032,
+          0.5963
+        ],
+        [
+          -7.025,
+          0.5957
+        ],
+        [
+          -7.014,
+          0.5942
+        ],
+        [
+          -7.0,
+          0.5917
+        ],
+        [
+          -6.982,
+          0.5881
+        ],
+        [
+          -6.959,
+          0.5835
+        ],
+        [
+          -6.934,
+          0.5783
+        ],
+        [
+          -6.905,
+          0.5732
+        ],
+        [
+          -6.873,
+          0.5697
+        ],
+        [
+          -6.836,
+          0.5691
+        ],
+        [
+          -6.795,
+          0.5737
+        ],
+        [
+          -6.752,
+          0.5846
+        ],
+        [
+          -6.705,
+          0.6025
+        ],
+        [
+          -6.655,
+          0.6282
+        ],
+        [
+          -6.604,
+          0.6608
+        ],
+        [
+          -6.555,
+          0.6998
+        ],
+        [
+          -6.51,
+          0.7438
+        ],
+        [
+          -6.47,
+          0.7923
+        ],
+        [
+          -6.439,
+          0.8434
+        ],
+        [
+          -6.415,
+          0.8944
+        ],
+        [
+          -6.398,
+          0.9447
+        ],
+        [
+          -6.387,
+          0.9924
+        ],
+        [
+          -6.379,
+          1.037
+        ],
+        [
+          -6.375,
+          1.076
+        ],
+        [
+          -6.372,
+          1.108
+        ],
+        [
+          -6.371,
+          1.135
+        ],
+        [
+          -6.371,
+          1.156
+        ]
+      ],
+      "shoulder": [
+        [
+          -6.82,
+          0.8828
+        ],
+        [
+          -6.82,
+          0.8743
+        ],
+        [
+          -6.821,
+          0.866
+        ],
+        [
+          -6.82,
+          0.8579
+        ],
+        [
+          -6.82,
+          0.8505
+        ],
+        [
+          -6.821,
+          0.8441
+        ],
+        [
+          -6.822,
+          0.8386
+        ],
+        [
+          -6.823,
+          0.8343
+        ],
+        [
+          -6.825,
+          0.8305
+        ],
+        [
+          -6.825,
+          0.8274
+        ],
+        [
+          -6.825,
+          0.8252
+        ],
+        [
+          -6.825,
+          0.8238
+        ],
+        [
+          -6.824,
+          0.8235
+        ],
+        [
+          -6.821,
+          0.8242
+        ],
+        [
+          -6.817,
+          0.8264
+        ],
+        [
+          -6.812,
+          0.8299
+        ],
+        [
+          -6.805,
+          0.8348
+        ],
+        [
+          -6.797,
+          0.841
+        ],
+        [
+          -6.787,
+          0.8485
+        ],
+        [
+          -6.778,
+          0.8571
+        ],
+        [
+          -6.768,
+          0.8665
+        ],
+        [
+          -6.759,
+          0.8771
+        ],
+        [
+          -6.749,
+          0.8884
+        ],
+        [
+          -6.739,
+          0.9013
+        ],
+        [
+          -6.732,
+          0.9154
+        ],
+        [
+          -6.727,
+          0.9301
+        ],
+        [
+          -6.721,
+          0.9455
+        ],
+        [
+          -6.715,
+          0.9602
+        ],
+        [
+          -6.711,
+          0.9738
+        ],
+        [
+          -6.707,
+          0.9857
+        ],
+        [
+          -6.702,
+          0.9965
+        ],
+        [
+          -6.698,
+          1.006
+        ],
+        [
+          -6.692,
+          1.014
+        ],
+        [
+          -6.685,
+          1.022
+        ],
+        [
+          -6.676,
+          1.03
+        ],
+        [
+          -6.666,
+          1.04
+        ],
+        [
+          -6.654,
+          1.051
+        ],
+        [
+          -6.643,
+          1.062
+        ],
+        [
+          -6.632,
+          1.074
+        ],
+        [
+          -6.624,
+          1.086
+        ]
+      ],
+      "start_frame": 134,
+      "wrist": [
+        [
+          -6.857,
+          0.313
+        ],
+        [
+          -6.913,
+          0.3046
+        ],
+        [
+          -6.968,
+          0.3029
+        ],
+        [
+          -7.019,
+          0.3069
+        ],
+        [
+          -7.066,
+          0.316
+        ],
+        [
+          -7.108,
+          0.3295
+        ],
+        [
+          -7.145,
+          0.3454
+        ],
+        [
+          -7.176,
+          0.3626
+        ],
+        [
+          -7.199,
+          0.379
+        ],
+        [
+          -7.215,
+          0.3936
+        ],
+        [
+          -7.225,
+          0.4053
+        ],
+        [
+          -7.229,
+          0.4133
+        ],
+        [
+          -7.227,
+          0.4172
+        ],
+        [
+          -7.22,
+          0.417
+        ],
+        [
+          -7.207,
+          0.4128
+        ],
+        [
+          -7.188,
+          0.4051
+        ],
+        [
+          -7.162,
+          0.3945
+        ],
+        [
+          -7.129,
+          0.3817
+        ],
+        [
+          -7.09,
+          0.368
+        ],
+        [
+          -7.044,
+          0.3545
+        ],
+        [
+          -6.993,
+          0.3426
+        ],
+        [
+          -6.934,
+          0.3342
+        ],
+        [
+          -6.868,
+          0.3308
+        ],
+        [
+          -6.793,
+          0.3349
+        ],
+        [
+          -6.712,
+          0.3482
+        ],
+        [
+          -6.625,
+          0.3723
+        ],
+        [
+          -6.531,
+          0.4094
+        ],
+        [
+          -6.435,
+          0.4599
+        ],
+        [
+          -6.344,
+          0.5242
+        ],
+        [
+          -6.262,
+          0.6009
+        ],
+        [
+          -6.194,
+          0.688
+        ],
+        [
+          -6.143,
+          0.781
+        ],
+        [
+          -6.109,
+          0.8736
+        ],
+        [
+          -6.09,
+          0.9621
+        ],
+        [
+          -6.086,
+          1.042
+        ],
+        [
+          -6.089,
+          1.111
+        ],
+        [
+          -6.098,
+          1.168
+        ],
+        [
+          -6.109,
+          1.212
+        ],
+        [
+          -6.121,
+          1.245
+        ],
+        [
+          -6.132,
+          1.27
+        ]
+      ]
+    },
+    "notes": [
+      "Bag-only: net external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about shoulder or elbow loading.",
+      "Release height is the foot-based estimate in the release calibration's scale; the distance to the board is from the board plane."
+    ],
+    "quantities": {
+      "elbow_angle_at_release_deg": {
+        "assumptions": [],
+        "formula": "shoulder\u2013elbow\u2013wrist included angle (2D projected) at the release frame",
+        "inputs": [
+          "filtered pose landmarks",
+          "release frame"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0",
+        "value": 161.4284411586087
+      },
+      "elbow_peak_extension_velocity_deg_s": {
+        "assumptions": [
+          "Searched up to 0.1 s after release; resolution 1 frame. Window starts at the forward-swing event."
+        ],
+        "formula": "max d\u03b8/dt of the filtered elbow angle (positive = extending)",
+        "inputs": [
+          "filtered pose landmarks",
+          "forward-swing event",
+          "release frame",
+          "fps"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0/s",
+        "value": 103.23970138923222
+      },
+      "elbow_peak_time_rel_release_ms": {
+        "assumptions": [
+          "Searched up to 0.1 s after release; resolution 1 frame. Window starts at the forward-swing event."
+        ],
+        "formula": "t_peak \u2212 t_release (negative = before release)",
+        "inputs": [
+          "filtered pose landmarks",
+          "forward-swing event",
+          "release frame",
+          "fps"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "ms",
+        "value": 33.366700033366705
+      },
+      "energy_match_percent": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale.",
+          "Drag-free flight in the board's vertical plane; regulation board geometry."
+        ],
+        "formula": "100 (v\u00b2 / v_req\u00b2 \u2212 1); v_req lands on the hole centre from this release angle and height",
+        "inputs": [
+          "bag release speed (flight fit)",
+          "bag release angle (flight fit)",
+          "bag release height",
+          "release \u2192 board front distance",
+          "regulation board geometry"
+        ],
+        "interval": [
+          -6.790267989161442,
+          -1.3994305705352443
+        ],
+        "reason": "Drag-free flight model. Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "%",
+        "value": -4.180658115555735
+      },
+      "force_direction_at_peak_deg": {
+        "assumptions": [
+          "Bag-only: net external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about shoulder or elbow loading.",
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event.",
+          "At most as certain as the peak force it describes."
+        ],
+        "formula": "atan2(F_y, F_x) at peak |F| (0\u00b0 = toward the board, 90\u00b0 = straight up)",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "bag mass",
+          "g",
+          "forward-swing window"
+        ],
+        "interval": [
+          64.90576376629076,
+          164.64482472720093
+        ],
+        "reason": "95 % interval half-width 50\u00b0 is not below 15\u00b0. Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "\u00b0",
+        "value": 143.48660416132427
+      },
+      "hand_acceleration_at_release_m_s2": {
+        "assumptions": [
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "|d\u00b2(bag point)/dt\u00b2| at the release frame",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "release frame"
+        ],
+        "interval": [
+          54.59366209242075,
+          81.05240451678749
+        ],
+        "reason": "Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "m/s\u00b2",
+        "value": 67.47789635406863
+      },
+      "hand_direction_rotation_rate_deg_s": {
+        "assumptions": [
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event.",
+          "Scale-free: a ratio of plane quantities."
+        ],
+        "formula": "d\u03b8_v/dt = (v_x a_y \u2212 v_y a_x) / |v|\u00b2 at release (positive = turning upward)",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "release frame"
+        ],
+        "interval": [
+          350.1745706627748,
+          531.3538266538231
+        ],
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0/s",
+        "value": 445.50753810256913
+      },
+      "hand_speed_at_release_m_s": {
+        "assumptions": [
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "|d(bag point)/dt| at the release frame",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "release frame"
+        ],
+        "interval": [
+          5.5252226220359635,
+          7.1037772095150435
+        ],
+        "reason": "Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "m/s",
+        "value": 6.358661622235044
+      },
+      "hand_tangential_acceleration_at_release_m_s2": {
+        "assumptions": [
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "a \u00b7 v\u0302 of the bag point at release (negative = slowing down)",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "release frame"
+        ],
+        "interval": [
+          -61.613480383948946,
+          -27.761862674643012
+        ],
+        "reason": "95 % interval half-width 16.9 m/s\u00b2 is not below 25 % of the value (differentiation amplifies landmark noise). Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "m/s\u00b2",
+        "value": -45.92092545341781
+      },
+      "hand_velocity_angle_at_release_deg": {
+        "assumptions": [
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "atan2(v_y, v_x) of the bag point at the release frame",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "release frame"
+        ],
+        "interval": [
+          80.55655282868511,
+          87.25159901484547
+        ],
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0",
+        "value": 84.29827742568965
+      },
+      "kinetic_energy_j": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "KE = \u00bd m v\u00b2",
+        "inputs": [
+          "release speed",
+          "bag mass"
+        ],
+        "interval": [
+          12.110288903614121,
+          13.213688127353446
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "J",
+        "value": 12.69688434764316
+      },
+      "mean_net_force_on_bag_n": {
+        "assumptions": [
+          "Bag-only: net external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about shoulder or elbow loading.",
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "mean |m (a_bag \u2212 g\u20d7)| over the forward swing",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "bag mass",
+          "g",
+          "forward-swing window"
+        ],
+        "interval": [
+          22.571426915598515,
+          27.913515006519177
+        ],
+        "reason": "Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "N",
+        "value": 25.175194642181385
+      },
+      "measured_along_error_in": {
+        "assumptions": [
+          "Contact classified as observed on the deck/floor (contact.py)."
+        ],
+        "formula": "observed first contact \u2212 hole centre along the throw line, in the board plane (+ = long)",
+        "inputs": [
+          "observed first contact (contact.py)",
+          "board model"
+        ],
+        "interval": null,
+        "reason": "Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "in",
+        "value": -4.83583118381967
+      },
+      "mechanical_energy_j": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "E = KE + PE",
+        "inputs": [
+          "release speed",
+          "release height",
+          "bag mass",
+          "g"
+        ],
+        "interval": [
+          16.587730258694425,
+          17.927443134796437
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "J",
+        "value": 17.26227325060695
+      },
+      "momentum_kg_m_s": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "|p| = m |v|",
+        "inputs": [
+          "release speed",
+          "bag mass"
+        ],
+        "interval": [
+          3.27166133762001,
+          3.4500347548874357
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "kg\u00b7m/s",
+        "value": 3.3672606696708605,
+        "vector_kg_m_s": [
+          2.3498262989969354,
+          2.4117961734057496
+        ]
+      },
+      "peak_net_force_on_bag_n": {
+        "assumptions": [
+          "Bag-only: net external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about shoulder or elbow loading.",
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "max |F|, F = m (a_bag \u2212 g\u20d7), g\u20d7 = (0, \u2212g), over the forward swing",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "bag mass",
+          "g",
+          "forward-swing window"
+        ],
+        "interval": [
+          32.61396842152953,
+          43.15796232501922
+        ],
+        "reason": "Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "N",
+        "value": 37.16037496535974
+      },
+      "peak_power_on_bag_w": {
+        "assumptions": [
+          "Bag-only: net external force/power on the bag. Not a muscle, joint or hand-contact force, and says nothing about shoulder or elbow loading.",
+          "Bag assumed rigidly held one hand length (0.34 arm length) beyond the wrist along the forearm.",
+          "2D throw plane; second derivative of 6 Hz filtered landmarks (noise-sensitive).",
+          "Monte Carlo: 4 px landmark noise (6 Hz filtered), scale and bag-mass range.",
+          "Forward swing = window up to release. Window starts at the forward-swing event."
+        ],
+        "formula": "max F\u00b7v_bag over the forward swing (checked against dE/dt)",
+        "inputs": [
+          "filtered shoulder/elbow/wrist in the board throw plane",
+          "hand offset 0.34 arm length",
+          "fps",
+          "bag mass",
+          "g",
+          "forward-swing window"
+        ],
+        "interval": [
+          92.18575136598533,
+          223.46812472477163
+        ],
+        "reason": "95 % interval half-width 65.6 W is not below 25 % of the value (differentiation amplifies landmark noise). Metric scale not measured: This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view..",
+        "state": "estimated",
+        "unit": "W",
+        "value": 139.62646321992904
+      },
+      "peak_sequence": {
+        "assumptions": [
+          "Putnam (1993) describes proximal-to-distal sequencing in fast throws; cornhole is a slow accuracy swing, so no order is 'correct'.",
+          "Resolution 1 frame (16.7 ms at 60 fps); equal frames keep proximal first."
+        ],
+        "formula": "time order of the peak angular velocities, peak wrist speed and release (described, not graded)",
+        "inputs": [
+          "shoulder/elbow/wrist peak frames",
+          "release frame"
+        ],
+        "interval": null,
+        "lags_ms": {
+          "release \u2192 elbow": 33.366700033366705,
+          "shoulder \u2192 release": 33.366700033366705,
+          "wrist \u2192 shoulder": 33.366700033366705
+        },
+        "reason": null,
+        "state": "measured",
+        "unit": "",
+        "value": "wrist \u2192 shoulder \u2192 release \u2192 elbow"
+      },
+      "potential_energy_j": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "PE = m g h (h above the floor)",
+        "inputs": [
+          "release height",
+          "bag mass",
+          "g"
+        ],
+        "interval": [
+          4.376066949273012,
+          4.788381809027773
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "J",
+        "value": 4.5653889029637895
+      },
+      "predicted_along_error_in": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale.",
+          "Drag-free flight in the board's vertical plane; regulation board geometry."
+        ],
+        "formula": "drag-free landing on the (extended) deck plane \u2212 hole centre, along the throw line (+ = long)",
+        "inputs": [
+          "bag release speed (flight fit)",
+          "bag release angle (flight fit)",
+          "bag release height",
+          "release \u2192 board front distance",
+          "regulation board geometry"
+        ],
+        "interval": [
+          -14.080361988893841,
+          -2.961794309853418
+        ],
+        "reason": "Drag-free flight model. Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "in",
+        "value": -8.753503734222328
+      },
+      "release_angle_deg": {
+        "assumptions": [
+          "Fit standard error propagated."
+        ],
+        "formula": "atan2(v_y, v_x) from the flight fit",
+        "inputs": [
+          "bag flight fit"
+        ],
+        "interval": [
+          45.29688212003555,
+          46.20986337631387
+        ],
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0",
+        "value": 45.745630683438606
+      },
+      "release_height_m": {
+        "assumptions": [
+          "Height SD 2 cm assumed.",
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "bag centroid height above the floor at release",
+        "inputs": [
+          "bag release point",
+          "floor line",
+          "metric scale"
+        ],
+        "interval": [
+          1.001866328661804,
+          1.0892505875792307
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "m",
+        "value": 1.0426313692591098
+      },
+      "release_speed_m_s": {
+        "assumptions": [
+          "Fit standard error propagated.",
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale."
+        ],
+        "formula": "|v| from the gravity-constrained ballistic flight fit",
+        "inputs": [
+          "bag flight fit",
+          "metric scale"
+        ],
+        "interval": [
+          7.394526069777324,
+          7.702545017654222
+        ],
+        "reason": "Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "m/s",
+        "value": 7.541372999129433
+      },
+      "shoulder_angle_at_release_deg": {
+        "assumptions": [],
+        "formula": "upper-arm vs trunk (hip\u2192shoulder) angle (2D projected) at the release frame",
+        "inputs": [
+          "filtered pose landmarks",
+          "release frame"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0",
+        "value": 88.25648140205345
+      },
+      "shoulder_peak_angular_velocity_deg_s": {
+        "assumptions": [
+          "Searched up to 0.1 s after release; resolution 1 frame. Window starts at the forward-swing event."
+        ],
+        "formula": "max |d\u03b8/dt| of the filtered shoulder angle",
+        "inputs": [
+          "filtered pose landmarks",
+          "forward-swing event",
+          "release frame",
+          "fps"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "\u00b0/s",
+        "value": 558.8559243546339
+      },
+      "shoulder_peak_time_rel_release_ms": {
+        "assumptions": [
+          "Searched up to 0.1 s after release; resolution 1 frame. Window starts at the forward-swing event."
+        ],
+        "formula": "t_peak \u2212 t_release (negative = before release)",
+        "inputs": [
+          "filtered pose landmarks",
+          "forward-swing event",
+          "release frame",
+          "fps"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "ms",
+        "value": -33.366700033366705
+      },
+      "speed_margin_over_minimum_percent": {
+        "assumptions": [
+          "Scale uncertainty 1.0 % (1 SD): gravity-fit scale standard error.",
+          "Bag mass 15.5\u201316 oz (uniform); nominal value at 15.75 oz.",
+          "Release speed/height scaled by bag_flight_plane_gravity, while joints and the distance to the board use the board's throw-plane scale.",
+          "Drag-free flight in the board's vertical plane; regulation board geometry.",
+          "Venkadesan & Mahadevan (2017): the most accurate throws are slightly above the minimum speed; no fixed ideal."
+        ],
+        "formula": "100 (v / v_min \u2212 1); v_min over all release angles",
+        "inputs": [
+          "bag release speed (flight fit)",
+          "bag release height",
+          "release \u2192 board front distance",
+          "regulation board geometry"
+        ],
+        "interval": [
+          -3.01625114501995,
+          -0.24230383767328034
+        ],
+        "reason": "Drag-free flight model. Metric scale not measured: Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale..",
+        "state": "estimated",
+        "unit": "%",
+        "value": -1.6713466391525378
+      },
+      "timing_sensitivity_in_per_10ms": {
+        "assumptions": [],
+        "formula": "(\u2202R/\u2202v \u00b7 dv/dt + \u2202R/\u2202\u03b8 \u00b7 d\u03b8/dt + \u2202R/\u2202h \u00b7 dh/dt + \u2202R/\u2202x \u00b7 dx/dt) \u00d7 10 ms; Jacobian at the bag's fitted release, rates from the hand path at release",
+        "inputs": [
+          "bag release speed (flight fit)",
+          "bag release angle (flight fit)",
+          "bag release height",
+          "release \u2192 board front distance",
+          "regulation board geometry",
+          "hand-path tangential acceleration, direction rotation rate and velocity at release"
+        ],
+        "interval": null,
+        "reason": "The hand path at release points 84\u00b0 but the bag left at 46\u00b0 (difference +39\u00b0, > 10\u00b0), so the hand's rates cannot stand in for the bag's.",
+        "state": "unavailable",
+        "unit": "in / 10 ms",
+        "value": null
+      },
+      "wrist_peak_speed_time_rel_release_ms": {
+        "assumptions": [
+          "Searched up to 0.1 s after release; resolution 1 frame. Window starts at the forward-swing event.",
+          "Wrist speed from the camera-steadied filtered wrist (timing.py)."
+        ],
+        "formula": "t(max |v_wrist|) \u2212 t_release (negative = before release)",
+        "inputs": [
+          "camera-steadied wrist speed (timing.py)",
+          "release frame",
+          "fps"
+        ],
+        "interval": null,
+        "reason": null,
+        "state": "measured",
+        "unit": "ms",
+        "value": -66.73340006673341
+      }
+    },
+    "release_scale": {
+      "applies_to": "release speed/height, momentum, energies, flight model",
+      "basis": "gravity-fit scale standard error",
+      "reason": "Release speed and height are scaled by the reviewed flight's own gravity fit, not a measured board scale.",
+      "relative_sd": 0.01,
+      "source": "bag_flight_plane_gravity",
+      "state": "estimated"
+    },
+    "release_to_board_front_m": 5.76074473322247,
+    "scale": {
+      "applies_to": "joints, hand/bag mechanics, distance to the board",
+      "basis": "half the relative scale spread across the pooled field-of-view IQR (56.8\u201363.9\u00b0)",
+      "reason": "This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view.",
+      "relative_sd": 0.04958672631331404,
+      "state": "estimated"
+    },
+    "series": {
+      "bag_point_m": [
+        [
+          -6.827,
+          0.1295
+        ],
+        [
+          -6.909,
+          0.1188
+        ],
+        [
+          -6.987,
+          0.118
+        ],
+        [
+          -7.06,
+          0.1258
+        ],
+        [
+          -7.128,
+          0.141
+        ],
+        [
+          -7.189,
+          0.1621
+        ],
+        [
+          -7.242,
+          0.1865
+        ],
+        [
+          -7.285,
+          0.2122
+        ],
+        [
+          -7.318,
+          0.2365
+        ],
+        [
+          -7.342,
+          0.2578
+        ],
+        [
+          -7.357,
+          0.2744
+        ],
+        [
+          -7.364,
+          0.2855
+        ],
+        [
+          -7.363,
+          0.2903
+        ],
+        [
+          -7.354,
+          0.2887
+        ],
+        [
+          -7.338,
+          0.281
+        ],
+        [
+          -7.313,
+          0.268
+        ],
+        [
+          -7.28,
+          0.2507
+        ],
+        [
+          -7.237,
+          0.2305
+        ],
+        [
+          -7.186,
+          0.209
+        ],
+        [
+          -7.126,
+          0.1878
+        ],
+        [
+          -7.058,
+          0.1688
+        ],
+        [
+          -6.981,
+          0.1543
+        ],
+        [
+          -6.892,
+          0.1465
+        ],
+        [
+          -6.792,
+          0.149
+        ],
+        [
+          -6.682,
+          0.1649
+        ],
+        [
+          -6.564,
+          0.1968
+        ],
+        [
+          -6.439,
+          0.2477
+        ],
+        [
+          -6.316,
+          0.3173
+        ],
+        [
+          -6.202,
+          0.405
+        ],
+        [
+          -6.101,
+          0.5078
+        ],
+        [
+          -6.02,
+          0.6224
+        ],
+        [
+          -5.961,
+          0.7426
+        ],
+        [
+          -5.923,
+          0.861
+        ],
+        [
+          -5.905,
+          0.9726
+        ],
+        [
+          -5.902,
+          1.072
+        ],
+        [
+          -5.909,
+          1.157
+        ],
+        [
+          -5.922,
+          1.226
+        ],
+        [
+          -5.936,
+          1.279
+        ],
+        [
+          -5.951,
+          1.32
+        ],
+        [
+          -5.964,
+          1.35
+        ]
+      ],
+      "energy_rate_w": [
+        -31.15,
+        -32.97,
+        -31.6,
+        -28.16,
+        -27.48,
+        -31.04,
+        -33.75,
+        -32.1,
+        -26.53,
+        -19.48,
+        -12.16,
+        -4.735,
+        3.038,
+        10.93,
+        18.65,
+        26.32,
+        32.77,
+        36.34,
+        38.08,
+        43.07,
+        57.92,
+        80.22,
+        97.29,
+        112.3,
+        134.5,
+        139.6,
+        107.7,
+        61.62,
+        19.89,
+        -17.55,
+        -53.22,
+        -81.8,
+        -97.69,
+        -104.1,
+        -101.6,
+        -90.6,
+        -70.78,
+        -47.74,
+        -29.76,
+        -17.24
+      ],
+      "force_n": [
+        [
+          1.938,
+          21.79
+        ],
+        [
+          5.303,
+          20.46
+        ],
+        [
+          7.732,
+          18.24
+        ],
+        [
+          9.234,
+          16.13
+        ],
+        [
+          10.88,
+          13.42
+        ],
+        [
+          13.12,
+          9.909
+        ],
+        [
+          15.04,
+          6.16
+        ],
+        [
+          15.72,
+          2.526
+        ],
+        [
+          15.18,
+          -0.4631
+        ],
+        [
+          14.17,
+          -2.747
+        ],
+        [
+          13.0,
+          -4.457
+        ],
+        [
+          12.38,
+          -5.472
+        ],
+        [
+          12.58,
+          -5.725
+        ],
+        [
+          12.75,
+          -5.18
+        ],
+        [
+          13.12,
+          -4.045
+        ],
+        [
+          13.92,
+          -2.395
+        ],
+        [
+          14.4,
+          -0.1931
+        ],
+        [
+          14.06,
+          2.333
+        ],
+        [
+          13.41,
+          4.992
+        ],
+        [
+          13.7,
+          8.046
+        ],
+        [
+          15.68,
+          11.55
+        ],
+        [
+          17.89,
+          15.7
+        ],
+        [
+          17.54,
+          20.69
+        ],
+        [
+          15.39,
+          25.66
+        ],
+        [
+          13.13,
+          30.21
+        ],
+        [
+          7.748,
+          33.54
+        ],
+        [
+          -2.189,
+          34.29
+        ],
+        [
+          -12.98,
+          32.47
+        ],
+        [
+          -22.32,
+          28.44
+        ],
+        [
+          -29.87,
+          22.11
+        ],
+        [
+          -34.08,
+          12.9
+        ],
+        [
+          -33.95,
+          2.481
+        ],
+        [
+          -30.36,
+          -6.642
+        ],
+        [
+          -24.0,
+          -13.83
+        ],
+        [
+          -16.26,
+          -18.54
+        ],
+        [
+          -9.362,
+          -20.69
+        ],
+        [
+          -3.947,
+          -19.78
+        ],
+        [
+          0.03245,
+          -16.45
+        ],
+        [
+          2.533,
+          -12.65
+        ],
+        [
+          3.629,
+          -9.031
+        ]
+      ],
+      "mass_kg": 0.44650498921875004,
+      "note": "Frames start_frame \u2026 start_frame + len \u2212 1; acceleration = force / mass_kg + g\u20d7.",
+      "power_w": [
+        -31.19,
+        -32.56,
+        -31.33,
+        -27.89,
+        -27.35,
+        -31.24,
+        -34.04,
+        -32.18,
+        -26.5,
+        -19.47,
+        -12.08,
+        -4.865,
+        2.983,
+        11.1,
+        18.68,
+        26.36,
+        32.94,
+        36.65,
+        38.17,
+        42.56,
+        56.58,
+        78.73,
+        96.4,
+        111.0,
+        133.0,
+        139.6,
+        107.6,
+        60.75,
+        18.56,
+        -18.64,
+        -52.76,
+        -80.73,
+        -96.59,
+        -102.7,
+        -100.6,
+        -89.99,
+        -69.17,
+        -46.22,
+        -28.68,
+        -16.38
+      ],
+      "start_frame": 134,
+      "velocity_m_s": [
+        [
+          -4.945,
+          -0.9916
+        ],
+        [
+          -4.803,
+          -0.3462
+        ],
+        [
+          -4.549,
+          0.2105
+        ],
+        [
+          -4.225,
+          0.6894
+        ],
+        [
+          -3.858,
+          1.089
+        ],
+        [
+          -3.412,
+          1.365
+        ],
+        [
+          -2.878,
+          1.502
+        ],
+        [
+          -2.288,
+          1.498
+        ],
+        [
+          -1.704,
+          1.364
+        ],
+        [
+          -1.154,
+          1.136
+        ],
+        [
+          -0.6448,
+          0.8314
+        ],
+        [
+          -0.1825,
+          0.476
+        ],
+        [
+          0.2805,
+          0.09524
+        ],
+        [
+          0.7575,
+          -0.279
+        ],
+        [
+          1.233,
+          -0.6191
+        ],
+        [
+          1.738,
+          -0.9085
+        ],
+        [
+          2.273,
+          -1.125
+        ],
+        [
+          2.813,
+          -1.25
+        ],
+        [
+          3.324,
+          -1.278
+        ],
+        [
+          3.815,
+          -1.204
+        ],
+        [
+          4.347,
+          -1.004
+        ],
+        [
+          4.987,
+          -0.6685
+        ],
+        [
+          5.684,
+          -0.1584
+        ],
+        [
+          6.298,
+          0.5507
+        ],
+        [
+          6.834,
+          1.432
+        ],
+        [
+          7.279,
+          2.481
+        ],
+        [
+          7.413,
+          3.611
+        ],
+        [
+          7.115,
+          4.717
+        ],
+        [
+          6.443,
+          5.711
+        ],
+        [
+          5.447,
+          6.514
+        ],
+        [
+          4.211,
+          7.036
+        ],
+        [
+          2.9,
+          7.151
+        ],
+        [
+          1.673,
+          6.894
+        ],
+        [
+          0.6317,
+          6.327
+        ],
+        [
+          -0.1204,
+          5.533
+        ],
+        [
+          -0.583,
+          4.614
+        ],
+        [
+          -0.82,
+          3.66
+        ],
+        [
+          -0.878,
+          2.809
+        ],
+        [
+          -0.8176,
+          2.104
+        ],
+        [
+          -0.6887,
+          1.537
+        ]
+      ]
+    }
+  },
+  "claim_scope": "projected_2d_kinematics_not_true_3d_joint_orientation",
+  "coach_metrics": {
+    "bag_release_angle_deg": {
+      "definition": "Bag launch direction above horizontal, from the same fit.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Release",
+      "label": "Release angle",
+      "noise_floor": 3.0,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "\u00b0",
+      "value": 45.745630683438606
+    },
+    "bag_release_height_m": {
+      "definition": "Bag centre above the lowest foot point at release.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Release",
+      "label": "Release height",
+      "noise_floor": 0.03,
+      "reasons": [
+        "Metres come from a single scale source (see calibration)."
+      ],
+      "status": "caution",
+      "unit": "m",
+      "value": 1.0426313692591098
+    },
+    "bag_release_position_forward_arm_lengths": {
+      "definition": "How far in front of the throwing shoulder the bag leaves the hand.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Release",
+      "label": "Release point",
+      "noise_floor": 0.05,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "arm lengths",
+      "value": 1.6885213094687321
+    },
+    "bag_release_speed_m_s": {
+      "definition": "Bag speed at release from a gravity-constrained fit of the first ~0.12 s of flight.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Release",
+      "label": "Release speed",
+      "noise_floor": 0.15,
+      "reasons": [
+        "Metres come from a single scale source (see calibration)."
+      ],
+      "status": "caution",
+      "unit": "m/s",
+      "value": 7.541372999129433
+    },
+    "elbow_angle_deg_at_release": {
+      "definition": "2D projected shoulder\u2013elbow\u2013wrist angle; 180\u00b0 = straight as seen by the camera.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Arm",
+      "label": "Elbow angle at release",
+      "noise_floor": 10.0,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error)."
+      ],
+      "status": "unreliable",
+      "unit": "\u00b0",
+      "value": null
+    },
+    "elbow_peak_extension_time_rel_release_ms": {
+      "definition": "When the elbow straightened fastest, relative to release.",
+      "event": "peak_elbow_extension",
+      "exploratory": true,
+      "frame": 169,
+      "group": "Timing",
+      "label": "Elbow extension timing",
+      "noise_floor": 50.0,
+      "reasons": [
+        "Exploratory: a derivative of a 2D angle, sensitive to landmark noise."
+      ],
+      "status": "caution",
+      "unit": "ms",
+      "value": 33.366700033366705
+    },
+    "elbow_peak_extension_velocity_deg_s": {
+      "definition": "Fastest straightening of the 2D elbow angle in the forward swing.",
+      "event": "peak_elbow_extension",
+      "exploratory": true,
+      "frame": 169,
+      "group": "Arm",
+      "label": "Peak elbow extension speed",
+      "noise_floor": 150.0,
+      "reasons": [
+        "Exploratory: a derivative of a 2D angle, sensitive to landmark noise."
+      ],
+      "status": "caution",
+      "unit": "\u00b0/s",
+      "value": 103.23970138923222
+    },
+    "swing_backswing_angle_deg": {
+      "definition": "Arm angle at the top of the backswing (negative = behind the body).",
+      "event": "peak_backswing",
+      "exploratory": false,
+      "frame": 145,
+      "group": "Arm",
+      "label": "Backswing",
+      "noise_floor": 5.0,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "\u00b0",
+      "value": -43.81437584054461
+    },
+    "swing_forward_duration_s": {
+      "definition": "Top of the backswing to release.",
+      "event": "peak_backswing",
+      "exploratory": false,
+      "frame": 145,
+      "group": "Timing",
+      "label": "Forward swing time",
+      "noise_floor": 0.035,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "s",
+      "value": 0.3670337003670337
+    },
+    "swing_release_arm_angle_deg": {
+      "definition": "Shoulder-to-wrist line from straight down (0\u00b0) toward the board (90\u00b0).",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Arm",
+      "label": "Arm angle at release",
+      "noise_floor": 5.0,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error).",
+        "Depends on the exact release frame: changes by 34.4 \u00b0 across the release window (frames 163\u2013167)."
+      ],
+      "status": "unreliable",
+      "unit": "\u00b0",
+      "value": null
+    },
+    "swing_tempo_ratio": {
+      "definition": "Backswing time divided by forward-swing time.",
+      "event": "peak_backswing",
+      "exploratory": false,
+      "frame": 145,
+      "group": "Timing",
+      "label": "Tempo",
+      "noise_floor": 0.15,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "back \u00f7 forward",
+      "value": 1.3636363636363635
+    },
+    "trunk_inclination_deg_at_release": {
+      "definition": "Hip-midpoint to shoulder-midpoint line from vertical; positive = toward the board.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Trunk",
+      "label": "Trunk lean at release",
+      "noise_floor": 5.0,
+      "reasons": [],
+      "status": "reliable",
+      "unit": "\u00b0",
+      "value": 18.43324115205516
+    },
+    "wrist_direction_at_release_deg": {
+      "definition": "Direction the wrist was moving at release, degrees above horizontal.",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Hand & wrist",
+      "label": "Hand direction at release",
+      "noise_floor": 5.0,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error)."
+      ],
+      "status": "unreliable",
+      "unit": "\u00b0",
+      "value": null
+    },
+    "wrist_peak_speed_arm_lengths_s": {
+      "definition": "Fastest wrist speed between the top of the backswing and just after release.",
+      "event": "peak_wrist_speed",
+      "exploratory": false,
+      "frame": 163,
+      "group": "Hand & wrist",
+      "label": "Peak wrist speed",
+      "noise_floor": 0.3,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error)."
+      ],
+      "status": "unreliable",
+      "unit": "arm lengths/s",
+      "value": null
+    },
+    "wrist_peak_speed_time_rel_release_ms": {
+      "definition": "When the wrist was fastest, relative to release (negative = before release).",
+      "event": "peak_wrist_speed",
+      "exploratory": false,
+      "frame": 163,
+      "group": "Timing",
+      "label": "Peak wrist speed timing",
+      "noise_floor": 35.0,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error)."
+      ],
+      "status": "unreliable",
+      "unit": "ms",
+      "value": null
+    },
+    "wrist_speed_at_release_arm_lengths_s": {
+      "definition": "Speed of the throwing wrist at release (camera motion removed).",
+      "event": "release",
+      "exploratory": false,
+      "frame": 167,
+      "group": "Hand & wrist",
+      "label": "Wrist speed at release",
+      "noise_floor": 0.3,
+      "reasons": [
+        "Filtered and raw landmarks disagree near the event (possible tracking error).",
+        "Depends on the exact release frame: changes by 2.4 arm lengths/s across the release window (frames 163\u2013167)."
+      ],
+      "status": "unreliable",
+      "unit": "arm lengths/s",
+      "value": null
+    }
+  },
+  "contact": {
+    "kind": "floor",
+    "plane_xy_m": [
+      0.6379323981128276,
+      0.2720498204090857
+    ],
+    "reason": "Descending track ended within 2 frame(s) of the predicted floor contact.",
+    "state": "measured",
+    "surface_frame": 241,
+    "surface_point_px": [
+      1781.9429733322986,
+      674.7125291339954
+    ]
+  },
+  "coordinate_system": {
+    "analysis": "x toward target after reflection, y up",
+    "body_normalization": "throwing-shoulder-relative, divided by median projected upper-arm plus forearm length",
+    "raw_video": "x right, y down, pixels"
+  },
+  "event_frames": {
+    "forward_swing": 146,
+    "motion_end": 333,
+    "motion_start": 116,
+    "peak_backswing": 145,
+    "peak_elbow_extension": 169,
+    "peak_follow_through": 254,
+    "peak_wrist_speed": 163,
+    "release": 167
+  },
+  "events": {
+    "forward_swing": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 146,
+      "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
+      "confirmed_by": null,
+      "effective_frame": 146,
+      "manual_frame": null,
+      "name": "forward_swing",
+      "suppressed_reason": null
+    },
+    "motion_end": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 333,
+      "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
+      "confirmed_by": null,
+      "effective_frame": 333,
+      "manual_frame": null,
+      "name": "motion_end",
+      "suppressed_reason": null
+    },
+    "motion_start": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 116,
+      "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
+      "confirmed_by": null,
+      "effective_frame": 116,
+      "manual_frame": null,
+      "name": "motion_start",
+      "suppressed_reason": null
+    },
+    "peak_backswing": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 145,
+      "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
+      "confirmed_by": null,
+      "effective_frame": 145,
+      "manual_frame": null,
+      "name": "peak_backswing",
+      "suppressed_reason": null
+    },
+    "peak_follow_through": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 254,
+      "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
+      "confirmed_by": null,
+      "effective_frame": 254,
+      "manual_frame": null,
+      "name": "peak_follow_through",
+      "suppressed_reason": null
+    },
+    "release": {
+      "automatic_confidence": 1.0,
+      "automatic_frame": 167,
+      "automatic_method": "auto_motion_parabola_v18_hand_to_touchdown",
+      "confirmed_by": "automatic_physics",
+      "effective_frame": 167,
+      "manual_frame": null,
+      "name": "release",
+      "suppressed_reason": null
+    }
+  },
+  "flight": {
+    "after_contact": {
+      "note": "The bag slid into the hole. It shrank from view as it tipped in.",
+      "rest": null,
+      "source": "board_phase_v3_deck_footprint_touchdown",
+      "status": "fell_in_hole"
+    },
+    "classification": "derived_from_reviewed_observations",
+    "coverage": 1.0,
+    "first_contact_frame": 239,
+    "frame_interval_seconds": 0.016683350016683352,
+    "gravity_scale": {
+      "apparent_gravity_m_s2": null,
+      "assumptions": "Fixed level side camera; flight plane perpendicular to the optical axis; drag small relative to gravity.",
+      "coverage": 1.0,
+      "fit_rmse_px": 3.6032937274382713,
+      "horizontal_acceleration_px_s2": -51.697977855081284,
+      "pixels_per_meter": 211.6646507069186,
+      "pixels_per_meter_se": 0.7512151453411193,
+      "sample_count": 71,
+      "scale_ratio_to_reference": null,
+      "status": "estimated",
+      "vertical_acceleration_px_s2": 2075.721146855003
+    },
+    "horizontal_travel_pixels": 1334.5249804406662,
+    "message": "Reviewed image-plane path. Missing points remain gaps; no depth, aerodynamic or landing extrapolation.",
+    "model_check": {
+      "apex_frame": 198,
+      "apex_rise_m": 1.349226791189173,
+      "apex_rise_px": 285.5836174814729,
+      "curve": [
+        {
+          "frame": 167,
+          "x": 410.207611201694,
+          "y": 436.8028466399157
+        },
+        {
+          "frame": 168,
+          "x": 428.847903262391,
+          "y": 418.92751905494373
+        },
+        {
+          "frame": 169,
+          "x": 447.48819532308806,
+          "y": 401.629844518515
+        },
+        {
+          "frame": 170,
+          "x": 466.12848738378506,
+          "y": 384.90982303062947
+        },
+        {
+          "frame": 171,
+          "x": 484.7687794444821,
+          "y": 368.76745459128716
+        },
+        {
+          "frame": 172,
+          "x": 503.4090715051791,
+          "y": 353.2027392004881
+        },
+        {
+          "frame": 173,
+          "x": 522.0493635658761,
+          "y": 338.21567685823226
+        },
+        {
+          "frame": 174,
+          "x": 540.6896556265731,
+          "y": 323.80626756451966
+        },
+        {
+          "frame": 175,
+          "x": 559.3299476872702,
+          "y": 309.97451131935026
+        },
+        {
+          "frame": 176,
+          "x": 577.9702397479672,
+          "y": 296.72040812272405
+        },
+        {
+          "frame": 177,
+          "x": 596.6105318086642,
+          "y": 284.04395797464116
+        },
+        {
+          "frame": 178,
+          "x": 615.2508238693612,
+          "y": 271.94516087510146
+        },
+        {
+          "frame": 179,
+          "x": 633.8911159300583,
+          "y": 260.4240168241049
+        },
+        {
+          "frame": 180,
+          "x": 652.5314079907553,
+          "y": 249.4805258216517
+        },
+        {
+          "frame": 181,
+          "x": 671.1717000514523,
+          "y": 239.11468786774165
+        },
+        {
+          "frame": 182,
+          "x": 689.8119921121493,
+          "y": 229.32650296237483
+        },
+        {
+          "frame": 183,
+          "x": 708.4522841728464,
+          "y": 220.11597110555124
+        },
+        {
+          "frame": 184,
+          "x": 727.0925762335432,
+          "y": 211.48309229727093
+        },
+        {
+          "frame": 185,
+          "x": 745.7328682942403,
+          "y": 203.42786653753376
+        },
+        {
+          "frame": 186,
+          "x": 764.3731603549375,
+          "y": 195.95029382633987
+        },
+        {
+          "frame": 187,
+          "x": 783.0134524156344,
+          "y": 189.05037416368918
+        },
+        {
+          "frame": 188,
+          "x": 801.6537444763314,
+          "y": 182.72810754958178
+        },
+        {
+          "frame": 189,
+          "x": 820.2940365370284,
+          "y": 176.9834939840175
+        },
+        {
+          "frame": 190,
+          "x": 838.9343285977254,
+          "y": 171.81653346699653
+        },
+        {
+          "frame": 191,
+          "x": 857.5746206584224,
+          "y": 167.2272259985187
+        },
+        {
+          "frame": 192,
+          "x": 876.2149127191195,
+          "y": 163.21557157858416
+        },
+        {
+          "frame": 193,
+          "x": 894.8552047798164,
+          "y": 159.78157020719283
+        },
+        {
+          "frame": 194,
+          "x": 913.4954968405135,
+          "y": 156.92522188434475
+        },
+        {
+          "frame": 195,
+          "x": 932.1357889012105,
+          "y": 154.64652661003987
+        },
+        {
+          "frame": 196,
+          "x": 950.7760809619076,
+          "y": 152.9454843842782
+        },
+        {
+          "frame": 197,
+          "x": 969.4163730226046,
+          "y": 151.82209520705976
+        },
+        {
+          "frame": 198,
+          "x": 988.0566650833016,
+          "y": 151.2763590783846
+        },
+        {
+          "frame": 199,
+          "x": 1006.6969571439987,
+          "y": 151.3082759982526
+        },
+        {
+          "frame": 200,
+          "x": 1025.3372492046956,
+          "y": 151.9178459666639
+        },
+        {
+          "frame": 201,
+          "x": 1043.9775412653926,
+          "y": 153.1050689836183
+        },
+        {
+          "frame": 202,
+          "x": 1062.6178333260896,
+          "y": 154.86994504911604
+        },
+        {
+          "frame": 203,
+          "x": 1081.2581253867866,
+          "y": 157.21247416315697
+        },
+        {
+          "frame": 204,
+          "x": 1099.8984174474838,
+          "y": 160.13265632574115
+        },
+        {
+          "frame": 205,
+          "x": 1118.5387095081808,
+          "y": 163.63049153686853
+        },
+        {
+          "frame": 206,
+          "x": 1137.1790015688775,
+          "y": 167.7059797965391
+        },
+        {
+          "frame": 207,
+          "x": 1155.8192936295748,
+          "y": 172.359121104753
+        },
+        {
+          "frame": 208,
+          "x": 1174.4595856902718,
+          "y": 177.58991546150997
+        },
+        {
+          "frame": 209,
+          "x": 1193.0998777509687,
+          "y": 183.3983628668103
+        },
+        {
+          "frame": 210,
+          "x": 1211.740169811666,
+          "y": 189.7844633206538
+        },
+        {
+          "frame": 211,
+          "x": 1230.3804618723627,
+          "y": 196.74821682304054
+        },
+        {
+          "frame": 212,
+          "x": 1249.02075393306,
+          "y": 204.2896233739705
+        },
+        {
+          "frame": 213,
+          "x": 1267.661045993757,
+          "y": 212.4086829734437
+        },
+        {
+          "frame": 214,
+          "x": 1286.301338054454,
+          "y": 221.10539562146002
+        },
+        {
+          "frame": 215,
+          "x": 1304.941630115151,
+          "y": 230.37976131801975
+        },
+        {
+          "frame": 216,
+          "x": 1323.581922175848,
+          "y": 240.2317800631226
+        },
+        {
+          "frame": 217,
+          "x": 1342.222214236545,
+          "y": 250.6614518567687
+        },
+        {
+          "frame": 218,
+          "x": 1360.862506297242,
+          "y": 261.668776698958
+        },
+        {
+          "frame": 219,
+          "x": 1379.502798357939,
+          "y": 273.2537545896905
+        },
+        {
+          "frame": 220,
+          "x": 1398.143090418636,
+          "y": 285.4163855289663
+        },
+        {
+          "frame": 221,
+          "x": 1416.7833824793329,
+          "y": 298.15666951678526
+        },
+        {
+          "frame": 222,
+          "x": 1435.4236745400299,
+          "y": 311.47460655314757
+        },
+        {
+          "frame": 223,
+          "x": 1454.0639666007269,
+          "y": 325.3701966380529
+        },
+        {
+          "frame": 224,
+          "x": 1472.7042586614239,
+          "y": 339.8434397715016
+        },
+        {
+          "frame": 225,
+          "x": 1491.3445507221213,
+          "y": 354.8943359534935
+        },
+        {
+          "frame": 226,
+          "x": 1509.9848427828179,
+          "y": 370.5228851840286
+        },
+        {
+          "frame": 227,
+          "x": 1528.6251348435153,
+          "y": 386.72908746310696
+        },
+        {
+          "frame": 228,
+          "x": 1547.2654269042118,
+          "y": 403.51294279072846
+        },
+        {
+          "frame": 229,
+          "x": 1565.9057189649093,
+          "y": 420.8744511668934
+        },
+        {
+          "frame": 230,
+          "x": 1584.5460110256063,
+          "y": 438.8136125916015
+        },
+        {
+          "frame": 231,
+          "x": 1603.1863030863033,
+          "y": 457.33042706485264
+        },
+        {
+          "frame": 232,
+          "x": 1621.8265951470003,
+          "y": 476.424894586647
+        },
+        {
+          "frame": 233,
+          "x": 1640.4668872076973,
+          "y": 496.09701515698487
+        },
+        {
+          "frame": 234,
+          "x": 1659.1071792683942,
+          "y": 516.3467887758659
+        },
+        {
+          "frame": 235,
+          "x": 1677.7474713290912,
+          "y": 537.1742154432897
+        },
+        {
+          "frame": 236,
+          "x": 1696.3877633897882,
+          "y": 558.5792951592572
+        },
+        {
+          "frame": 237,
+          "x": 1715.0280554504852,
+          "y": 580.5620279237679
+        },
+        {
+          "frame": 238,
+          "x": 1733.6683475111822,
+          "y": 603.1224137368216
+        }
+      ],
+      "horizontal_to_vertical_acceleration": -0.025532904856595914,
+      "in_sample_rmse_arm_lengths": 0.04147224360793584,
+      "in_sample_rmse_m": 0.021402206157649185,
+      "in_sample_rmse_px": 4.530090490716277,
+      "interpretation": "Drag-free fit misses the measured path by 4.5 px RMS; predicting the second half from the first half misses by 28.9 px RMS.",
+      "model": "ballistic_drag_free_image_plane",
+      "out_of_sample_rmse_arm_lengths": 0.2642923204165667,
+      "out_of_sample_rmse_m": 0.13639095055750633,
+      "out_of_sample_rmse_px": 28.869142909339182,
+      "sample_count": 71,
+      "status": "fitted",
+      "vertical_acceleration_px_s2": 2075.3939523570757
+    },
+    "observed_apex_frame": 198,
+    "observed_rise_pixels": 295.3378580548523,
+    "release_frame": 167,
+    "status": "reviewed_track",
+    "time_of_flight_seconds": 1.2012012012012012,
+    "timing_resolution_note": "Two reviewed events: \u00b11 frame each gives a \u00b12/fps sensitivity bound, not a confidence interval.",
+    "trajectory": [
+      {
+        "frame": 167,
+        "x": 405.8898734177215,
+        "y": 444.83164556962026
+      },
+      {
+        "frame": 168,
+        "x": 426.6165600516963,
+        "y": 427.5123865040388
+      },
+      {
+        "frame": 169,
+        "x": 443.94227862589923,
+        "y": 407.09350849280577
+      },
+      {
+        "frame": 170,
+        "x": 463.94385084759915,
+        "y": 390.03995745302717
+      },
+      {
+        "frame": 171,
+        "x": 481.61088090497736,
+        "y": 372.47585138009043
+      },
+      {
+        "frame": 172,
+        "x": 500.69369870675104,
+        "y": 356.12796431223626
+      },
+      {
+        "frame": 173,
+        "x": 516.6924635320512,
+        "y": 340.17734981410257
+      },
+      {
+        "frame": 174,
+        "x": 537.0755589396092,
+        "y": 325.52654987566615
+      },
+      {
+        "frame": 175,
+        "x": 556.0505165453125,
+        "y": 311.24487486562504
+      },
+      {
+        "frame": 176,
+        "x": 575.5012684064039,
+        "y": 296.6489776268472
+      },
+      {
+        "frame": 177,
+        "x": 593.0415454968943,
+        "y": 281.35079599627335
+      },
+      {
+        "frame": 178,
+        "x": 613.3619156164596,
+        "y": 267.53486906211185
+      },
+      {
+        "frame": 179,
+        "x": 631.0302021958147,
+        "y": 257.40138022122574
+      },
+      {
+        "frame": 180,
+        "x": 652.7681836934673,
+        "y": 246.2954121005025
+      },
+      {
+        "frame": 181,
+        "x": 670.3120903410852,
+        "y": 236.71447499224809
+      },
+      {
+        "frame": 182,
+        "x": 690.153048577551,
+        "y": 226.6310354142857
+      },
+      {
+        "frame": 183,
+        "x": 708.1076197142858,
+        "y": 217.35627416883116
+      },
+      {
+        "frame": 184,
+        "x": 726.6368146516854,
+        "y": 209.02896051235956
+      },
+      {
+        "frame": 185,
+        "x": 745.5123298374999,
+        "y": 200.909135225
+      },
+      {
+        "frame": 186,
+        "x": 764.5305755465117,
+        "y": 192.99316681589147
+      },
+      {
+        "frame": 187,
+        "x": 783.4555429553719,
+        "y": 185.7338056033058
+      },
+      {
+        "frame": 188,
+        "x": 802.9416888110344,
+        "y": 179.32953327310344
+      },
+      {
+        "frame": 189,
+        "x": 820.9187522114696,
+        "y": 173.87293525089606
+      },
+      {
+        "frame": 190,
+        "x": 839.5864525273132,
+        "y": 168.77654817056856
+      },
+      {
+        "frame": 191,
+        "x": 858.3903091616162,
+        "y": 164.43996619977554
+      },
+      {
+        "frame": 192,
+        "x": 876.9892772582939,
+        "y": 160.6296728779621
+      },
+      {
+        "frame": 193,
+        "x": 896.1014518528996,
+        "y": 157.48425277793493
+      },
+      {
+        "frame": 194,
+        "x": 915.4384119072847,
+        "y": 154.74936311258276
+      },
+      {
+        "frame": 195,
+        "x": 934.4816926478599,
+        "y": 152.47002387159532
+      },
+      {
+        "frame": 196,
+        "x": 952.6840053475336,
+        "y": 150.54206736547084
+      },
+      {
+        "frame": 197,
+        "x": 971.1546541247216,
+        "y": 149.7405316570156
+      },
+      {
+        "frame": 198,
+        "x": 989.9709055485231,
+        "y": 149.49378751476794
+      },
+      {
+        "frame": 199,
+        "x": 1008.9575500963855,
+        "y": 149.68530360040162
+      },
+      {
+        "frame": 200,
+        "x": 1027.6089793910035,
+        "y": 150.61665429065744
+      },
+      {
+        "frame": 201,
+        "x": 1046.0009788362572,
+        "y": 151.97229491812865
+      },
+      {
+        "frame": 202,
+        "x": 1064.572995899614,
+        "y": 154.13665694465894
+      },
+      {
+        "frame": 203,
+        "x": 1083.5080869118685,
+        "y": 156.85138112220915
+      },
+      {
+        "frame": 204,
+        "x": 1102.4555863827304,
+        "y": 160.09986952975495
+      },
+      {
+        "frame": 205,
+        "x": 1121.3772958198308,
+        "y": 164.00296160943168
+      },
+      {
+        "frame": 206,
+        "x": 1140.2274980531918,
+        "y": 168.21308410505324
+      },
+      {
+        "frame": 207,
+        "x": 1158.968113326252,
+        "y": 173.26257328224585
+      },
+      {
+        "frame": 208,
+        "x": 1177.6093481238936,
+        "y": 178.95502498230093
+      },
+      {
+        "frame": 209,
+        "x": 1196.4184386751967,
+        "y": 185.23552098228348
+      },
+      {
+        "frame": 210,
+        "x": 1214.858483504098,
+        "y": 191.7670148319672
+      },
+      {
+        "frame": 211,
+        "x": 1233.593402285433,
+        "y": 199.21338848425196
+      },
+      {
+        "frame": 212,
+        "x": 1252.751114302974,
+        "y": 206.6444611542751
+      },
+      {
+        "frame": 213,
+        "x": 1270.8717761192809,
+        "y": 215.30854154248365
+      },
+      {
+        "frame": 214,
+        "x": 1288.933152263233,
+        "y": 224.07735330042917
+      },
+      {
+        "frame": 215,
+        "x": 1307.733903978172,
+        "y": 232.98334078035475
+      },
+      {
+        "frame": 216,
+        "x": 1327.2104025392857,
+        "y": 244.36154141428574
+      },
+      {
+        "frame": 217,
+        "x": 1346.0578138289625,
+        "y": 254.8891739372862
+      },
+      {
+        "frame": 218,
+        "x": 1362.9232973496146,
+        "y": 264.33395989331615
+      },
+      {
+        "frame": 219,
+        "x": 1383.7836780391196,
+        "y": 276.1514134022005
+      },
+      {
+        "frame": 220,
+        "x": 1402.7372707863947,
+        "y": 288.70260328707485
+      },
+      {
+        "frame": 221,
+        "x": 1419.5042040058565,
+        "y": 302.21320848462665
+      },
+      {
+        "frame": 222,
+        "x": 1436.923672279107,
+        "y": 315.3745581355662
+      },
+      {
+        "frame": 223,
+        "x": 1455.1310582545157,
+        "y": 329.5808787241379
+      },
+      {
+        "frame": 224,
+        "x": 1472.6630874958676,
+        "y": 344.1979082528926
+      },
+      {
+        "frame": 225,
+        "x": 1491.1358121445785,
+        "y": 358.5330851669536
+      },
+      {
+        "frame": 226,
+        "x": 1509.6735826416384,
+        "y": 373.3800519197953
+      },
+      {
+        "frame": 227,
+        "x": 1527.7397430262238,
+        "y": 389.9959379423077
+      },
+      {
+        "frame": 228,
+        "x": 1547.1152277278911,
+        "y": 406.0378610816327
+      },
+      {
+        "frame": 229,
+        "x": 1563.6209969187576,
+        "y": 420.7917124683393
+      },
+      {
+        "frame": 230,
+        "x": 1582.2587108949938,
+        "y": 437.3056826202686
+      },
+      {
+        "frame": 231,
+        "x": 1601.092484734091,
+        "y": 456.43747216931814
+      },
+      {
+        "frame": 232,
+        "x": 1624.1940943976654,
+        "y": 471.04754681322953
+      },
+      {
+        "frame": 233,
+        "x": 1636.4082602727274,
+        "y": 498.0844129818182
+      },
+      {
+        "frame": 234,
+        "x": 1653.2947600544414,
+        "y": 514.0562826160458
+      },
+      {
+        "frame": 235,
+        "x": 1669.9013101860469,
+        "y": 532.9602944612403
+      },
+      {
+        "frame": 236,
+        "x": 1689.3212628123754,
+        "y": 553.0193229281437
+      },
+      {
+        "frame": 237,
+        "x": 1707.4644679224318,
+        "y": 573.9516477463313
+      },
+      {
+        "frame": 238,
+        "x": 1723.0304535943774,
+        "y": 596.1352249477912
+      },
+      {
+        "frame": 239,
+        "x": 1740.4148538583877,
+        "y": 624.320343721133
+      }
+    ]
+  },
+  "landing": {
+    "across_precision_in": 0.616247911514499,
+    "along_error_m": -0.12283011206901961,
+    "along_precision_in": 0.17947327514977304,
+    "deck_u_in": 44.338113083715726,
+    "deck_v_in": 20.109317728507502,
+    "on_deck": false,
+    "plane_x_m": 0.8502012035081049,
+    "plane_y_m": 0.012093884905823027,
+    "position_basis": "predicted_surface_point",
+    "reason": "The track ended just above the floor; the landing position is where the fitted flight meets it (frame 241).",
+    "state": "measured"
+  },
+  "metrics_metadata": {
+    "arm_motion_flexion_rom_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_motion_flexion_sd_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_motion_mean_flexion_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_motion_radius_cv_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_to_trunk_deg_at_release": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_to_trunk_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_to_trunk_deg_rom": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_to_trunk_velocity_deg_s_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "arm_to_trunk_velocity_deg_s_peak_abs": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_flight_apparent_gravity_m_s2": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_acceleration_magnitude_arm_lengths_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_acceleration_magnitude_m_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_acceleration_magnitude_px_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_angle_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_angle_se_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_acceleration_arm_lengths_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_acceleration_m_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_acceleration_px_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_velocity_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_velocity_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_forward_velocity_px_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_height_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_height_m": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_position_forward_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_position_vertical_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_speed_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_speed_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_speed_px_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_speed_se_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_acceleration_arm_lengths_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_acceleration_m_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_acceleration_px_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_velocity_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_velocity_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_release_vertical_velocity_px_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "estimated",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "pixels/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_time_of_flight_seconds": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "seconds",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_trajectory_apex_rise_m": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "bag_trajectory_model_rmse_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_end_along_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_end_from_hole_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_end_in_hole": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_hang_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_phi_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_slide_deceleration_m_s2": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_slide_entry_speed_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_slide_friction_mu": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_slide_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_slide_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_touchdown_along_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "board_touchdown_from_hole_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_elbow_angle_at_release_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_elbow_peak_extension_velocity_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_elbow_peak_time_rel_release_ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_energy_match_percent": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_force_direction_at_peak_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_hand_acceleration_at_release_m_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_hand_direction_rotation_rate_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_hand_speed_at_release_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_hand_tangential_acceleration_at_release_m_s2": {
+      "claim_scope": "exploratory_noise_sensitive_projected_measurement",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s^2",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_hand_velocity_angle_at_release_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_kinetic_energy_j": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_mean_net_force_on_bag_n": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_measured_along_error_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_mechanical_energy_j": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_momentum_kg_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_peak_net_force_on_bag_n": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_peak_power_on_bag_w": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_peak_sequence": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_potential_energy_j": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_predicted_along_error_in": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_release_angle_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_release_height_m": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_release_speed_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_shoulder_angle_at_release_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_shoulder_peak_angular_velocity_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_shoulder_peak_time_rel_release_ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_speed_margin_over_minimum_percent": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_timing_sensitivity_in_per_10ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "chain_wrist_peak_speed_time_rel_release_ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_deg_at_release": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_deg_max": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_deg_min": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_deg_rom": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_velocity_deg_s_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_angle_velocity_deg_s_peak_abs": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_extension_change_forward_swing_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_extension_deficit_deg_at_release": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_extension_deficit_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_peak_extension_time_rel_release_ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "elbow_peak_extension_velocity_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "forearm_orientation_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "forearm_orientation_deg_rom": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "forearm_orientation_velocity_deg_s_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "forearm_orientation_velocity_deg_s_peak_abs": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "hand_to_bag_speed_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "landing_along_error_m": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "launch_direction_difference_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "movement_duration_seconds": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "seconds",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "release_timing_cycle": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "movement cycle fraction",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "release_to_board_front_m": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_bag_radius_at_release_arm_lengths": {
+      "claim_scope": "projected_radial_distance_proxy_not_moment_arm_or_torque",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_peak_speed_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_translation_net_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_translation_path_length_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_translation_straightness": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_angular_net_change_forward_swing_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_angular_sweep_forward_swing_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_peak_angular_velocity_forward_swing_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_radius_at_release_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_radius_forward_swing_mean_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_radius_forward_swing_range_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "shoulder_wrist_radius_forward_swing_sd_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_angular_velocity_at_release_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_backswing_angle_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_backswing_duration_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_forward_duration_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_hand_speed_at_release_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_hand_speed_at_release_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_peak_angular_velocity_deg_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_pendulum_drive_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_release_arm_angle_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_tempo_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "swing_total_hand_speed_at_release_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "trunk_inclination_deg_at_release": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "trunk_inclination_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "trunk_inclination_deg_rom": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "trunk_inclination_velocity_deg_s_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "trunk_inclination_velocity_deg_s_peak_abs": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "upper_arm_orientation_deg_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "upper_arm_orientation_deg_rom": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "upper_arm_orientation_velocity_deg_s_mean": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "upper_arm_orientation_velocity_deg_s_peak_abs": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_direction_at_release_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_coverage": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_curvature_rad_per_arm_length": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "radians/arm length",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_length_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_mean_abs_turn_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_net_displacement_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_rms_fitted_line_deviation_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_sample_count": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "samples",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_straightness_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_forward_swing_path_total_abs_turn_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_global_peak_speed_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_coverage": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_curvature_rad_per_arm_length": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "radians/arm length",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_length_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_mean_abs_turn_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_net_displacement_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_rms_fitted_line_deviation_arm_lengths": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_sample_count": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "samples",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_straightness_ratio": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_path_total_abs_turn_deg": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "degrees",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_peak_speed_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_peak_speed_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_peak_speed_time_rel_release_ms": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "dimensionless",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_relative_peak_speed_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_speed_at_release_arm_lengths_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "arm lengths/s",
+      "view_applicability": "primary_stage1_side_view"
+    },
+    "wrist_speed_at_release_m_s": {
+      "claim_scope": "descriptive_projected_2d_kinematics",
+      "classification": "derived",
+      "definition_source": "docs/FULL_THROW_METHODS.md and docs/BIOMECHANICS_METHODS.md",
+      "units": "m/s",
+      "view_applicability": "primary_stage1_side_view"
+    }
+  },
+  "predicted_contact": null,
+  "quality": {
+    "average_pose_confidence": 0.8596863804065884,
+    "camera_view": "side",
+    "confidence_note": "Model confidence is not a calibrated physical position or angle error.",
+    "frame_rate_fps": 59.94,
+    "grades": {
+      "bag": {
+        "flight_coverage": 0.9583333333333334,
+        "grade": "GOOD",
+        "longest_gap_frames": 2,
+        "measurement_sigma_px": 0.75,
+        "outlier_share": 0.041666666666666664
+      },
+      "calibration": {
+        "grade": "WARNING",
+        "gravity_scale": true,
+        "gravity_to_measured_ratio": null,
+        "measured_scale": false,
+        "note": "A gravity scale assumes the flight plane is square to the camera; it is not a 3D calibration."
+      },
+      "pose": {
+        "grade": "GOOD",
+        "release_window_visible_percentage": 100.0,
+        "usable_frame_percentage": 100.0
+      },
+      "release": {
+        "confirmed_by": "automatic_physics",
+        "grade": "GOOD",
+        "launch_angle_se_deg": 0.2278459975845676,
+        "launch_fit_samples": 9,
+        "reason": null,
+        "release_onset_status": "no_in_hand_points",
+        "release_window_frames": 4
+      },
+      "rules": {
+        "bag": "GOOD: bag found in \u226590% of flight frames, no gap longer than 3 frames, \u226410% of samples rejected as outliers, measurement noise \u03c3 \u2264 2 px. WARNING: \u226570% coverage and no gap longer than 6 frames. Otherwise POOR. No tracked flight is POOR.",
+        "calibration": "GOOD: an independent in-plane scale agrees with the flight's gravity scale within 10%. WARNING: a single scale source (gravity-only or measured-only). POOR: no physical scale (results stay in pixels / arm lengths).",
+        "pose": "GOOD: required landmarks usable in \u226590% of frames and \u226590% of frames within \u00b150 ms of release. WARNING: \u226570% and \u226560%. Otherwise POOR.",
+        "release": "GOOD: release confirmed by a person, or found automatically with the two release cues (first free-flight frame; backward flight meets the wrist) within 4 frames (67 ms at 60 fps), \u22656 launch-fit samples and launch-angle SE \u2264 3\u00b0. WARNING: automatic release with a window of 5\u20136 frames, failing a fit check, or whose in-hand check could not run (no wrist) or was capped by the minimum detection count. POOR: no confirmed release, or cues more than 6 frames apart."
+      }
+    },
+    "interpolated_sample_count": 1,
+    "low_confidence_landmark_counts": {
+      "Head": 0,
+      "Hip": 0,
+      "LBigToe": 0,
+      "LHeel": 0,
+      "LSmallToe": 0,
+      "Neck": 0,
+      "Nose": 0,
+      "RBigToe": 0,
+      "RHeel": 0,
+      "RSmallToe": 0,
+      "left_ankle": 0,
+      "left_elbow": 0,
+      "left_hip": 0,
+      "left_knee": 0,
+      "left_shoulder": 0,
+      "left_wrist": 1,
+      "right_ankle": 0,
+      "right_elbow": 0,
+      "right_hip": 0,
+      "right_knee": 0,
+      "right_shoulder": 0,
+      "right_wrist": 0
+    },
+    "manual_correction_count": 0,
+    "missing_data_percentage": 0.013408420488070227,
+    "release_confidence": 0.7340893646081289,
+    "release_visibility": 1.0,
+    "resolution_pixels": {
+      "height": 1080,
+      "width": 1920
+    },
+    "usable_frame_percentage": 100.0,
+    "warnings": []
+  },
+  "release_window": [
+    163,
+    167
+  ],
+  "scale": {
+    "a_y_band_edges_m_s2": [
+      -9.040743474125804,
+      -11.572107326521156
+    ],
+    "apparent_gravity_m_s2_at_nominal_hfov": 11.108409087305471,
+    "hfov_deg": 60.36962890625,
+    "hfov_gravity_used": true,
+    "hfov_iqr_deg": 7.0531005859375,
+    "hfov_pool_n": 42,
+    "hfov_reason": "This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view.",
+    "hfov_source": "session_median_gravity_fov",
+    "hfov_status": "estimated",
+    "horizontal_acceleration_m_s2": -0.4780181299581711,
+    "per_throw_hfov_deg": 62.386627197265625,
+    "per_throw_hfov_deviation_deg": 2.016998291015625,
+    "per_throw_hfov_status": "measured",
+    "phi_deg": 3.384902251015753,
+    "phi_reason": null,
+    "phi_status": "measured",
+    "pixels_per_meter": 200.1983326037437,
+    "pixels_per_meter_at_55_deg": 214.29331164354653,
+    "pixels_per_meter_at_75_deg": 152.59718680592354,
+    "reason": "This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view.",
+    "status": "estimated"
+  },
+  "scale_check": {
+    "board_ppm": 200.1983326037437,
+    "flag": true,
+    "gravity_ppm": 211.6646507069186,
+    "gravity_used_for_fov": true,
+    "max_disagreement": 0.05727479322153196,
+    "sources": 2,
+    "stature_ppm": null
+  },
+  "scene": {
+    "bystander_box_frames": 339,
+    "masks_empty_frames": 4,
+    "masks_reason": null,
+    "masks_status": "measured",
+    "plate_samples": 60
+  },
+  "schema_version": 1,
+  "suggested_outcome": {
+    "basis": "The bag slid into the hole. It shrank from view as it tipped in.",
+    "confidence": "high",
+    "needs_confirmation": true,
+    "score": 3,
+    "source": "board_phase"
+  },
+  "summaries": {
+    "arm_motion_flexion_rom_deg": 19.35544840932147,
+    "arm_motion_flexion_sd_deg": 7.604218520461297,
+    "arm_motion_mean_flexion_deg": 10.27642426112915,
+    "arm_motion_radius_cv_ratio": 0.039434481859000836,
+    "arm_to_trunk_deg_at_release": 88.25648140205345,
+    "arm_to_trunk_deg_mean": 102.95057843563364,
+    "arm_to_trunk_deg_rom": 128.6498206216645,
+    "arm_to_trunk_velocity_deg_s_mean": 10.6989578106232,
+    "arm_to_trunk_velocity_deg_s_peak_abs": 639.533904093436,
+    "bag_flight_apparent_gravity_m_s2": null,
+    "bag_release_acceleration_magnitude_arm_lengths_s2": 23.03633659865865,
+    "bag_release_acceleration_magnitude_m_s2": 11.888154151060904,
+    "bag_release_acceleration_magnitude_px_s2": 2516.3019959343105,
+    "bag_release_angle_deg": 45.745630683438606,
+    "bag_release_angle_se_deg": 0.2278459975845676,
+    "bag_release_forward_acceleration_arm_lengths_s2": -2.9575846707582047,
+    "bag_release_forward_acceleration_m_s2": -1.5262940064365764,
+    "bag_release_forward_acceleration_px_s2": -323.0624877484613,
+    "bag_release_forward_velocity_arm_lengths_s": 10.197845590089273,
+    "bag_release_forward_velocity_m_s": 5.26271006088516,
+    "bag_release_forward_velocity_px_s": 1113.9296868090437,
+    "bag_release_height_arm_lengths": 2.0203647147719566,
+    "bag_release_height_m": 1.0426313692591098,
+    "bag_release_position_forward_arm_lengths": 1.6885213094687321,
+    "bag_release_position_vertical_arm_lengths": -0.2078671951837981,
+    "bag_release_speed_arm_lengths_s": 14.613337328611118,
+    "bag_release_speed_m_s": 7.541372999129433,
+    "bag_release_speed_px_s": 1596.2420817113186,
+    "bag_release_speed_se_m_s": 0.029737942601336876,
+    "bag_release_vertical_acceleration_arm_lengths_s2": -22.84568880121578,
+    "bag_release_vertical_acceleration_m_s2": -11.789768264274848,
+    "bag_release_vertical_acceleration_px_s2": -2495.4771815732497,
+    "bag_release_vertical_velocity_arm_lengths_s": 10.466784281739828,
+    "bag_release_vertical_velocity_m_s": 5.4014988222767,
+    "bag_release_vertical_velocity_px_s": 1143.30636151103,
+    "bag_time_of_flight_seconds": 1.2012012012012012,
+    "bag_trajectory_apex_rise_m": 1.349226791189173,
+    "bag_trajectory_model_rmse_arm_lengths": 0.04147224360793584,
+    "board_end_along_in": 40.519259495597346,
+    "board_end_from_hole_in": 0.0,
+    "board_end_in_hole": 1.0,
+    "board_hang_s": null,
+    "board_phi_deg": 3.384902251015753,
+    "board_slide_deceleration_m_s2": null,
+    "board_slide_entry_speed_m_s": 1.6613212680054918,
+    "board_slide_friction_mu": null,
+    "board_slide_in": 10.66547495828937,
+    "board_slide_s": 0.45045045045045046,
+    "board_touchdown_along_in": 29.853784537307977,
+    "board_touchdown_from_hole_in": -9.146215462692023,
+    "chain_elbow_angle_at_release_deg": 161.4284411586087,
+    "chain_elbow_peak_extension_velocity_deg_s": 103.23970138923222,
+    "chain_elbow_peak_time_rel_release_ms": 33.366700033366705,
+    "chain_energy_match_percent": -4.180658115555735,
+    "chain_force_direction_at_peak_deg": 143.48660416132427,
+    "chain_hand_acceleration_at_release_m_s2": 67.47789635406863,
+    "chain_hand_direction_rotation_rate_deg_s": 445.50753810256913,
+    "chain_hand_speed_at_release_m_s": 6.358661622235044,
+    "chain_hand_tangential_acceleration_at_release_m_s2": -45.92092545341781,
+    "chain_hand_velocity_angle_at_release_deg": 84.29827742568965,
+    "chain_kinetic_energy_j": 12.69688434764316,
+    "chain_mean_net_force_on_bag_n": 25.175194642181385,
+    "chain_measured_along_error_in": -4.83583118381967,
+    "chain_mechanical_energy_j": 17.26227325060695,
+    "chain_momentum_kg_m_s": 3.3672606696708605,
+    "chain_peak_net_force_on_bag_n": 37.16037496535974,
+    "chain_peak_power_on_bag_w": 139.62646321992904,
+    "chain_peak_sequence": null,
+    "chain_potential_energy_j": 4.5653889029637895,
+    "chain_predicted_along_error_in": -8.753503734222328,
+    "chain_release_angle_deg": 45.745630683438606,
+    "chain_release_height_m": 1.0426313692591098,
+    "chain_release_speed_m_s": 7.541372999129433,
+    "chain_shoulder_angle_at_release_deg": 88.25648140205345,
+    "chain_shoulder_peak_angular_velocity_deg_s": 558.8559243546339,
+    "chain_shoulder_peak_time_rel_release_ms": -33.366700033366705,
+    "chain_speed_margin_over_minimum_percent": -1.6713466391525378,
+    "chain_timing_sensitivity_in_per_10ms": null,
+    "chain_wrist_peak_speed_time_rel_release_ms": -66.73340006673341,
+    "elbow_angle_deg_at_release": 161.4284411586087,
+    "elbow_angle_deg_max": 179.91469517396436,
+    "elbow_angle_deg_mean": 163.92160789958032,
+    "elbow_angle_deg_min": 114.67521049567912,
+    "elbow_angle_deg_rom": 65.23948467828524,
+    "elbow_angle_velocity_deg_s_mean": 4.469677510080178,
+    "elbow_angle_velocity_deg_s_peak_abs": 459.4359705276853,
+    "elbow_extension_change_forward_swing_deg": -14.3806826498423,
+    "elbow_extension_deficit_deg_at_release": 18.571558841391294,
+    "elbow_extension_deficit_deg_mean": 16.07839210041966,
+    "elbow_peak_extension_time_rel_release_ms": 33.366700033366705,
+    "elbow_peak_extension_velocity_deg_s": 103.23970138923222,
+    "forearm_orientation_deg_mean": -8.925911064857287,
+    "forearm_orientation_deg_rom": 186.48048015779287,
+    "forearm_orientation_velocity_deg_s_mean": -10.923920545106643,
+    "forearm_orientation_velocity_deg_s_peak_abs": 654.9015960608654,
+    "hand_to_bag_speed_ratio": 1.542942968799526,
+    "landing_along_error_m": -0.12283011206901961,
+    "launch_direction_difference_deg": -37.850097916767254,
+    "movement_duration_seconds": 3.6202869536202873,
+    "release_timing_cycle": 0.2350230414746544,
+    "release_to_board_front_m": 5.76074473322247,
+    "shoulder_bag_radius_at_release_arm_lengths": 1.6997206537660339,
+    "shoulder_peak_speed_arm_lengths_s": 1.7570087275299011,
+    "shoulder_translation_net_arm_lengths": 0.5065910208427871,
+    "shoulder_translation_path_length_arm_lengths": 2.429238757131518,
+    "shoulder_translation_straightness": 0.20853899986388222,
+    "shoulder_wrist_angular_net_change_forward_swing_deg": 126.50162617864193,
+    "shoulder_wrist_angular_sweep_forward_swing_deg": 126.50162617864193,
+    "shoulder_wrist_peak_angular_velocity_forward_swing_deg_s": 561.5252512821817,
+    "shoulder_wrist_radius_at_release_arm_lengths": 1.092926966235091,
+    "shoulder_wrist_radius_forward_swing_mean_arm_lengths": 1.0484421880233856,
+    "shoulder_wrist_radius_forward_swing_range_arm_lengths": 0.11161983215475124,
+    "shoulder_wrist_radius_forward_swing_sd_arm_lengths": 0.04134477444381934,
+    "swing_angular_velocity_at_release_deg_s": 447.0343597726796,
+    "swing_backswing_angle_deg": -43.81437584054461,
+    "swing_backswing_duration_s": 0.5005005005005005,
+    "swing_forward_duration_s": 0.3670337003670337,
+    "swing_hand_speed_at_release_arm_lengths_s": 8.533006172915703,
+    "swing_hand_speed_at_release_m_s": 4.403551420649186,
+    "swing_peak_angular_velocity_deg_s": 561.5252512821814,
+    "swing_pendulum_drive_ratio": 2.0064355232788444,
+    "swing_release_arm_angle_deg": 82.68725033809731,
+    "swing_tempo_ratio": 1.3636363636363635,
+    "swing_total_hand_speed_at_release_m_s": 4.903627564832405,
+    "trunk_inclination_deg_at_release": 18.43324115205516,
+    "trunk_inclination_deg_mean": 5.513337888625337,
+    "trunk_inclination_deg_rom": 30.68061062810453,
+    "trunk_inclination_velocity_deg_s_mean": -4.244714775596734,
+    "trunk_inclination_velocity_deg_s_peak_abs": 56.74448623529602,
+    "upper_arm_orientation_deg_mean": -24.786907350144816,
+    "upper_arm_orientation_deg_rom": 170.2616818362551,
+    "upper_arm_orientation_velocity_deg_s_mean": -6.454243035026466,
+    "upper_arm_orientation_velocity_deg_s_peak_abs": 636.9548173618165,
+    "wrist_direction_at_release_deg": 83.59572860020586,
+    "wrist_forward_swing_path_coverage": 1.0,
+    "wrist_forward_swing_path_curvature_rad_per_arm_length": 1.111968210870344,
+    "wrist_forward_swing_path_length_arm_lengths": 2.356339031128079,
+    "wrist_forward_swing_path_mean_abs_turn_deg": 7.506245866370096,
+    "wrist_forward_swing_path_net_displacement_arm_lengths": 1.8767870393754553,
+    "wrist_forward_swing_path_rms_fitted_line_deviation_arm_lengths": 0.20118754702888944,
+    "wrist_forward_swing_path_sample_count": 22,
+    "wrist_forward_swing_path_straightness_ratio": 0.7964842981347036,
+    "wrist_forward_swing_path_total_abs_turn_deg": 150.12491732740193,
+    "wrist_global_peak_speed_arm_lengths_s": 11.895050300049192,
+    "wrist_path_coverage": 1.0,
+    "wrist_path_curvature_rad_per_arm_length": 3.8354657868746,
+    "wrist_path_length_arm_lengths": 8.907461821256772,
+    "wrist_path_mean_abs_turn_deg": 9.062352769882418,
+    "wrist_path_net_displacement_arm_lengths": 0.5698548394958487,
+    "wrist_path_rms_fitted_line_deviation_arm_lengths": 0.28814201021629826,
+    "wrist_path_sample_count": 218,
+    "wrist_path_straightness_ratio": 0.06397499657376546,
+    "wrist_path_total_abs_turn_deg": 1957.4681982946024,
+    "wrist_peak_speed_arm_lengths_s": 11.903321384237211,
+    "wrist_peak_speed_m_s": 6.142839549135227,
+    "wrist_peak_speed_time_rel_release_ms": -66.73340006673341,
+    "wrist_relative_peak_speed_arm_lengths_s": 10.693442704950769,
+    "wrist_speed_at_release_arm_lengths_s": 9.471080671232395,
+    "wrist_speed_at_release_m_s": 4.887655053768407
+  },
+  "swing_curve_deg": [
+    [
+      156.08416202395722,
+      175.809123808451
+    ],
+    [
+      156.0527528379431,
+      175.88801665572143
+    ],
+    [
+      156.02134365192896,
+      175.96690950299185
+    ],
+    [
+      155.98993446591484,
+      176.04580235026228
+    ],
+    [
+      155.95852527990073,
+      176.1246951975327
+    ],
+    [
+      155.94657725256548,
+      176.22590088571405
+    ],
+    [
+      155.99690493300264,
+      176.39850766481035
+    ],
+    [
+      156.04723261343983,
+      176.57111444390665
+    ],
+    [
+      156.097560293877,
+      176.74372122300298
+    ],
+    [
+      156.14788797431416,
+      176.91632800209928
+    ],
+    [
+      156.25720024301893,
+      177.11951247229072
+    ],
+    [
+      156.43139555881808,
+      177.35633240268677
+    ],
+    [
+      156.6055908746172,
+      177.59315233308286
+    ],
+    [
+      156.77978619041633,
+      177.8299722634789
+    ],
+    [
+      156.95398150621546,
+      178.066792193875
+    ],
+    [
+      157.24951472960814,
+      178.3238621250182
+    ],
+    [
+      157.59358311603825,
+      178.58903205646027
+    ],
+    [
+      157.93765150246833,
+      178.8542019879023
+    ],
+    [
+      158.28171988889844,
+      179.11937191934436
+    ],
+    [
+      158.62578827532855,
+      179.38454185078643
+    ],
+    [
+      159.1616215600821,
+      179.3867885923371
+    ],
+    [
+      159.70704308975186,
+      179.37588917439322
+    ],
+    [
+      160.25246461942166,
+      179.36498975644935
+    ],
+    [
+      160.79788614909143,
+      179.35409033850547
+    ],
+    [
+      161.3820601776632,
+      179.29735292277982
+    ],
+    [
+      162.1309323265687,
+      179.0458040164816
+    ],
+    [
+      162.87980447547426,
+      178.79425511018343
+    ],
+    [
+      163.62867662437972,
+      178.54270620388525
+    ],
+    [
+      164.37754877328524,
+      178.29115729758706
+    ],
+    [
+      165.20049631228525,
+      178.04064833957403
+    ],
+    [
+      166.1222110380779,
+      177.79152597927455
+    ],
+    [
+      167.04392576387042,
+      177.54240361897513
+    ],
+    [
+      167.96564048966306,
+      177.29328125867568
+    ],
+    [
+      168.8873552154557,
+      177.0441588983762
+    ],
+    [
+      169.88968514433756,
+      176.77972493262743
+    ],
+    [
+      170.9323226747642,
+      176.50763516415395
+    ],
+    [
+      171.97496020519088,
+      176.23554539568048
+    ],
+    [
+      173.01759773561756,
+      175.963455627207
+    ],
+    [
+      174.0602352660441,
+      175.69136585873358
+    ],
+    [
+      175.16508848931124,
+      175.37261449795267
+    ],
+    [
+      176.27649073287742,
+      175.04895139061307
+    ],
+    [
+      177.38789297644357,
+      174.7252882832735
+    ],
+    [
+      178.4992952200096,
+      174.40162517593396
+    ],
+    [
+      179.32082671748927,
+      174.06782501746005
+    ],
+    [
+      178.4031337384501,
+      173.67320255218036
+    ],
+    [
+      177.48544075941103,
+      173.27858008690072
+    ],
+    [
+      176.56774778037183,
+      172.883957621621
+    ],
+    [
+      175.65005480133263,
+      172.4893351563413
+    ],
+    [
+      174.63166655742342,
+      172.0678694381434
+    ],
+    [
+      173.44964850810064,
+      171.60278343395345
+    ],
+    [
+      172.26763045877766,
+      171.13769742976348
+    ],
+    [
+      171.08561240945468,
+      170.67261142557348
+    ],
+    [
+      169.9035943601319,
+      170.20752542138354
+    ],
+    [
+      168.6851168396492,
+      169.71594747444064
+    ],
+    [
+      167.44420272152973,
+      169.20806679349596
+    ],
+    [
+      166.2032886034103,
+      168.70018611255128
+    ],
+    [
+      164.962374485291,
+      168.19230543160668
+    ],
+    [
+      163.72146036717157,
+      167.684424750662
+    ],
+    [
+      162.39677400087112,
+      167.1849573989729
+    ],
+    [
+      161.0581255932074,
+      166.68689226882645
+    ],
+    [
+      159.71947718554347,
+      166.18882713867993
+    ],
+    [
+      158.38082877787954,
+      165.69076200853343
+    ],
+    [
+      157.029522536321,
+      165.19933349000704
+    ],
+    [
+      155.5579668727639,
+      164.77095278187156
+    ],
+    [
+      154.08641120920663,
+      164.34257207373605
+    ],
+    [
+      152.61485554564933,
+      163.91419136560054
+    ],
+    [
+      151.14329988209204,
+      163.485810657465
+    ],
+    [
+      149.62211627897392,
+      163.09427549387064
+    ],
+    [
+      148.00167679673356,
+      162.77643141935843
+    ],
+    [
+      146.3812373144932,
+      162.4585873448462
+    ],
+    [
+      144.76079783225305,
+      162.140743270334
+    ],
+    [
+      143.1403583500127,
+      161.82289919582178
+    ],
+    [
+      141.4404916753093,
+      161.57169104211877
+    ],
+    [
+      139.68105460625858,
+      161.3704598290227
+    ],
+    [
+      137.9216175372081,
+      161.16922861592667
+    ],
+    [
+      136.16218046815743,
+      160.96799740283058
+    ],
+    [
+      134.40274339910673,
+      160.7667661897345
+    ],
+    [
+      132.55587647497,
+      160.64237901200121
+    ],
+    [
+      130.68843782022455,
+      160.53607278376504
+    ],
+    [
+      128.82099916547907,
+      160.42976655552886
+    ],
+    [
+      126.9535605107336,
+      160.32346032729268
+    ],
+    [
+      125.08290134910975,
+      160.22041134320764
+    ],
+    [
+      123.14783204991306,
+      160.18250724214548
+    ],
+    [
+      121.21276275071638,
+      160.1446031410833
+    ],
+    [
+      119.27769345151994,
+      160.10669904002114
+    ],
+    [
+      117.34262415232325,
+      160.06879493895897
+    ],
+    [
+      115.399612444437,
+      160.04754359264686
+    ],
+    [
+      113.4367447148268,
+      160.0679241332099
+    ],
+    [
+      111.47387698521688,
+      160.08830467377294
+    ],
+    [
+      109.51100925560668,
+      160.108685214336
+    ],
+    [
+      107.54814152599648,
+      160.12906575489902
+    ],
+    [
+      105.5904218390034,
+      160.18609983688458
+    ],
+    [
+      103.63738219075341,
+      160.2764553201633
+    ],
+    [
+      101.68434254250316,
+      160.36681080344206
+    ],
+    [
+      99.7313028942529,
+      160.45716628672082
+    ],
+    [
+      97.77826324600292,
+      160.54752176999955
+    ],
+    [
+      95.8641702213209,
+      160.70653996883277
+    ],
+    [
+      93.96224801650398,
+      160.88701526627676
+    ],
+    [
+      92.0603258116873,
+      161.06749056372072
+    ],
+    [
+      90.15840360687038,
+      161.24796586116472
+    ],
+    [
+      88.25648140205345,
+      161.4284411586087
+    ]
+  ],
+  "target_direction": "left_to_right",
+  "throwing_side": "right",
+  "trial_id": "DDA755B3-6957-4957-B8A0-4896D2658A34",
+  "warnings": [
+    "Scale check: the board's field of view could not be calibrated to gravity inside the 55-75\u00b0 band (This session's 42 measured field-of-view calibrations spread over an IQR of 7.1\u00b0 (> 6.0\u00b0); the per-throw values disagree too much to pool as one measured session field of view.); metre values are flagged."
+  ],
+  "wrist_speed_arm_lengths_s": [
+    0.36728226542537107,
+    0.3546719715993799,
+    0.4251327233629269,
+    0.6483600809955526,
+    0.9761258314576942,
+    1.3354162816516015,
+    1.6483037350765886,
+    1.876781201987147,
+    2.0103298319359446,
+    2.0448615967102226,
+    1.999467559615099,
+    1.8944139365449475,
+    1.7228689054172417,
+    1.5008386360981125,
+    1.2501533782853007,
+    0.9657988783797874,
+    0.705081611355017,
+    0.5273067633692131,
+    0.4761207300221166,
+    0.5774354417869234,
+    0.7567431350990572,
+    0.9552031422126932,
+    1.1390157160423195,
+    1.2712036071103832,
+    1.3272939856122616,
+    1.2816575196851847,
+    1.1307345086847238,
+    0.893588102081523,
+    0.5982126483697273,
+    0.3353374435859166,
+    0.34662903815345947,
+    0.546105648108346,
+    0.7047904412383514,
+    0.7501013613396371,
+    0.6695793802912318,
+    0.5014778451959733,
+    0.2693845609468312,
+    0.11931227469996111,
+    0.3117805744416933,
+    0.48623885616700113,
+    0.6031037177506313,
+    0.6693800901013985,
+    0.6999614211369292,
+    0.7112741720934164,
+    0.6955006358923584,
+    0.6591079467900987,
+    0.6042171407377173,
+    0.5316485996537526,
+    0.43737207876739875,
+    0.3494342359096417,
+    0.2737809353111702,
+    0.20428555757407452,
+    0.16348558738973243,
+    0.13605746583674613,
+    0.12167790332722407,
+    0.10863314717409583,
+    0.08183068635161704,
+    0.05179960318678932,
+    0.03531193552425533,
+    0.027651394467613326,
+    0.020732876451816172,
+    0.006947304120316052,
+    0.024449708463767282,
+    0.032496923381851554,
+    0.03851889237272005,
+    0.03123087478407057,
+    0.0116266527950892,
+    0.0263567918545902,
+    0.07310458317957681,
+    0.11723507381164493,
+    0.14023083438401227,
+    0.14610334843915948,
+    0.12960738970861302,
+    0.09911771910410237,
+    0.07196453618997097,
+    0.04654896973642667,
+    0.057896358877092824,
+    0.09266223179628087,
+    0.13018865753398987,
+    0.16151433185286776,
+    0.16674009002281145,
+    0.15262435938120686,
+    0.12582078161804436,
+    0.08189693395574799,
+    0.04411878535358682,
+    0.03744921267973584,
+    0.06068710593452675,
+    0.08201134564996183,
+    0.09527959422461843,
+    0.09251012044970347,
+    0.09446789633108835,
+    0.11957449189621377,
+    0.189487231650208,
+    0.3101604918027985,
+    0.4724952053956378,
+    0.7021504261791459,
+    0.9934669704066665,
+    1.3338263766572402,
+    1.6964533958365928,
+    2.0258634378729714,
+    2.273977663372146,
+    2.4102965126975264,
+    2.4105391984728097,
+    2.283424915179803,
+    2.0626736554919187,
+    1.7788989926459426,
+    1.4702208642772423,
+    1.1659227148228872,
+    0.8877319906238457,
+    0.6981105146551868,
+    0.6782180758176297,
+    0.8382864325237601,
+    1.0675740890091943,
+    1.3228289943563623,
+    1.60324590319845,
+    1.9037203734692845,
+    2.222182468592907,
+    2.5623729553486614,
+    2.9124208938772043,
+    3.297828825205468,
+    3.7216245833149424,
+    4.159129168543927,
+    4.606622996999364,
+    5.059803453573043,
+    5.518488076325104,
+    5.993120071046553,
+    6.372960719418109,
+    6.588379097465971,
+    6.744505913801,
+    6.782644456521898,
+    6.679595998732323,
+    6.524445367171332,
+    6.40084737953604,
+    6.340477242426276,
+    6.18011779749523,
+    5.944018403723525,
+    5.646489367784292,
+    5.3333107808440765,
+    5.037438995821609,
+    4.65960194336669,
+    4.144479377039246,
+    3.500391032165468,
+    2.7879699879637783,
+    2.061597670997611,
+    1.3363587956271825,
+    0.6763660160191798,
+    0.5026565809817335,
+    1.1390723867995207,
+    1.8765550452793158,
+    2.655772447295434,
+    3.4544862561123635,
+    4.21892939198771,
+    4.885567113557208,
+    5.466312671534236,
+    6.048571461522264,
+    6.767506164242565,
+    7.5794151229446225,
+    8.335691118811345,
+    9.165619531037125,
+    10.167325519888145,
+    11.045162652383725,
+    11.601598467925191,
+    11.88393571787126,
+    11.903321384237211,
+    11.669637029181366,
+    11.141409156751882,
+    10.397570284639016,
+    9.471080671232395,
+    8.37789822948853,
+    7.143998495808231,
+    5.824622496661185,
+    4.615318858661139,
+    3.570757930602843,
+    2.6800418094389427,
+    1.97228185763738,
+    1.399625268546888,
+    0.9521188553648651,
+    0.6420737706350068,
+    0.4228290006826327,
+    0.3325861519196957,
+    0.3663475135633368,
+    0.42809306920071927,
+    0.4766295604987249,
+    0.4791619117846825,
+    0.47042365058438335,
+    0.4735361685495837,
+    0.4921696997379029,
+    0.5268351513029115,
+    0.5564493722074957,
+    0.5673903301240159,
+    0.5835785862659133,
+    0.5985194601103127,
+    0.6074062801484296,
+    0.6160749930095338,
+    0.6312059784087761,
+    0.6452029237697443,
+    0.653832505971808,
+    0.6744174614222228,
+    0.6951232836260727,
+    0.7078715949139801,
+    0.7182619759898531,
+    0.7286991553092498,
+    0.7401974310185576,
+    0.7546859209830622,
+    0.7858698267773655,
+    0.8082120026513404,
+    0.8141798543379325,
+    0.8055379451453886,
+    0.7824760624237972,
+    0.7647777108156094,
+    0.751798480626786,
+    0.7488497174007706,
+    0.7532741716860696,
+    0.7609983717095073,
+    0.7644541110024875,
+    0.7786277739441572,
+    0.7622781556309571,
+    0.7147997996039256,
+    0.6976915110749012,
+    0.6748006338169598,
+    0.6369319970845665,
+    0.622020558907321,
+    0.6296305814073907,
+    0.6597078623212529,
+    0.6975915920319578,
+    0.7345087982407504,
+    0.7759062508514184,
+    0.8167282734218668,
+    0.8585451785222955,
+    0.8857779039175254,
+    0.9017379121071342,
+    0.91836901637739,
+    0.910416786248511,
+    0.8918357859795127,
+    0.870451131855033,
+    0.8422816580868078,
+    0.8234840911075533,
+    0.8075405856147018,
+    0.8047228031484864,
+    0.8138589334620692,
+    0.8200051431180023,
+    0.8398463242860442,
+    0.8671905406501227,
+    0.8877943477302311,
+    0.8967916453653512,
+    0.9020771918288005,
+    0.9102144314794255,
+    0.9210728579547592,
+    0.924685885863208,
+    0.9162935720686712,
+    0.9070007657999505,
+    0.8935381056210516,
+    0.8786700558168438,
+    0.8788188804155883,
+    0.8831929628811022,
+    0.8765793883839509,
+    0.8731277199976368,
+    0.8887870814995416,
+    0.8768453486443598,
+    0.8395942992050273,
+    0.795781300642336,
+    0.7254591027855113,
+    0.6477534599212531,
+    0.5711244488598569,
+    0.5133468328733715,
+    0.49591712754393796,
+    0.5139048579929665,
+    0.5665879583241576,
+    0.6423749303235019,
+    0.717104340713279,
+    0.7927924605776201,
+    0.8470092376939276,
+    0.8795624681276064,
+    0.8922062118472852,
+    0.8853688466252433,
+    0.8726376512942262,
+    0.8666876623267187,
+    0.8762116784828877,
+    0.9142711367789363,
+    1.0338193575242025,
+    1.213379732103008,
+    1.4345607644985097,
+    1.7072640187810517,
+    2.028336945960171,
+    2.37974690498683,
+    2.753925120510123,
+    3.143013498151069,
+    3.5450284503483482,
+    3.9645062398701967,
+    4.4287542286191846,
+    4.93877764417648,
+    5.490480755293723,
+    6.059278173106713,
+    6.584224506717482,
+    7.029023294980101,
+    7.37484011689967,
+    7.603474969818957,
+    7.676406291635819,
+    7.639914142679341,
+    7.436434106775085,
+    6.998895034416298,
+    6.354359793642982,
+    5.485868968339011,
+    4.556070589368021,
+    3.7924916596616525,
+    3.105383481092529,
+    2.3550291367942555,
+    1.5853796654317396,
+    0.8323119385042124,
+    0.2990398677235982,
+    0.6755211920237607,
+    1.19497710379099,
+    1.6314958880643438,
+    1.9298306179123281,
+    2.1069006848679996,
+    2.2231349943510463,
+    2.335218863146133,
+    2.481289819875659,
+    2.697653535661034,
+    2.9974210830945536,
+    3.2749130463681473,
+    3.4662124801985743,
+    3.552392780660235,
+    3.5769283408137618,
+    3.577976760472303,
+    3.5257515312760246,
+    3.44296601280773,
+    3.3342073359043614,
+    3.175842874179812,
+    2.959755843721633,
+    2.7100731118093515,
+    2.4357261068494673,
+    2.1190582333841164,
+    1.784409880655489,
+    1.4595202570417014,
+    1.1564822750174895,
+    0.8934434861626807,
+    0.6972639107798897,
+    0.5518049741145281
+  ]
+}

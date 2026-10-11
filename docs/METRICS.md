@@ -31,14 +31,16 @@ For 2D vectors, define `A(u,v) = atan2(|ux vy − uy vx|, u·v) × 180/π`. Zero
 |---|---|---|
 | Movement duration | `(endFrame − startFrame)/fps`, seconds | Effective automatic/manual bounds; no sub-frame precision |
 | Normalized time | `τ=(frame−start)/(end−start)`, 0–1 | Default 101 samples; interpolation only between adjacent finite supports, preserving long missing gaps |
-| Motion start/end | Sustained wrist-speed heuristic | Candidate movement interval; review against video |
-| Peak backswing | Minimum target-axis wrist position before release candidate | A wrist-path event, not a muscle activation event |
+| Motion start | Last frame with shoulder-relative wrist speed below `max(0.05, 0.12×peak)` arm lengths/s before the fastest rearward wrist movement in the 1 s before peak backswing (fallback: first sustained moving frame) | Start of the throwing swing; walking in, aiming and practice swings before it are excluded. Candidate; review against video |
+| Motion end | Last frame of sustained (≥ 0.05 s) wrist speed above that threshold | Candidate; can include lowering the arm or walking away after the throw |
+| Peak backswing | Minimum target-axis wrist position before release candidate (top of the backswing) | A wrist-path event, not a muscle activation event |
 | Forward swing | Frame following backswing, bounded by release | Coarse heuristic onset; manually correct when necessary |
 | Release candidate | Peak target-axis wrist velocity after backswing | **Not observed bag–hand separation.** Review and manually label actual visible release when possible. Uncertainty at least a frame interval and larger with blur/occlusion. |
-| Peak follow-through | Maximum forward wrist position after candidate release | Kinematic proxy; video review remains necessary |
+| Peak follow-through | First frame after release within 0.02 arm lengths of the highest shoulder-relative wrist point in [release, min(motion end, release + 2 s)] | The arm's highest point (arrival at a held pose). Replaces "most forward wrist", which fell 0–4 frames after release. Kinematic proxy; video review remains necessary |
+| Peak elbow extension | Max dθ_elbow/dt > 0 from the first frame after peak backswing with dθ/dt ≤ 0 to release + 0.1 s | Forward-swing extension only; unavailable when the elbow only flexes in the forward swing (the tail of backswing extension is not counted) |
 | Event timing error | `abs(τtrial−mean(τreferences))`, cycle fraction | Preserves timing differences rather than warping them away |
 
-Manual event values retain automatic candidates and must be within the video and ordered. Empty event fields remain missing. All dates/settings and effective frame indices are exported.
+Event rules and their audit evidence (6 two-camera throws) are in [METHODS_AND_MATH §1.9](METHODS_AND_MATH.md#19-event-detection). Manual event values retain automatic candidates and must be within the video and ordered. Empty event fields remain missing. All dates/settings and effective frame indices are exported.
 
 ## Reference comparison (raw errors only)
 
@@ -138,3 +140,20 @@ These come from `swing.py`. The arm angle φ is the shoulder→wrist line measur
   For each release variable, the others are held at the athlete's median and the variable is scanned to give its bands.
 - **Priority.** The priority variable is the one with the largest ratio of athlete SD to the green window's half-width. Aim bias is the median's distance from the window centre. Model-vs-outcome agreement is reported for every scaled throw.
 - **Sports statistics.** PPR = 4 × mean points per bag (gross); In / On / Off % are the shares of known outcomes.
+
+## Front camera (two-camera takes)
+
+From the front camera behind the board (method: [METHODS_AND_MATH.md §5.2–5.3](METHODS_AND_MATH.md)). Signs are in the
+thrower's frame: + = thrower's right. Noise floors are the smallest differences the analyses interpret.
+
+| Key | Meaning | Unit | Noise floor | Basis |
+|---|---|---|---|---|
+| `front_heading_deg` | Sideways launch direction, release hand → first contact | ° | 0.5 | ±0.5 in contact precision and ±3 cm hand position over ~6 m |
+| `front_arm_across_body_sw` | Throwing wrist sideways from the throwing shoulder at release, + towards the midline | shoulder widths | 0.15 | 2D landmark noise ~4 px over a ~60–80 px shoulder width |
+| `front_trunk_side_lean_deg` | Hip centre → shoulder centre vs vertical (roll-corrected), + towards the throwing arm | ° | 6 | same landmark noise over a ~120 px trunk, plus ±1° roll |
+| `front_release_offset_m` | Release hand's sideways distance from the board centre line | m | 0.03 | ray through the wrist at the side camera's release distance; ±2.5° field of view |
+| `left_right_in`, `short_long_in` | Signed miss at rest from the hole centre | in | 0.5 / side-camera board phase | deck homography resolution at mid-deck |
+
+The coach sentence names the hand across the body only at ≥ 0.25 shoulder widths (≈ 2× its noise) and a stance only
+when ≥ 15 cm off the centre line, and only when either points the same way as the miss. Lateral "on line" is
+within 3 in (the hole radius).

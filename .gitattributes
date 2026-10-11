@@ -1,0 +1,43 @@
+# Normalize source text while preserving binary research/recording assets.
+* text=auto
+*.sh text eol=lf
+*.command text eol=lf
+*.py text eol=lf
+*.swift text eol=lf
+*.md text eol=lf
+
+# Preserve original bytes in data, archived results and reference materials.
+/data/** -text
+/qa-artifacts/** -text
+/research/** -text
+
+# GitHub Desktop includes Git LFS. CLI users must install it before cloning.
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.MP4 filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
+*.MOV filter=lfs diff=lfs merge=lfs -text
+*.m4v filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text
+*.npz filter=lfs diff=lfs merge=lfs -text
+*.onnx filter=lfs diff=lfs merge=lfs -text
+*.task filter=lfs diff=lfs merge=lfs -text
+*.wav filter=lfs diff=lfs merge=lfs -text
+*.tgz filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.epub filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
+
+# Existing documentation screenshots stay in ordinary Git history.
+/data/**/*.png filter=lfs diff=lfs merge=lfs -text
+/data/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+/data/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+/qa-artifacts/**/*.png filter=lfs diff=lfs merge=lfs -text
+/qa-artifacts/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+/qa-artifacts/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+/research/**/*.png filter=lfs diff=lfs merge=lfs -text
+/research/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+
+# Tiny per-frame masks are numerous and compress efficiently in a Git pack.
+# Preserve them byte-for-byte without one LFS upload per frame.
+**/scene_vision/*.png -filter -diff -merge -text
+/research/**/images/* -filter -diff -merge -text

@@ -36,6 +36,11 @@ struct ReplayDocument: Decodable {
         return try? JSONDecoder().decode(ReplayDocument.self, from: data)
     }
 
+    enum CodingKeys: String, CodingKey {
+        case fps, frame_count, width, height, coordinates, release_to_frame, measured, filtered, model, after_contact
+        case model_note, model_rmse_px, events, grades
+    }
+
     /// Release-frame pixels → pixels of `frame` (identity for a fixed camera).
     func toFrame(_ x: Double, _ y: Double, frame: Int) -> CGPoint {
         guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m[0].count == 3 else {
@@ -53,6 +58,28 @@ struct ReplayDocument: Decodable {
     static let eventOrder = ["peak_backswing", "peak_wrist_speed", "peak_elbow_extension", "release", "apex", "first_contact", "final_rest", "into_hole"]
     var orderedEvents: [(key: String, event: Event)] {
         Self.eventOrder.compactMap { key in events[key].map { (key, $0) } }
+    }
+}
+
+extension ReplayDocument {
+    /// Tolerant of two things older analyses wrote: `after_contact` as the slide summary (a dictionary, not points)
+    /// and a null grade. Either used to make the whole replay (and so the video) disappear from the report.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fps = try c.decode(Double.self, forKey: .fps)
+        frame_count = try c.decode(Int.self, forKey: .frame_count)
+        width = try c.decode(Int.self, forKey: .width)
+        height = try c.decode(Int.self, forKey: .height)
+        coordinates = (try? c.decode(String.self, forKey: .coordinates)) ?? "raw_video_pixels"
+        release_to_frame = try? c.decodeIfPresent([String: [[Double]]].self, forKey: .release_to_frame)
+        measured = (try? c.decode([Point].self, forKey: .measured)) ?? []
+        filtered = (try? c.decode([Point].self, forKey: .filtered)) ?? []
+        model = (try? c.decode([Point].self, forKey: .model)) ?? []
+        after_contact = (try? c.decode([Point].self, forKey: .after_contact)) ?? []
+        model_note = try? c.decodeIfPresent(String.self, forKey: .model_note)
+        model_rmse_px = try? c.decodeIfPresent(Double.self, forKey: .model_rmse_px)
+        events = try c.decode([String: Event].self, forKey: .events)
+        grades = ((try? c.decode([String: String?].self, forKey: .grades)) ?? [:]).compactMapValues { $0 }
     }
 }
 

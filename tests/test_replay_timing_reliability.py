@@ -48,6 +48,31 @@ def test_timing_ignores_a_maximum_at_the_window_edge():
     assert out["wrist_speed_at_release_arm_lengths_s"] is not None
 
 
+def _backswing_extension_elbow(n=120, top=40, release=80, re_extend=False):
+    """Elbow straightens during the backswing (140° → 178°, decaying across the top at `top`,
+    with a last small straightening 5 frames after it, as on two audited throws), then flexes in the forward swing; optionally it re-extends just before release."""
+    f = np.arange(n, dtype=float)
+    elbow = 140 + 38 / (1 + np.exp(-(f - (top - 12)) / 2.5))          # extension fading out after the top
+    elbow += 1.5 / (1 + np.exp(-(f - (top + 5)) / 1.5))              # small last straightening after the top
+    elbow -= 18 / (1 + np.exp(-(f - (top + 18)) / 3.0))               # flexion in the forward swing
+    if re_extend:
+        elbow += 10 / (1 + np.exp(-(f - (release - 3)) / 1.5))        # straightening into release
+    return elbow
+
+
+def test_peak_elbow_extension_ignores_extension_carried_over_from_the_backswing():
+    _, wrist, _ = pendulum()
+    events = {"release": 80, "peak_backswing": 40}
+    out = release_timing_metrics(wrist, _backswing_extension_elbow(), FPS, events, 100.0, "left_to_right")
+    # The only positive dθ/dt after the top is the tail of the backswing extension: no forward-swing peak.
+    assert out["peak_elbow_extension_frame"] is None
+    assert out["elbow_peak_extension_velocity_deg_s"] is None
+    out = release_timing_metrics(wrist, _backswing_extension_elbow(re_extend=True), FPS, events, 100.0,
+                                 "left_to_right")
+    assert out["peak_elbow_extension_frame"] == pytest.approx(77, abs=1)
+    assert out["elbow_peak_extension_velocity_deg_s"] > 50
+
+
 def _pose(n=60, foreshorten_at=None):
     landmarks = ("right_shoulder", "right_elbow", "right_wrist", "left_shoulder", "left_hip", "right_hip")
     raw = np.zeros((n, len(landmarks), 2))

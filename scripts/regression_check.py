@@ -14,7 +14,7 @@ results.json uses pass 2's output. A session with fewer than 3 measured throws u
 median of every measured throw in the run instead (source "library_median_gravity_fov", Task 8c).
 
     PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
-        --library "~/Documents/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
+        --library "data/libraries/Cornhole Pilot Library" --scratch /tmp/regression --output regression.json
 """
 from __future__ import annotations
 

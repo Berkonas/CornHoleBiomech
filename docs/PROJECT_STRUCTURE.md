@@ -2,10 +2,9 @@
 
 Start with the README in the main folder; the detailed app walkthrough is [APP_GUIDE.md](APP_GUIDE.md). Open the app from `dist`. Everything else is grouped by purpose, not by an old project session.
 
-The `dist` app is a link to the generated runnable build in `~/Library/Application Support/Cornhole Biomechanics Lab/Builds`. The Python runtime is a separate sibling folder there. This avoids iCloud Desktop adding metadata that invalidates app signing. Athlete data remains separate in Documents or the library location you select.
-
+The built app lives directly in `dist/`. The Python environment lives in `.venv/`, and machine-specific library selection lives in `.local/app-support/`. The Desktop icon is a symlink to the app in `dist/`. See [repository workflow](REPOSITORY_WORKFLOW.md).
 ```
-Project 1 - Cornhole/
+CornHoleBiomech/
   README.md, LICENSE, CONTRIBUTING.md, CITATION.cff
   .github/                     CI workflow (Python tests on 3.11 and 3.12) and PR template
   setup.sh, build_app.sh, run_app.sh, verify.sh
@@ -13,26 +12,26 @@ Project 1 - Cornhole/
     CornholeBiomechanics/       Swift app and native tests
     Resources/
       branding/                App icon source and compiled icon
-      models/                  Local model weights; ignored by Git
+      models/                  Pose model weights; Git LFS
   python/cornhole_biomech/      Scientific engine
   tests/                       Python tests
   scripts/                     Implementation of setup/build and QA tools
   docs/                        Current methods, guides, and verification
     images/                    Screenshots used by the README
     archive/                   Previous README, research notes, and audits
-  research/                    Local user material; ignored by Git
+  research/                    Shared project references; versioned
     course/                    Course PDFs
     books/                     User-owned material, untouched
     design/                    Earlier design material, not scientific evidence
-  data/                        Local recordings and validation sets; ignored by Git
+  data/                        Recordings, libraries and validation sets; versioned
     videos/                    Source clips: Player 1–3, Pro reference
     bag-validation/            Blinded bag-tracking frames for raters
     spot-check/                Per-throw contact sheets
-  qa-artifacts/                Development QA outputs; ignored by Git
-  dist/                        Link to the locally installed app; ignored by Git
+  qa-artifacts/                Versioned development QA outputs
+  dist/                        Generated runnable app; ignored by Git
 ```
 
-The app’s athlete library is separate, normally in `~/Documents/Cornhole Biomechanics Lab Data`. Each athlete has a readable folder name with a stable identifier, a profile, throws, and analyses. The library index is `project.json`; “project” here is an internal compatibility name, not a setup task you must repeat.
+The default athlete library is `data/libraries/Cornhole Biomechanics Lab Data` inside the checkout. A previously selected library remains selected after migration. Each athlete has a readable folder name with a stable identifier, a profile, throws, and analyses. The library index is `project.json`; “project” here is an internal compatibility name, not a setup task you must repeat.
 
 Prepared video copies are stored in a throw-specific `…-video-revisions` folder alongside its managed original. Each revision contains `prepared.mp4` and a `.preparation.json` sidecar with the original hash, dimensions, source-frame mapping, crop, rotation, and output hash. If an analysis existed when the clip changed, it is moved into that revision’s `previous-analysis` folder. Returning to the original also invalidates analysis. Revisions are retained until you delete the throw or athlete.
 

@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
 SWIFT_PACKAGE="$PROJECT_DIR/app/CornholeBiomechanics"
 DESTINATION="$PROJECT_DIR/dist/Cornhole Biomechanics Lab.app"
-INSTALL_ROOT="$HOME/Library/Application Support/Cornhole Biomechanics Lab/Builds"
+INSTALL_ROOT="$PROJECT_DIR/dist"
 INSTALLED_APP="$INSTALL_ROOT/Cornhole Biomechanics Lab.app"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export DEVELOPER_DIR
@@ -33,14 +33,12 @@ xattr -dr com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
 xattr -dr com.apple.ResourceFork "$APP_DIR" 2>/dev/null || true
 codesign --force --deep --sign - "$APP_DIR"
 codesign --verify --deep --strict "$APP_DIR"
-mkdir -p "$PROJECT_DIR/dist"
 mkdir -p "$INSTALL_ROOT"
-# Install only this generated application; Runtime and athlete data are separate.
+# Replace only this generated bundle (or the legacy symlink). The old symlink's
+# destination, environment and athlete libraries are never removed here.
 rm -rf "$INSTALLED_APP"
 mv "$APP_DIR" "$INSTALLED_APP"
 codesign --verify --deep --strict "$INSTALLED_APP"
-rm -rf "$DESTINATION"
-ln -s "$INSTALLED_APP" "$DESTINATION"
 
 print "Built and signature-verified: $DESTINATION"
 print "Local executable: $INSTALLED_APP"

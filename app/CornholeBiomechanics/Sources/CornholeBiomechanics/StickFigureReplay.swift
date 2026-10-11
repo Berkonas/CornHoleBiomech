@@ -60,43 +60,54 @@ struct StickFigureReplay: View {
                 context.stroke(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(.primary), lineWidth: 1)
             }
 
-            // Body: other bones first, the throwing arm on top.
-            let s = side.rawValue, o = side == .right ? "left" : "right"
-            let body: [(String, String)] = [
-                ("left_shoulder", "right_shoulder"), ("left_hip", "right_hip"),
-                ("left_shoulder", "left_hip"), ("right_shoulder", "right_hip"),
-                ("\(o)_shoulder", "\(o)_elbow"), ("\(o)_elbow", "\(o)_wrist"),
-                ("left_hip", "left_knee"), ("left_knee", "left_ankle"), ("right_hip", "right_knee"), ("right_knee", "right_ankle"),
-            ]
-            let arm = [("\(s)_shoulder", "\(s)_elbow"), ("\(s)_elbow", "\(s)_wrist")]
-            func bone(_ a: String, _ b: String, _ color: Color, _ width: CGFloat) {
-                guard let pa = point(a), let pb = point(b) else { return }
-                var line = Path(); line.move(to: screen(pa)); line.addLine(to: screen(pb))
-                context.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: width, lineCap: .round))
-            }
-            for (a, b) in body { bone(a, b, .secondary, 2.5) }
-            for (a, b) in arm { bone(a, b, athleteInk, 4) }
-            let joints = Set((body + arm).flatMap { [$0.0, $0.1] })
-            for name in joints {
-                guard let p = point(name) else { continue }
-                let q = screen(p), r: CGFloat = name.hasPrefix(s) && !name.contains("hip") && !name.contains("knee") && !name.contains("ankle") ? 3.5 : 2.5
-                context.fill(Path(ellipseIn: CGRect(x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r)),
-                             with: .color(r > 3 ? athleteInk : .primary.opacity(0.7)))
-            }
-
-            // Head: a circle on the nose / ears / head point, sized from the trunk.
-            let headPoints = ["Nose", "nose", "left_ear", "right_ear", "Head"].compactMap(point)
-            if !headPoints.isEmpty {
-                let centre = CGPoint(x: headPoints.map(\.x).reduce(0, +) / Double(headPoints.count),
-                                     y: headPoints.map(\.y).reduce(0, +) / Double(headPoints.count))
-                var radius = 0.0
-                if let l = point("left_ear"), let r = point("right_ear") { radius = 0.65 * hypot(l.x - r.x, l.y - r.y) }
-                if radius < 1, let sh = point("\(s)_shoulder"), let hip = point("\(s)_hip") { radius = 0.18 * hypot(sh.x - hip.x, sh.y - hip.y) }
-                let c = screen(centre), rr = max(5, radius * fit.scale)
-                context.stroke(Path(ellipseIn: CGRect(x: c.x - rr, y: c.y - rr, width: 2 * rr, height: 2 * rr)), with: .color(.secondary), lineWidth: 2.5)
-            }
+            Self.drawFigure(context, landmarks: landmarks, side: side, pixelScale: fit.scale, screen: screen)
         }
         .accessibilityLabel("Stick figure of the athlete and the measured bag path, frame \(frame)")
+    }
+
+    /// The athlete as a stick figure: other bones first, the throwing arm on top, the joints, and a head circle
+    /// sized from the ears (or the trunk). `screen` maps this frame's video pixels onto the canvas; `pixelScale`
+    /// is canvas points per video pixel.
+    static func drawFigure(_ context: GraphicsContext, landmarks: [String: PosePoint], side: ThrowingSide,
+                           pixelScale: Double, screen: (CGPoint) -> CGPoint) {
+        func point(_ name: String) -> CGPoint? {
+            guard let p = landmarks[name], let x = p.x, let y = p.y, p.confidence >= minimumConfidence else { return nil }
+            return CGPoint(x: x, y: y)
+        }
+        let s = side.rawValue, o = side == .right ? "left" : "right"
+        let body: [(String, String)] = [
+            ("left_shoulder", "right_shoulder"), ("left_hip", "right_hip"),
+            ("left_shoulder", "left_hip"), ("right_shoulder", "right_hip"),
+            ("\(o)_shoulder", "\(o)_elbow"), ("\(o)_elbow", "\(o)_wrist"),
+            ("left_hip", "left_knee"), ("left_knee", "left_ankle"), ("right_hip", "right_knee"), ("right_knee", "right_ankle"),
+        ]
+        let arm: [(String, String)] = [("\(s)_shoulder", "\(s)_elbow"), ("\(s)_elbow", "\(s)_wrist")]
+        for (index, bone) in (body + arm).enumerated() {
+            guard let pa = point(bone.0), let pb = point(bone.1) else { continue }
+            let throwing = index >= body.count
+            var line = Path(); line.move(to: screen(pa)); line.addLine(to: screen(pb))
+            context.stroke(line, with: .color(throwing ? athleteInk : Color.secondary),
+                           style: StrokeStyle(lineWidth: throwing ? 4 : 2.5, lineCap: .round))
+        }
+        let joints = Set((body + arm).flatMap { [$0.0, $0.1] })
+        for name in joints {
+            guard let p = point(name) else { continue }
+            let q = screen(p), r: CGFloat = name.hasPrefix(s) && !name.contains("hip") && !name.contains("knee") && !name.contains("ankle") ? 3.5 : 2.5
+            context.fill(Path(ellipseIn: CGRect(x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r)),
+                         with: .color(r > 3 ? athleteInk : .primary.opacity(0.7)))
+        }
+
+        // Head: a circle on the nose / ears / head point, sized from the trunk.
+        let headPoints = ["Nose", "nose", "left_ear", "right_ear", "Head"].compactMap(point)
+        if !headPoints.isEmpty {
+            let centre = CGPoint(x: headPoints.map(\.x).reduce(0, +) / Double(headPoints.count),
+                                 y: headPoints.map(\.y).reduce(0, +) / Double(headPoints.count))
+            var radius = 0.0
+            if let l = point("left_ear"), let r = point("right_ear") { radius = 0.65 * hypot(l.x - r.x, l.y - r.y) }
+            if radius < 1, let sh = point("\(s)_shoulder"), let hip = point("\(s)_hip") { radius = 0.18 * hypot(sh.x - hip.x, sh.y - hip.y) }
+            let c = screen(centre), rr = max(5, radius * pixelScale)
+            context.stroke(Path(ellipseIn: CGRect(x: c.x - rr, y: c.y - rr, width: 2 * rr, height: 2 * rr)), with: .color(.secondary), lineWidth: 2.5)
+        }
     }
 
     /// Uniform scale and offset that fit `bounds` into `size` with an 8 % margin, centred.

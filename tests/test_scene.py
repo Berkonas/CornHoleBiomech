@@ -125,3 +125,26 @@ def test_tag_people_prefers_nearest_nonempty_mask_on_tie():
     person = np.zeros((60, 80), np.uint8); person[20:40, 20:40] = 255
     tagged = tag_people([Candidate(1, 30.0, 30.0, 5.0)], {0: empty, 2: person})
     assert tagged[0].in_person is True
+
+
+def test_tag_people_matches_the_brute_force_nearest_mask_rule():
+    """The nearest-mask lookup is a bisection now (it scanned every mask for every candidate); same answer,
+    including ties broken toward a non-empty mask."""
+    rng = np.random.default_rng(7)
+    masks = {}
+    for k in range(0, 60, 2):
+        m = np.zeros((40, 60), np.uint8)
+        if k % 6:                                   # every third mask is an empty dropout
+            m[10:30, 20:40] = 255
+        masks[k] = m
+    candidates = [Candidate(int(f), float(x), float(y), 5.0)
+                  for f, x, y in zip(rng.integers(-3, 64, 300), rng.uniform(0, 60, 300), rng.uniform(0, 40, 300))]
+    keys = sorted(masks)
+
+    def brute(c):
+        nearest = min(keys, key=lambda k: (abs(k - c.frame), not np.any(masks[k])))
+        m = masks[nearest]
+        x, y = int(round(c.x)), int(round(c.y))
+        return abs(nearest - c.frame) <= 2 and 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and m[y, x] > 0
+
+    assert [c.in_person for c in tag_people(candidates, masks)] == [brute(c) for c in candidates]

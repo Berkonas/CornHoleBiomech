@@ -35,7 +35,7 @@ A native macOS app with a Python science engine, built for **Biomechanics of Hum
 | 📐 **Metric scale from gravity** | The bag's own fall calibrates pixels per metre. A meter stick in the throwing plane also works. |
 | 🎯 **Release → landing model** | Drag-free flight to a regulation board gives the hole window, landing sensitivity and a per-throw verdict. |
 | 📊 **Evidence, not scores** | Scored-vs-missed differences are reported only when there are ≥ 5 throws per group, Cliff's δ ≥ 0.474 and the difference exceeds measurement noise. |
-| 🔒 **Local and private** | All analysis runs on the Mac. Recordings are never uploaded. |
+| 🔒 **Local and private** | All analysis runs on the Mac. The app does not upload recordings automatically; this repository includes the shared project dataset. |
 
 ## Screenshots
 
@@ -74,17 +74,23 @@ The full derivations (projectile model, Kalman smoother, PnP, gravity calibratio
 
 ## Quick start
 
-**Requirements:** macOS 15+, Xcode with Swift 6.2, and Python 3.11 or 3.12. Setup needs internet access once, for Python packages and pose models.
+**Requirements:** macOS 15+, Xcode with Swift 6.2, and Python 3.11 or 3.12. Setup needs internet access for Python packages. The complete dataset requires a large download (about 11 GB of unique files plus Git history); allow at least 30 GB free for data, LFS objects, runtime, and builds. GitHub Desktop includes Git LFS, or install [Git LFS](https://git-lfs.com/) for command-line use.
 
 ```bash
+mkdir -p ~/GitHub && cd ~/GitHub
+git lfs install  # GitHub Desktop includes LFS; CLI users install Git LFS first
 git clone https://github.com/Berkonas/CornHoleBiomech.git
 cd CornHoleBiomech
-./setup.sh        # Python runtime in ~/Library/Application Support/… plus pose models
-./build_app.sh    # release build, ad-hoc signed; installs and links dist/
+git lfs pull     # fetch the actual media, models, and archived app
+./setup.sh        # Python runtime in this checkout’s .venv plus pose models
+./build_app.sh    # release build, ad-hoc signed, stored in dist/
 ./run_app.sh      # or double-click dist/Cornhole Biomechanics Lab.app
+./scripts/install_desktop_shortcut.sh  # optional Desktop launch icon
 ```
 
 **A session in five steps:** *Add Athlete* → *Import Throw* (select all the videos at once) → check for **Bag ✓ auto** in *Throws* → record **Hole · 3 / Board · 1 / Miss · 0** in *Results* → read the *Athlete summary*. The full walkthrough is in the **[app guide](docs/APP_GUIDE.md)**, and the recording setup is in the **[recording protocol](docs/RECORDING_PROTOCOL.md)**.
+
+GitHub stores version history and synchronizes commits. The native app runs locally from your checkout, including when opened through the Desktop shortcut; it does not run on github.com. See [Repository workflow and storage](docs/REPOSITORY_WORKFLOW.md) for paths, backups, moving the checkout, and sharing it with collaborators.
 
 ### Command line
 
@@ -114,7 +120,7 @@ Every metric is reported as `measured`, `estimated` (with a reason) or `unavaila
 
 ## How trustworthy is it?
 
-- **444 automated tests** cover kinematics, filtering, bag physics, statistics, library schema migration and the full pipeline. Native Swift tests cover persistence and migration. `./verify.sh` runs everything plus a signed release build.
+- **562 Python tests at the migration baseline** cover kinematics, filtering, bag physics, statistics, library schema migration and the full pipeline. Native Swift tests cover persistence and migration. `./verify.sh` runs everything plus a signed release build.
 - **[Stress test](docs/STRESS_TEST.md)** on simulated athletes whose true cause of misses is known: the outcome comparison makes at most ~5 % false claims, needs ~20–40 throws to detect a real cause, and the physics check names the true cause even with 10 throws.
 - **Tracking accuracy:** blinded frames are exported for human raters (`tools/annotator.html`), then scored per tracker stage and flight phase, with inter-rater agreement. See [bag-tracking validation](docs/BAG_TRACKING_VALIDATION.md) and the [validation protocol](docs/VALIDATION_PROTOCOL.md).
 
@@ -133,7 +139,7 @@ tools/          annotator.html, a browser tool for blinded manual annotation
 docs/           methods, validation, guides, and archive of earlier revisions
 ```
 
-Recordings (`data/`), course material (`research/`), QA outputs and model weights stay local and are git-ignored. Participant video is never committed.
+Recordings, athlete libraries (`data/libraries/`), project references (`research/`), QA outputs, and pose models are versioned here. Large media uses **Git LFS**. This is a public repository: only add recordings/data you intend to share publicly. The environment, caches, preferences, and unpacked build stay local in the checkout.
 
 ## Documentation
 

@@ -22,6 +22,21 @@ final class ReplayModelTests: XCTestCase {
         XCTAssertEqual(replay.events["release"]?.values?.first?.value, 41.5)
     }
 
+    /// An analysis from the board-phase version wrote the slide summary into after_contact; the replay
+    /// (and so the video) must still load, with no slide points.
+    func testReplayWithSlideSummaryInAfterContactStillDecodes() throws {
+        let json = """
+        {"fps":59.94,"frame_count":330,"width":1920,"height":1080,"coordinates":"raw_video_pixels",
+         "measured":[{"frame":2,"x":100,"y":200}],"filtered":[],"model":[],
+         "after_contact":{"distance_in":0.1,"duration_s":0.13,"state":"unavailable","samples":7},
+         "events":{"release":{"frame":2,"label":"Release"}},"grades":{"bag":"good","scale":null}}
+        """
+        let replay = try JSONDecoder().decode(ReplayDocument.self, from: Data(json.utf8))
+        XCTAssertTrue(replay.after_contact.isEmpty)
+        XCTAssertEqual(replay.grades, ["bag": "good"])
+        XCTAssertEqual(replay.measured.count, 1)
+    }
+
     func testCoachMetricsKeepWithheldValuesEmpty() throws {
         let json = """
         {"coach_metrics":{

@@ -50,8 +50,16 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
     filtered_rows = [{"frame": r["frame"], "x": r["x"], "y": r["y"], "status": r["status"]}
                      for r in (filtered or {}).get("frames", []) if r.get("x") is not None]
     model_rows = list((model_check or {}).get("curve") or [])
-    slide = [{"frame": p["frame"], "x": p.get("x_release_frame", p["x"]), "y": p.get("y_release_frame", p["y"])}
-             for p in (after_contact or {}).get("path", [])]
+    phase = board_phase if board_phase and board_phase.get("status") == "measured" else None
+    # The slide on the board, as points (release-frame pixels). The board phase follows the bag to
+    # the end of the clip even when the flight still needs review, so its path is preferred.
+    slide_source = (phase or {}).get("path") or (after_contact or {}).get("path", [])
+    if phase and phase["end"].get("kind") == "rest":
+        slide_source = [p for p in slide_source if p["frame"] <= phase["end"]["frame"]]
+    slide_points = [{"frame": int(p["frame"]), "x": float(p.get("x_release_frame", p.get("x"))),
+                     "y": float(p.get("y_release_frame", p.get("y")))}
+                    for p in slide_source
+                    if p.get("x_release_frame", p.get("x")) is not None and p.get("y_release_frame", p.get("y")) is not None]
     positions = {r["frame"]: (r["x"], r["y"]) for r in measured_rows}
     positions.update({r["frame"]: (r["x"], r["y"]) for r in filtered_rows if r["frame"] not in positions})
     release, contact = events.get("release"), events.get("first_contact")
@@ -90,10 +98,10 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
                        "position": {"x": rest["x_release_frame"], "y": rest["y_release_frame"]} if rest else None,
                        "status": (after_contact or {}).get("status"), "note": (after_contact or {}).get("note")},
     }
-    if board_phase and board_phase.get("status") == "measured":
-        end = board_phase["end"]
-        touch = board_phase["touchdown"]
-        slide = board_phase.get("slide") or {}
+    if phase:
+        end = phase["end"]
+        touch = phase["touchdown"]
+        slide = phase.get("slide") or {}
         if event_rows["first_contact"]["frame"] is None or event_rows["first_contact"].get("position") is None:
             event_rows["first_contact"].update(frame=touch["frame"],
                                                position={"x": touch["x_release_frame"], "y": touch["y_release_frame"]})
@@ -107,6 +115,10 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
                                        "values": [{"key": "board_slide_in", "label": "Slide", "unit": "in",
                                                    "value": slide.get("distance_in"), "status": "reported"}]}
         elif end["kind"] == "rest":
+            if event_rows["final_rest"]["frame"] is None:
+                # The flight was not accepted (no after_contact), but the board phase saw the bag stop.
+                event_rows["final_rest"].update(frame=end["frame"], status="rest_found", note=end.get("note"),
+                                                position={"x": end["x_release_frame"], "y": end["y_release_frame"]})
             event_rows["final_rest"]["values"] = [
                 {"key": "board_end_from_hole_in", "label": "Stopped (from hole centre)", "unit": "in",
                  "value": end.get("from_hole_in"), "status": "reported"},
@@ -118,9 +130,9 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
         "coordinates": "release_frame_pixels" if camera_to_release else "raw_video_pixels",
         "reference_frame": release,
         "release_to_frame": _inverse_transforms(camera_to_release),
-        "measured": measured_rows, "filtered": filtered_rows, "model": model_rows, "after_contact": slide,
+        "measured": measured_rows, "filtered": filtered_rows, "model": model_rows, "after_contact": slide_points,
         "model_note": (model_check or {}).get("interpretation"),
         "model_rmse_px": (model_check or {}).get("in_sample_rmse_px"),
         "events": {k: v for k, v in event_rows.items() if v.get("frame") is not None},
-        "grades": {k: v.get("grade") for k, v in grades.items() if isinstance(v, dict) and "grade" in v},
+        "grades": {k: str(v["grade"]) for k, v in grades.items() if isinstance(v, dict) and v.get("grade") is not None},
     }

@@ -7,7 +7,7 @@ modified) and `scripts/board_coverage.py` (one row per throw + counts). Task 11 
 Reproduce:
 
     MPLCONFIGDIR=$TMPDIR/mpl PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
-        --library "~/Documents/Cornhole Pilot Library" --scratch "$TMPDIR/scene" --output "$TMPDIR/scene.json"
+        --library "data/libraries/Cornhole Pilot Library" --scratch "$TMPDIR/scene" --output "$TMPDIR/scene.json"
     PYTHONPATH=python .venv/bin/python scripts/board_coverage.py --analyses "$TMPDIR/scene" \
         --qa-dir "$TMPDIR/board-qa" --output "$TMPDIR/coverage.json"
 
@@ -332,7 +332,7 @@ chain's release-speed/kinetic-energy/peak-hand-force states.
 Reproduce:
 
     MPLCONFIGDIR=$TMPDIR/mpl PYTHONPATH=python .venv/bin/python scripts/regression_check.py \
-        --library "~/Documents/Cornhole Pilot Library" --scratch "$TMPDIR/scene-regression11" \
+        --library "data/libraries/Cornhole Pilot Library" --scratch "$TMPDIR/scene-regression11" \
         --output "$TMPDIR/scene-regression11.json"
 
 Result: 26/26 throws re-analysed with exit code 0 (no crashes). Runtime ≈ 17 minutes (two full

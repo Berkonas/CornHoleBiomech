@@ -20,6 +20,11 @@ from .regulation import INCH_M, Board
 
 NOMINAL_HFOV_DEG = 65.0
 HFOV_RANGE_DEG = (55.0, 75.0)
+# Where the gravity calibration may FIND the field of view. Wider than the band above (which still
+# sets the reported scale uncertainty): the Final Data Collection side phone (iPhone 15 Pro Max,
+# 1080p 60 fps, 1×, stabilisation on) solved at 55.0° exactly — on the old search edge, which
+# flagged every throw's metre values although gravity matched within 0.003 m/s².
+SEARCH_HFOV_RANGE_DEG = (45.0, 85.0)
 MIN_VALID_HFOV_SAMPLES = 3          # fewer PnP-solvable field-of-view grid points cannot bracket a root
 MIN_SESSION_THROWS = 3              # fewer measured per-throw HFOVs cannot pool a "measured" session estimate
 MAX_SESSION_IQR_DEG = 6.0           # wider per-throw HFOV spread cannot pool a "measured" session estimate
@@ -116,6 +121,35 @@ class BoardModel:
         a, b = self.to_deck_inches(np.array([p, p + [0.0, 1.0]]))
         return abs(float(b[0] - a[0]))
 
+    def deck_inches_lifted(self, points_px: np.ndarray, lift_m: float) -> np.ndarray:
+        """(u, v) deck inches of image points that lie `lift_m` above the deck surface (e.g. a bag's centre).
+
+        Each pixel's viewing ray (camera pose from the board corners) is intersected with the plane parallel to the
+        deck at that height, then expressed as u across (0 = far side, 24 = camera side) and v up the deck from the
+        front edge. From a side camera the across direction runs nearly along the line of sight, so treating a bag's
+        centre as if it lay ON the deck shifts u by several inches; this removes that bias. Rows whose ray does not
+        meet the plane in front of the camera are NaN.
+        """
+        pts = np.asarray(points_px, float).reshape(-1, 2)
+        R = cv2.Rodrigues(np.asarray(self.rvec, float))[0]
+        t = np.asarray(self.tvec, float).ravel()
+        centre = -R.T @ t
+        b = self.board
+        alpha, half_width = b.angle, b.width_m / 2
+        origin = np.array([0.0, b.front_height_m, -half_width])           # front-far corner (u = 0, v = 0)
+        normal = np.array([-math.sin(alpha), math.cos(alpha), 0.0])
+        along = np.array([math.cos(alpha), math.sin(alpha), 0.0])
+        rays = (R.T @ np.linalg.inv(self.K) @ np.column_stack([pts, np.ones(len(pts))]).T).T
+        denom = rays @ normal
+        out = np.full((len(pts), 2), np.nan)
+        ok = np.abs(denom) > 1e-9
+        s = np.where(ok, (lift_m - (centre - origin) @ normal) / np.where(ok, denom, 1.0), np.nan)
+        ok &= s > 0
+        world = centre + s[:, None] * rays
+        out[ok, 0] = (world[ok, 2] + half_width) / INCH_M
+        out[ok, 1] = ((world[ok] - origin) @ along) / INCH_M
+        return out
+
     def as_dict(self) -> dict[str, Any]:
         return {"corners_px": self.corners_px.tolist(), "hfov_deg": self.hfov_deg, "phi_deg": self.phi_deg,
                 "phi_status": "measured" if self.phi_deg <= MAX_PHI_DEG else "estimated",
@@ -126,13 +160,51 @@ class BoardModel:
                 "front_height_in": self.board.front_height_m / INCH_M}
 
 
+def _physical_pose(object_points: np.ndarray, corners: np.ndarray, K: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Board pose from four coplanar corners, choosing the physically possible one of IPPE's two solutions.
+
+    A planar target seen at a grazing angle has two poses that reproject almost equally well: the real one and
+    its mirror, which puts the camera on the FAR side of the board, metres up, with the throw line tilted
+    ~40° out of the image. Taking the smaller reprojection error alone picked the mirror on some tripod clips
+    (tilting the throw plane, so distance and scale were wrong, and flipping left/right on the deck). The
+    corners are ordered so the near side (lower in the image) is +z, so the camera must be at z > 0 and above
+    the floor; among such poses the best-fitting one wins, and the best overall is used only if none is.
+    """
+    try:
+        count, rvecs, tvecs, errors = cv2.solvePnPGeneric(object_points, corners, K, None, flags=cv2.SOLVEPNP_IPPE)
+    except cv2.error:
+        count = 0
+    if not count:
+        ok, rvec, tvec = cv2.solvePnP(object_points, corners, K, None, flags=cv2.SOLVEPNP_IPPE)
+        if not ok:
+            raise ValueError("Board pose could not be solved from these corners.")
+        return rvec, tvec
+    candidates = []
+    for rvec, tvec, error in zip(rvecs, tvecs, np.asarray(errors, float).reshape(-1)):
+        R = cv2.Rodrigues(rvec)[0]
+        centre = -R.T @ np.asarray(tvec, float).ravel()
+        physical = centre[2] > 0 and centre[1] > 0.05
+        candidates.append((not physical, float(error), rvec, tvec))
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    return candidates[0][2], candidates[0][3]
+
+
+def camera_height_m(model: "BoardModel") -> float:
+    """Height of the camera above the floor implied by the board pose (metres)."""
+    R = cv2.Rodrigues(np.asarray(model.rvec, float))[0]
+    return float((-R.T @ np.asarray(model.tvec, float).ravel())[1])
+
+
+# A real side-view setup has the camera on a tripod or in a hand: 0.1-4 m above the floor. A "board" implying
+# a camera 7 m up is something else red and rectangular (a screen, a sign) seen high in the picture.
+CAMERA_HEIGHT_RANGE_M = (0.1, 4.0)
+
+
 def solve_board(corners_px: np.ndarray, image_size: tuple[int, int], board: Board = Board(),
                 hfov_deg: float = NOMINAL_HFOV_DEG) -> BoardModel:
     corners = np.asarray(corners_px, float).reshape(4, 2)
     K = camera_matrix(image_size[0], image_size[1], hfov_deg)
-    ok, rvec, tvec = cv2.solvePnP(_deck_object_points(board), corners, K, None, flags=cv2.SOLVEPNP_IPPE)
-    if not ok:
-        raise ValueError("Board pose could not be solved from these corners.")
+    rvec, tvec = _physical_pose(_deck_object_points(board), corners, K)
     R = cv2.Rodrigues(rvec)[0]
     phi = math.degrees(math.asin(min(1.0, abs(R[2, 0]))))
     plane_H = K @ np.column_stack([R[:, 0], R[:, 1], tvec.ravel()])
@@ -143,7 +215,8 @@ def solve_board(corners_px: np.ndarray, image_size: tuple[int, int], board: Boar
 
 def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_px, frames, fps: float,
                                board: Board = Board(), hfov_range: tuple[float, float] = HFOV_RANGE_DEG,
-                               grid_deg: float = 0.25, min_points: int = 6) -> dict[str, Any]:
+                               grid_deg: float = 0.25, min_points: int = 6,
+                               search_range: tuple[float, float] | None = None) -> dict[str, Any]:
     """Find the HFOV in `hfov_range` whose board-plane vertical acceleration matches gravity.
 
     A single still image cannot separate a wide lens seen from close up from a narrow lens seen
@@ -183,7 +256,8 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     fallback (too few flight points, too few solvable HFOVs, or a non-finite fit).
     """
     from .bag import GRAVITY_M_S2
-    lo, hi = hfov_range
+    lo, hi = hfov_range                     # reported scale band (uncertainty)
+    s_lo, s_hi = search_range or hfov_range  # where the root may be found
     pts = np.asarray(points_px, float).reshape(-1, 2) if len(points_px) else np.zeros((0, 2))
     fr = np.asarray(frames, float)
     release_px = (float(pts[0, 0]), float(pts[0, 1])) if len(pts) else None
@@ -252,14 +326,14 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
                 return candidate, value
         return None
 
-    steps = max(2, int(round((hi - lo) / grid_deg)))
-    grid = np.linspace(lo, hi, steps + 1)
+    steps = max(2, int(round((s_hi - s_lo) / grid_deg)))
+    grid = np.linspace(s_lo, s_hi, steps + 1)
     scanned = [(float(h), vertical_accel(float(h))) for h in grid]
     valid = [(h, a) for h, a in scanned if a is not None]
     if len(valid) < MIN_VALID_HFOV_SAMPLES:
         return package(NOMINAL_HFOV_DEG, "estimated",
                        f"The board's pose could only be solved at {len(valid)} of {len(scanned)} field-of-view "
-                       f"values tried in the {lo:.0f}-{hi:.0f}° band ({MIN_VALID_HFOV_SAMPLES} are needed to "
+                       f"values tried in the {s_lo:.0f}-{s_hi:.0f}° band ({MIN_VALID_HFOV_SAMPLES} are needed to "
                        f"calibrate from gravity). Using the nominal {NOMINAL_HFOV_DEG:.0f}°.", None, None, False)
     a_y_band_edges = [valid[0][1], valid[-1][1]]
     diffs = [a - target for _, a in valid]
@@ -275,7 +349,7 @@ def calibrate_hfov_from_flight(corners_px, image_size: tuple[int, int], points_p
     if bracket is None:
         hfov = valid[0][0] if abs(diffs[0]) <= abs(diffs[-1]) else valid[-1][0]
         reason = (f"The flight's vertical acceleration ({valid[0][1]:.2f} to {valid[-1][1]:.2f} m/s^2 across the "
-                 f"band) never matches gravity ({-target:.2f} m/s^2) in the {lo:.0f}-{hi:.0f}° HFOV band; "
+                 f"band) never matches gravity ({-target:.2f} m/s^2) in the {s_lo:.0f}-{s_hi:.0f}° HFOV band; "
                  f"using the {'lower' if hfov == valid[0][0] else 'upper'} edge. The scale is flagged.")
         horiz = horizontal_accel(hfov)
         if horiz is None or not (math.isfinite(hfov) and math.isfinite(horiz)):

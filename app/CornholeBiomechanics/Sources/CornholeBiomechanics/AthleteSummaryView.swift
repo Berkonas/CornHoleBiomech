@@ -282,6 +282,7 @@ struct AthleteSummaryContent: View {
                     tableCard
                     consistencyCard
                     releaseMapCard
+                    boardEndsCard
                     researchDetails
                 }
             }
@@ -529,6 +530,25 @@ struct AthleteSummaryContent: View {
                 sectionEmpty("ruler", "No throw has release speed, angle and height measured reliably in metres yet. Open a throw and check its scale and release in Fix Tracking.",
                              action: rows.first.map { row in ("Open \(row.label)", { open(row.id) }) })
             }
+        }
+    }
+
+    // MARK: Board map
+
+    @ViewBuilder private var boardEndsCard: some View {
+        let current = rows.filter { !$0.isStale }
+        let marks: [BoardEndMark] = current.compactMap { (row: SummaryThrowRow) -> BoardEndMark? in
+            guard var mark = row.boardEnd else { return nil }
+            mark.score = row.score
+            return mark
+        }
+        if !marks.isEmpty {
+            BoardEndsCard(marks: marks, centredCount: current.filter { $0.boardEnd != nil && !$0.boardEndHasLeftRight }.count,
+                          frontMeasured: current.filter(\.boardEndFromFront).count,
+                          select: actions.watch)
+        }
+        if current.contains(where: { $0.leftRight != nil || $0.heading != nil }) {
+            DirectionSummaryCard(rows: current)
         }
     }
 

@@ -13,7 +13,7 @@ recording session (same athlete, same source-clip folder) is then pooled into on
 (`pipeline.pool_session_camera_files`); pass 2 re-analyses every throw so `_board_scale` picks up
 the pooled, less noisy field of view.
 
-    PYTHONPATH=python .venv/bin/python scripts/reanalyze_library.py --library ~/Documents/"Cornhole Pilot Library"
+    PYTHONPATH=python .venv/bin/python scripts/reanalyze_library.py --library "data/libraries/Cornhole Pilot Library"
 """
 from __future__ import annotations
 

@@ -6,13 +6,13 @@ You work with athletes and their throws. The app saves your library automaticall
 
 ## Open the app
 
-Double-click **Cornhole Biomechanics Lab.app** in `dist`. Or run `./run_app.sh` from this folder. The item in `dist` links to the runnable build in `~/Library/Application Support/Cornhole Biomechanics Lab/Builds`; keeping it there avoids iCloud Desktop metadata breaking its signature.
+Double-click **Cornhole Biomechanics Lab.app** in `dist`. Or run `./run_app.sh` from this folder. The runnable build is stored directly in this checkout’s `dist/`; the Desktop icon points to it. Keep the checkout in `~/GitHub/CornHoleBiomech`, outside iCloud Desktop.
 
 On a fresh Mac, run `./setup.sh` once, then `./build_app.sh`. Setup needs internet access for the Python dependencies and pose models. Analysis runs locally; your recordings are not uploaded by the app. This development build needs macOS and the local runtime installed by setup; it is not a standalone signed/notarized installer.
 
 ## Try it on the pilot clips
 
-`~/Documents/Cornhole Pilot Library` holds Players 1–3 (26 clips from 17 September), already analyzed. Open it with **File → Choose Athlete Library**. Outcomes are not filled in: record Hole / Board / Miss for each throw with the buttons at the top of **Results**, and the scored-vs-missed analysis and the ACL stats appear. The source clips are in `data/videos`. To build a library from other folders, see `scripts/build_library.py`.
+`data/libraries/Cornhole Pilot Library` holds Players 1–3 (26 clips from 17 September), already analyzed. Open it with **File → Choose Athlete Library**. Outcomes are not filled in: record Hole / Board / Miss for each throw with the buttons at the top of **Results**, and the scored-vs-missed analysis and the ACL stats appear. The source clips are in `data/videos`. To build a library from other folders, see `scripts/build_library.py`.
 
 ## A session in five steps
 
@@ -25,6 +25,33 @@ On a fresh Mac, run `./setup.sh` once, then `./build_app.sh`. Setup needs intern
 How the automatic tracking works, and how it did on the pilot clips, is in [AUTOMATIC_TRACKING.md](AUTOMATIC_TRACKING.md). Record with the [session protocol](RECORDING_PROTOCOL.md) for the best results.
 
 Athlete profiles can be added, edited, or deleted from **Athletes**. Throw management is in **Throws → Manage**. Deletions need confirmation and use recoverable Trash staging. Removing an analysis keeps its video; deleting an athlete removes that profile and its managed data. Your external source recordings are not deleted.
+
+## Two-camera takes (side + front)
+
+The Fall 2026 collection films each **take** (the athlete claps, shows the take number, throws four bags)
+with two phones: the side camera and a front camera on a tripod behind the board. Name the files
+`Take_<n>_Side` and `Take_<n>_Front` (capitalisation does not matter) and keep one athlete's takes in one folder.
+
+1. Select the athlete, then choose **Throw → Import Two-Camera Takes…** (⇧⌘T) and pick the folder.
+2. The app pairs the files and checks which phone recorded each one (device, size, frame rate). A pair whose
+   labels are swapped is used in its true roles and marked **Labels swapped**; takes already in the library are
+   unticked. Choose the throwing side and the direction the board is in the side video.
+3. **Import** prepares the takes one at a time: the two cameras are synchronised from the clap and the bag
+   impacts, each throw is found and cut into a side clip and a front clip, and the front camera is calibrated
+   from the board. The original videos are not changed. The throws then analyse one at a time (≈ 2 minutes each).
+4. The throw list groups throws by take. Each report adds **Where it ended**: hole / board / off from the front
+   camera, the miss in inches (short/long, left/right), the aim, and the frontal-plane body measures. The replay
+   has **Side**, **Front**, **Both** (synchronised) and **Animation** views. **Animation** is a to-scale side
+   view: the stick figure throws, the bag flies its measured path (a dotted arc where the camera lost it), lands
+   at the measured first contact and slides to where it ended; the board, the floor and the release-to-board
+   distance are drawn in metres. **From above** (in *Where it ended*) draws the lane to scale with the board
+   2 ft × 4 ft along the throw: a strip with the release point, the aim line and the board, and an enlarged
+   board with the landing, the slide and the rest point (or an arrow off the board for a miss) and a 6 in scale.
+   A confident front-camera result is filled in automatically; check it against the video and change it if it
+   is wrong.
+
+How it works and how accurate it is: [METHODS_AND_MATH.md §5](METHODS_AND_MATH.md). For a batch of athletes from
+the command line, use `scripts/add_takes_to_library.py`, then `scripts/analyze_library.py` (one athlete at a time).
 
 ## What changed in this version (board phase and personal green zone)
 
@@ -88,7 +115,7 @@ For pros with tight releases, the app correctly says misses likely come from aim
 
 ## Where things live
 
-Your default athlete data lives in `~/Documents/Cornhole Biomechanics Lab Data`, separate from the development files. **File → Choose Athlete Library** opens an existing library. **File → Import Legacy .cornholeproject** copies an older study without changing its original. Schema-2/3 libraries open normally. Their indexes are backed up before new edits save as schema 4, which supports unknown outcomes without allowing older builds to misread them as misses. Historical zeros are preserved and should be audited against video.
+Your default athlete data lives in `data/libraries/Cornhole Biomechanics Lab Data`, inside the checkout alongside the development files. **File → Choose Athlete Library** opens an existing library. **File → Import Legacy .cornholeproject** copies an older study without changing its original. Schema-2/3 libraries open normally. Their indexes are backed up before new edits save as schema 4, which supports unknown outcomes without allowing older builds to misread them as misses. Historical zeros are preserved and should be audited against video.
 
 This folder contains:
 

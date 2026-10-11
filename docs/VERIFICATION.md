@@ -9,7 +9,7 @@ Updated 13 September 2026. This records checks actually performed. It supersedes
 - Python: **85 tests passed**.
 - Swift: **17 tests passed**, zero failures.
 - Library schemas: the repository no longer contains participant-library manifests; that scan correctly reports none. Separate scans passed for the prepared-video QA library (schema 3) and nine-throw synthetic library (schema 1), with no missing-file warnings. Automated fixtures exercise versions 1, 2, and 3, path escape rejection, and future-version rejection.
-- Release: Swift production compilation, ad-hoc signing, and strict signature verification pass. Build assembly/signing uses a temporary directory, then installs under `~/Library/Application Support/Cornhole Biomechanics Lab/Builds`. `dist/Cornhole Biomechanics Lab.app` is a link to that local build. Keeping the executable outside iCloud Desktop prevents Finder metadata from repeatedly invalidating its signature after installation.
+- Release: Swift production compilation, ad-hoc signing, and strict signature verification pass. Build assembly/signing uses a temporary directory, then installs directly in `dist/Cornhole Biomechanics Lab.app` inside the checkout. The Desktop icon links to that bundle. Keep the checkout outside iCloud Desktop. See [migration verification](MIGRATION_VERIFICATION.md) for the latest test counts and relocation checks.
 - `git diff --check`: no whitespace errors.
 
 SwiftPM reports that user-level caches are not writable under this sandbox. Those are cache warnings, not compilation/test failures. The app is a local development build, not a notarized independently distributable installer.

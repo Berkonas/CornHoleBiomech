@@ -7,7 +7,7 @@ swing), and summarized so Results open immediately. Outcomes (0/1/3) are left
 unknown: enter them in the app. Existing folders are never overwritten.
 
 Example:
-  python scripts/build_library.py --output ~/Documents/"Cornhole Pilot Library" \
+  python scripts/build_library.py --output "data/libraries/Cornhole Pilot Library" \
       --athlete "Player 1=data/videos/Player 1" \
       --athlete "Player 2=data/videos/Player 2"
 Optionally reuse existing analysis folders named after each clip with --reuse DIR.

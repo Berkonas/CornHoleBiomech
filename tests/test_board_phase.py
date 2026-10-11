@@ -85,6 +85,21 @@ def test_bag_sliding_off_the_back_is_a_miss(model):
     assert phase["suggested_outcome"]["score"] == 0
 
 
+def test_moving_bag_that_vanishes_at_a_side_edge_left_the_deck(model):
+    """QA D5 (Player 2 take 5 throw 4): last seen sliding at about 21.6 in across, then on the floor."""
+    along = [14 + 1.5 * i for i in range(10)] + [None] * 30
+    for u in (23.0, 0.0):
+        phase = summarize_board_phase(track(model, along, u=u), model, FPS, 100 + len(along))
+        assert phase["end"]["kind"] == "left_deck" and phase["end"].get("edge") == "side"
+        assert phase["suggested_outcome"]["score"] == 0
+
+
+def test_moving_bag_that_vanishes_mid_deck_is_still_lost(model):
+    along = [14 + 1.5 * i for i in range(10)] + [None] * 30
+    phase = summarize_board_phase(track(model, along, u=12.0), model, FPS, 100 + len(along))
+    assert phase["end"]["kind"] == "lost"
+
+
 def test_no_samples_on_the_board():
     phase = summarize_board_phase([{"frame": 5, "present": False}], solve_board(CORNERS, (1920, 1080)), FPS, 50)
     assert phase["status"] == "not_found"
@@ -106,3 +121,83 @@ def test_slide_friction_recovers_the_simulated_coefficient():
 def test_short_slide_gives_no_friction():
     kin = slide_kinematics(np.arange(4) / FPS, np.array([10, 10.5, 10.8, 11.0]), Board().angle)
     assert kin["mu_effective"] is None and kin["reason"]
+
+
+def _image_of_bag_centre(model, u_in, v_in, lift_in=0.6):
+    """Pixel of a point u, v on the deck, lifted lift_in above it (camera pose from the board corners)."""
+    b = model.board
+    origin = np.array([0.0, b.front_height_m, -b.width_m / 2])
+    along = np.array([math.cos(b.angle), math.sin(b.angle), 0.0])
+    normal = np.array([-math.sin(b.angle), math.cos(b.angle), 0.0])
+    world = origin + along * v_in * INCH_M + np.array([0, 0, u_in * INCH_M]) + normal * lift_in * INCH_M
+    px, _ = cv2.projectPoints(world.reshape(1, 3), model.rvec, model.tvec, model.K, None)
+    return px.reshape(2)
+
+
+@pytest.mark.parametrize("u_true", [4.0, 12.0, 20.0])
+def test_left_right_position_on_the_board_is_recovered(model, u_true):
+    """Bags land all over the board: the across-deck position is measured (bag centre above the deck), not centred."""
+    samples = []
+    for i in range(60):
+        x, y = _image_of_bag_centre(model, u_true, 30.0)
+        samples.append({"frame": 100 + i, "present": True, "x_release_frame": float(x), "y_release_frame": float(y),
+                        "area_px": 800.0})
+    right = summarize_board_phase(samples, model, FPS, 160, target_direction="left_to_right")
+    assert right["end"]["kind"] == "rest"
+    assert right["end"]["u_in"] == pytest.approx(u_true, abs=0.5)
+    assert right["end"]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
+    assert right["touchdown"]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
+    # Thrown the other way, the camera side is the thrower's left.
+    left = summarize_board_phase(samples, model, FPS, 160, target_direction="right_to_left")
+    assert left["end"]["right_of_centre_in"] == pytest.approx(12.0 - u_true, abs=0.5)
+    # The old deck-plane mapping put a lifted bag centre inches toward the far side.
+    assert right["path"][0]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
+
+
+def _sample(model, frame, u, v, lift_in=0.6, area=800.0):
+    x, y = _image_of_bag_centre(model, u, v, lift_in)
+    return {"frame": frame, "present": True, "x_release_frame": float(x), "y_release_frame": float(y), "area_px": area}
+
+
+def test_bag_seen_only_in_the_air_over_the_board_never_touched_down(model):
+    """QA N5 (Player 3 take 2 throw 1): the bag sailed over the back of the board; the old rule called the
+    first airborne sample over the board a touchdown."""
+    samples = [_sample(model, 100 + i, 12.0, 46.0 + 4.0 * i, lift_in=14.0 - 3.0 * i) for i in range(4)]
+    samples += [{"frame": 104 + i, "present": False} for i in range(30)]
+    phase = summarize_board_phase(samples, model, FPS, 134)
+    assert phase["status"] == "not_found"
+    assert phase["end"]["kind"] == "never_on_deck"
+    assert phase["suggested_outcome"] is None
+
+
+def test_touchdown_is_the_first_sample_that_can_lie_on_the_deck(model):
+    """A falling bag high over the board is not touchdown; a bag landing at the far front corner is
+    (QA N5, Player 2 take 3 throw 3: its throw-plane "height" read 9-12 cm, so the old rule gave up)."""
+    samples = [_sample(model, 100, 12.0, 4.0, lift_in=12.0), _sample(model, 101, 12.0, 4.5, lift_in=7.0)]
+    samples += [_sample(model, 102 + i, -2.5, 4.5 + 0.3 * i) for i in range(5)]
+    samples += [_sample(model, 107 + i, -2.5, 6.0) for i in range(40)]
+    phase = summarize_board_phase(samples, model, FPS, 147)
+    assert phase["status"] == "measured"
+    assert phase["touchdown"]["frame"] == 102
+    assert phase["touchdown"]["basis"] == "on_deck_surface"
+
+
+def test_a_sample_still_falling_fast_is_not_touchdown():
+    from cornhole_biomech.board_phase import _on_deck
+    on_deck = {"frame": 10, "u_in": 1.0, "v_in": 20.0, "lifted_u": True, "x_release_frame": 0.0, "y_release_frame": 600.0}
+    landed = {"frame": 11, "x_release_frame": 0.0, "y_release_frame": 609.0}      # +9 px: impact (pilot 0.31-0.33)
+    falling = {"frame": 11, "x_release_frame": 0.0, "y_release_frame": 615.0}     # +15 px: still in the air
+    assert _on_deck(on_deck, landed, 6.0, 28.0)
+    assert not _on_deck(on_deck, falling, 6.0, 28.0)
+    assert _on_deck(on_deck, None, 6.0, 28.0)
+    assert not _on_deck({**on_deck, "u_in": -9.5}, landed, 6.0, 28.0)             # beyond the far side edge
+    assert not _on_deck({**on_deck, "v_in": 52.0}, landed, 6.0, 28.0)             # past the back edge
+
+
+def test_bag_last_seen_at_the_front_edge_left_off_the_front_not_the_side(model):
+    """QA N6 (Player 4 take 5 throw 3): last seen 1.5 in up the deck and 2.7 in across, then off the front."""
+    along = [4.0, 3.2, 2.6, 2.2, 1.9, 1.6] + [None] * 30
+    phase = summarize_board_phase(track(model, along, u=2.7), model, FPS, 100 + len(along))
+    assert phase["end"]["kind"] == "left_deck"
+    assert phase["end"]["edge"] == "front"
+    assert "front edge" in phase["end"]["note"]

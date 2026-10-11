@@ -1,0 +1,538 @@
+{
+  "analysis_configuration": {
+    "bag_release": {
+      "minimum_divergence_arm_lengths": 0.08,
+      "persistence_seconds": 0.05
+    },
+    "bag_tracking": {
+      "automatic": true,
+      "confidence_threshold": 0.2,
+      "method": "auto",
+      "template_quality_threshold": 0.25,
+      "template_search_scale": 2.5
+    },
+    "confidence_threshold": 0.35,
+    "filter": {
+      "cutoff_hz": 6.0,
+      "enabled": true,
+      "order": 4,
+      "type": "butterworth_zero_phase"
+    },
+    "max_interpolation_gap_frames": 3,
+    "minimum_relationship_trials": 8,
+    "minimum_velocity_coverage": 0.8,
+    "normalization_samples": 101,
+    "projectile": {
+      "acceleration_maximum_fit_rmse_arm_lengths": 0.06,
+      "acceleration_minimum_fps": 60.0,
+      "acceleration_minimum_points": 6,
+      "minimum_velocity_points": 4,
+      "release_fit_window_seconds": 0.12
+    },
+    "schema_version": 1,
+    "sports2d": {
+      "export_filter": "butterworth",
+      "mode": "balanced",
+      "person_ordering_method": "largest_size",
+      "pose_model": "body_with_feet"
+    }
+  },
+  "analysis_id": "92e8b0c5efe8e82dd422370bdaa132e37dac75666a2e42444d86947be475fbdd",
+  "app_version": "cli",
+  "bag_tracking": {
+    "cache_key": "3f58a211aca6384943627452a74fcbc49984a6b4227b92ce58570ea177f897a9",
+    "coordinate_system": "raw_video_pixels_x_right_y_down",
+    "effective_method": "auto_motion_parabola_v15_backfill_to_hand",
+    "manual_correction_hash": "3c3475b2d96fa6c16574c692b6dd53841d859a591fdd4649f79d3f26768bd801",
+    "raw_track_sha256": "bd949a48013cbfa17b7348db5cd7ab4d11055c9f960a90a42f6d6d11b1f12624",
+    "requested_method": "automatic",
+    "status": "automatic_physics_verified"
+  },
+  "confidence_threshold": 0.35,
+  "created_at": "2026-09-28T00:25:32.148495+00:00",
+  "effective_filter_cutoff_hz": 6.0,
+  "engine_source_sha256": "be3d73c08247066ae9874c8ded7aad03e10683634af921e89e413ab5372025af",
+  "flight_review": {
+    "fixed_camera": true,
+    "source": "automatic_physics_camera_motion_removed"
+  },
+  "manual_correction_hash": "a854dac7ae51443484e3ce077d7144c9d50552c9f271d61c869d4a0df71780b8",
+  "method_version": "2026.09.27-working-1080p",
+  "outputs": [
+    "angle_trajectories.png",
+    "auto_flight.json",
+    "bag_cache.json",
+    "bag_corrections.json",
+    "bag_flight_filtered.json",
+    "bag_keypoints.csv",
+    "bag_raw.json",
+    "bag_track.json",
+    "camera.json",
+    "corrections.json",
+    "events.json",
+    "keypoints.csv",
+    "kinematics.csv",
+    "manifest.json",
+    "normalized.json",
+    "plate.jpg",
+    "pose_cache.json",
+    "pose_raw.json",
+    "replay.json",
+    "results.json",
+    "summary.md",
+    "wrist_trajectory.png"
+  ],
+  "pose_backend": "sports2d",
+  "pose_backend_metadata": {
+    "analyzed_at": "2026-09-27T23:31:20.412315+00:00",
+    "calibration": "uncalibrated_image_plane; metric scale, C3D and IK disabled",
+    "confidence_threshold": 0.35,
+    "configuration": {
+      "angles": {
+        "correct_segment_angles_with_floor_angle": false,
+        "display_angle_values_on": [
+          "body",
+          "list"
+        ],
+        "flip_left_right": false,
+        "fontSize": 0.3,
+        "joint_angles": [
+          "Right elbow",
+          "Left elbow",
+          "Right shoulder",
+          "Left shoulder"
+        ],
+        "segment_angles": [
+          "Right arm",
+          "Left arm",
+          "Right forearm",
+          "Left forearm",
+          "Trunk"
+        ]
+      },
+      "base": {
+        "calculate_angles": true,
+        "compare": false,
+        "first_person_height": 1.65,
+        "input_size": [
+          1280,
+          720
+        ],
+        "load_trc_px": "",
+        "nb_persons_to_detect": 1,
+        "person_ordering_method": "largest_size",
+        "result_dir": "/Users/berkonas21/Desktop/Classes Fall 2026/Biomech/Project 1 - Cornhole/.claude/worktrees/bystander-tracking/qa-artifacts/wr/p1-4/sports2d",
+        "save_angles": true,
+        "save_img": false,
+        "save_pose": true,
+        "save_vid": true,
+        "show_realtime_results": false,
+        "time_range": [],
+        "video_dir": "",
+        "video_input": [
+          "/Users/berkonas21/Desktop/Videos For Biomech/Player 1/playe1 - 4.mov"
+        ],
+        "visible_side": [
+          "none"
+        ],
+        "webcam_id": 0
+      },
+      "kinematics": {
+        "default_height": 1.7,
+        "do_augmentation": false,
+        "do_ik": false,
+        "feet_on_floor": false,
+        "filter_ik": false,
+        "ik_filter_type": "acc_minimizing",
+        "large_hip_knee_angles": 135.0,
+        "osim_setup_path": "../OpenSim_setup",
+        "parallel_workers_kinematics": "auto",
+        "participant_mass": [
+          55.0,
+          67.0
+        ],
+        "remove_individual_ik_setup": true,
+        "remove_individual_scaling_setup": true,
+        "right_left_symmetry": true,
+        "trimmed_extrema_percent": 50,
+        "use_simple_model": false
+      },
+      "logging": {
+        "use_custom_logging": false
+      },
+      "pose": {
+        "CUSTOM": {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "children": [
+                            {
+                              "id": 23,
+                              "name": "RSmallToe"
+                            }
+                          ],
+                          "id": 21,
+                          "name": "RBigToe"
+                        },
+                        {
+                          "id": 25,
+                          "name": "RHeel"
+                        }
+                      ],
+                      "id": 16,
+                      "name": "RAnkle"
+                    }
+                  ],
+                  "id": 14,
+                  "name": "RKnee"
+                }
+              ],
+              "id": 12,
+              "name": "RHip"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "children": [
+                            {
+                              "id": 22,
+                              "name": "LSmallToe"
+                            }
+                          ],
+                          "id": 20,
+                          "name": "LBigToe"
+                        },
+                        {
+                          "id": 24,
+                          "name": "LHeel"
+                        }
+                      ],
+                      "id": 15,
+                      "name": "LAnkle"
+                    }
+                  ],
+                  "id": 13,
+                  "name": "LKnee"
+                }
+              ],
+              "id": 11,
+              "name": "LHip"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "id": 0,
+                      "name": "Nose"
+                    }
+                  ],
+                  "id": 17,
+                  "name": "Head"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "id": 10,
+                          "name": "RWrist"
+                        }
+                      ],
+                      "id": 8,
+                      "name": "RElbow"
+                    }
+                  ],
+                  "id": 6,
+                  "name": "RShoulder"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [
+                        {
+                          "id": 9,
+                          "name": "LWrist"
+                        }
+                      ],
+                      "id": 7,
+                      "name": "LElbow"
+                    }
+                  ],
+                  "id": 5,
+                  "name": "LShoulder"
+                }
+              ],
+              "id": 18,
+              "name": "Neck"
+            }
+          ],
+          "id": 19,
+          "name": "Hip"
+        },
+        "average_likelihood_threshold": 0.0,
+        "backend": "onnxruntime",
+        "deepsort_params": "{'max_age':30, 'n_init':3, 'nms_max_overlap':0.8, 'max_cosine_distance':0.3, 'nn_budget':200, 'max_iou_distance':0.8, 'embedder_gpu': True, 'embedder':'torchreid'}",
+        "det_frequency": 1,
+        "device": "cpu",
+        "keypoint_likelihood_threshold": 0.0,
+        "keypoint_number_threshold": 0.0,
+        "match_by": "keypoints",
+        "max_distance": 250,
+        "max_unseen_time": 1.0,
+        "min_iou": 0.2,
+        "mode": "balanced",
+        "pose_model": "body_with_feet",
+        "predict_displacement": false,
+        "slowmo_factor": 1.0,
+        "tracking_mode": "sports2d"
+      },
+      "post-processing": {
+        "acc_minimizing": {
+          "accminimizing_cut_off_frequency": 6.0
+        },
+        "butterworth": {
+          "cut_off_frequency": 6.0,
+          "order": 4
+        },
+        "butterworth_on_speed": {
+          "butterspeed_cut_off_frequency": 6.0,
+          "butterspeed_order": 4
+        },
+        "fill_large_gaps_with": "nan",
+        "filter": true,
+        "filter_type": "butterworth",
+        "gaussian": {
+          "sigma_kernel": 1
+        },
+        "gcv_spline": {
+          "gcv_cut_off_frequency": "auto",
+          "gcv_smoothing_factor": 1.0
+        },
+        "interp_gap_smaller_than": 3,
+        "interpolate": true,
+        "kalman": {
+          "smooth": true,
+          "trust_ratio": 500.0
+        },
+        "loess": {
+          "nb_values_used": 5
+        },
+        "median": {
+          "kernel_size": 3
+        },
+        "min_chunk_size": 3,
+        "one_euro": {
+          "oneeuro_beta": 1.5,
+          "oneeuro_cut_off_frequency": 4.0,
+          "oneeuro_d_cut_off_frequency": 1.0
+        },
+        "reject_outliers": false,
+        "save_graphs": false,
+        "sections_to_keep": "all",
+        "show_graphs": false
+      },
+      "px_to_meters_conversion": {
+        "calib_file": "",
+        "distortions": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "floor_angle": 0.0,
+        "make_c3d": false,
+        "perspective_unit": "distance_m",
+        "perspective_value": 10.0,
+        "save_calib": false,
+        "to_meters": false,
+        "xy_origin": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "device": "cpu",
+    "diagnostic_export_warnings": [],
+    "export_notes": "TRC coordinates are uncalibrated pixels (zero Z), not meters. Original upstream headers are preserved as .trc.original. Use the cornhole annotated.mp4 for frame-complete overlays; the upstream diagnostic video can omit the last frame.",
+    "model_files": {
+      "det_model": {
+        "name": "yolox_m_8xb8-300e_humanart-c2c7a14a.onnx",
+        "sha256": "3dea6513388889f0fff4b77bf7a26013600321b9eb9ceb0e9a400a82572f5f23"
+      },
+      "pose_model": {
+        "name": "rtmpose-m_simcc-body7_pt-body7-halpe26_700e-256x192-4d3e73dd_20230605.onnx",
+        "sha256": "26f3a19e61304a600dfb82d1001d41d24343b89fc70a33ffc84657e0b0bf2ecf"
+      }
+    },
+    "outputs": [
+      "configuration.json",
+      "playe1 - 4_Sports2D/logs.txt",
+      "playe1 - 4_Sports2D/playe1 - 4_Sports2D_px_person00.trc",
+      "playe1 - 4_Sports2D/playe1 - 4_Sports2D_angles_person00.mot",
+      "playe1 - 4_Sports2D/playe1 - 4_Sports2D_px_person00.trc.original",
+      "playe1 - 4_Sports2D/playe1 - 4_Sports2D.mp4"
+    ],
+    "person_selection": {
+      "candidates": [
+        {
+          "body_diagonal_px": 716.6,
+          "coverage": 1.0,
+          "mean_confidence": 0.831,
+          "median_x_px": 363.7,
+          "person": 0,
+          "score": 716.5895280079778
+        },
+        {
+          "body_diagonal_px": 259.7,
+          "coverage": 0.908,
+          "mean_confidence": 0.472,
+          "median_x_px": 2316.4,
+          "person": 3,
+          "score": 235.79624019778464
+        },
+        {
+          "body_diagonal_px": 324.0,
+          "coverage": 0.651,
+          "mean_confidence": 0.588,
+          "median_x_px": 2036.1,
+          "person": 5,
+          "score": 210.8805460251403
+        },
+        {
+          "body_diagonal_px": 361.3,
+          "coverage": 0.508,
+          "mean_confidence": 0.847,
+          "median_x_px": 2931.3,
+          "person": 7,
+          "score": 183.53296402957366
+        },
+        {
+          "body_diagonal_px": 153.1,
+          "coverage": 0.505,
+          "mean_confidence": 0.669,
+          "median_x_px": 3019.3,
+          "person": 2,
+          "score": 77.2749496460523
+        },
+        {
+          "body_diagonal_px": 157.5,
+          "coverage": 0.206,
+          "mean_confidence": 0.345,
+          "median_x_px": 2069.8,
+          "person": 6,
+          "score": 32.50741181456578
+        },
+        {
+          "body_diagonal_px": 152.6,
+          "coverage": 0.035,
+          "mean_confidence": 0.621,
+          "median_x_px": 3029.1,
+          "person": 10,
+          "score": 5.3290860824341
+        },
+        {
+          "body_diagonal_px": 259.7,
+          "coverage": 0.019,
+          "mean_confidence": 0.59,
+          "median_x_px": 2662.4,
+          "person": 1,
+          "score": 4.947339632961503
+        },
+        {
+          "body_diagonal_px": 153.8,
+          "coverage": 0.022,
+          "mean_confidence": 0.284,
+          "median_x_px": 2319.0,
+          "person": 9,
+          "score": 3.418564893370773
+        },
+        {
+          "body_diagonal_px": 228.4,
+          "coverage": 0.013,
+          "mean_confidence": 0.458,
+          "median_x_px": 2662.3,
+          "person": 4,
+          "score": 2.9001236904023013
+        },
+        {
+          "body_diagonal_px": 146.1,
+          "coverage": 0.019,
+          "mean_confidence": 0.271,
+          "median_x_px": 2333.0,
+          "person": 8,
+          "score": 2.783115013384715
+        },
+        {
+          "body_diagonal_px": 257.3,
+          "coverage": 0.003,
+          "mean_confidence": 0.448,
+          "median_x_px": 2082.6,
+          "person": 11,
+          "score": 0.8169557144052103
+        }
+      ],
+      "method": "largest_steadily_tracked_body_v1",
+      "person": 0,
+      "runner_up_ratio": 0.329
+    },
+    "pose2sim_version": "0.10.49",
+    "raw_contract": "Sports2D tracked pre-interpolation pixels/confidence for the person chosen by person_selection; upstream detection still applies",
+    "rtmlib_version": "0.0.16",
+    "selected_person_index": 0,
+    "sports2d_commit": null,
+    "sports2d_selected_person_index": 0,
+    "sports2d_source_sha256": "7e8598f26093ac5fc7ef041aca39fe06d4e88f070a1c36ef1d8906471daaeacc",
+    "sports2d_version": "0.8.34",
+    "trc_unit_repairs": [
+      {
+        "coordinates_changed": false,
+        "corrected_sha256": "e299e35072784ec1ac6b0e0e865b95b6596b8083a54e1c7e25499d3a34ea6827",
+        "corrected_units": "px",
+        "file": "playe1 - 4_Sports2D_px_person00.trc",
+        "original": "playe1 - 4_Sports2D_px_person00.trc.original",
+        "original_header_units": "m",
+        "original_sha256": "0ca35ae176c59d40636f9966ba11d88c0053962c32d832c751cd13a7e72c0a3d"
+      }
+    ]
+  },
+  "pose_cache_key": "2b52c6d884c9b233c0a34e191cab1d0c78bf65ed62559fd379fca436171ff347",
+  "pose_model": "body_with_feet-balanced",
+  "pose_model_sha256": "26f3a19e61304a600dfb82d1001d41d24343b89fc70a33ffc84657e0b0bf2ecf",
+  "pose_model_version": "0.8.34",
+  "python_package": "cornhole-biomech",
+  "python_package_version": "0.6.1",
+  "reference_trial_ids": [],
+  "schema_version": 1,
+  "source_video": {
+    "duration_seconds": 5.253333333333333,
+    "fps": 59.96192893401015,
+    "frame_count": 315,
+    "height": 2160,
+    "path": "/Users/berkonas21/Documents/Cornhole Pilot Library/Athletes/Player-1-48584BF5/throws/6ED51001-playe1 - 4.mov",
+    "sha256": "1e2eeccfc1fed6d164f741de2bdf47e7712f462ca89c76d63687652ede8ffd2c",
+    "width": 3840
+  },
+  "spatial_calibration": null,
+  "trial_context": {
+    "athlete_id": "48584BF5-1781-4BEF-9111-36AE7BBC677B",
+    "camera_view": "side",
+    "source_attribution": null,
+    "source_url": null,
+    "source_video": "/Users/berkonas21/Documents/Cornhole Pilot Library/Athletes/Player-1-48584BF5/throws/6ED51001-playe1 - 4.mov",
+    "target_direction": "left_to_right",
+    "throwing_side": "right",
+    "trial_id": "6ED51001-0B49-4CF6-9CA0-8385ACFE5E9A"
+  },
+  "video_preparation": null
+}

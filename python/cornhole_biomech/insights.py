@@ -305,8 +305,9 @@ def generate_insights(project_path, trial_id, export_report=True):
                                       if len(measured)>=3 else
                                       'Not enough throws with a measured distance; the distance from Settings is used.'},
                      lateral={'measured':False,
-                              'note':'Left/right is not measured by the side camera; these throws were made straight at the board. '
-                                     'Record a board camera to measure left/right misses.'},
+                              'note':'The green zone covers distance along the throw line only; left/right aim is not modelled. '
+                                     'Where each bag ended left/right is estimated from the side camera (about ±3 in) and drawn on the board; '
+                                     'a board camera measures it precisely.'},
                      consistency=consistency,
                      cohort={'included':[n['trial_id'] for n in compatible],'excluded':exclusion_reasons,
                              'base_trial_id':trial_id})

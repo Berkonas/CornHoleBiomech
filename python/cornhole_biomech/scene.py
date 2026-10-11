@@ -9,6 +9,7 @@ as before and the reason is recorded -- this module never raises out of
 """
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import shutil
@@ -179,12 +180,16 @@ def tag_people(candidates: list[Candidate], masks: dict[int, np.ndarray]) -> lis
     if not masks:
         return list(candidates)
     keys = sorted(masks)
+    # Emptiness once per mask, not once per candidate x mask (a cluttered clip has thousands of candidates
+    # and 1080p masks: the per-pair scan took over 10 minutes on Player 4 take 5 throw 4).
+    empty = {k: _mask_is_empty(masks[k]) for k in keys}
     out = []
     for c in candidates:
         # Break nearest-frame ties toward a non-empty mask: an empty mask at an
         # equal distance is a dropout, not a "no person here" reading, and should
         # not out-vote a real detection the same number of frames away.
-        nearest = min(keys, key=lambda k: (abs(k - c.frame), _mask_is_empty(masks[k])))
+        i = bisect.bisect_left(keys, c.frame)
+        nearest = min(keys[max(0, i - 1):i + 1], key=lambda k: (abs(k - c.frame), empty[k]))
         m = masks[nearest]
         x, y = int(round(c.x)), int(round(c.y))
         inside = abs(nearest - c.frame) <= 2 and 0 <= y < m.shape[0] and 0 <= x < m.shape[1] and m[y, x] > 0

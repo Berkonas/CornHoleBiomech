@@ -63,7 +63,7 @@ private struct LibrarySettings: View {
             LabeledContent("") {
                 Button("Import Legacy .cornholeproject…") { store.importLegacyProject() }
             }
-            Text("Videos and results stay in this visible folder; only its location and preferences are kept in Application Support.")
+            Text("Videos and results stay in the selected library folder. Repository builds keep their preferences in the repository too.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(Space.xl)

@@ -1,0 +1,178 @@
+# Trial analysis: 619B413F-3C99-4233-B3C0-C6BA970B951D
+
+This report describes projected 2D measurements, not true 3D anatomical rotations.
+
+## Measurement quality
+
+- Usable frames: 100.0%
+- Average model confidence: 0.81829405997215
+- Manual corrections: 0
+- Missing landmark samples: 0.02689618074233069%
+
+## Kinematic summary
+
+- arm motion flexion rom deg: 24.303837188344886
+- arm motion flexion sd deg: 7.210640750686825
+- arm motion mean flexion deg: 6.470682298054774
+- arm motion radius cv ratio: 0.018431147181761733
+- arm to trunk deg at release: 118.00819746659336
+- arm to trunk deg mean: 113.32992878429586
+- arm to trunk deg rom: 130.8260672913648
+- arm to trunk velocity deg s mean: 11.123587884658933
+- arm to trunk velocity deg s peak abs: 457.1632078708249
+- bag flight apparent gravity m s2: 10.466627497095999
+- bag release acceleration magnitude arm lengths s2: 16.714224270472734
+- bag release acceleration magnitude m s2: 9.1213188572055
+- bag release acceleration magnitude px s2: 1859.0782846864947
+- bag release angle deg: 35.69168600145712
+- bag release angle se deg: 0.14448899372248827
+- bag release forward acceleration arm lengths s2: -5.104239878694177
+- bag release forward acceleration m s2: -2.7854956774441266
+- bag release forward acceleration px s2: -567.730895837907
+- bag release forward velocity arm lengths s: 11.51749554064439
+- bag release forward velocity m s: 6.2853499846983105
+- bag release forward velocity px s: 1281.0601022873511
+- bag release height arm lengths: 1.6707690621847895
+- bag release height m: 0.9117753301817244
+- bag release position forward arm lengths: 1.3673810678358485
+- bag release position vertical arm lengths: -0.6585860296803909
+- bag release speed arm lengths s: 14.181170384413493
+- bag release speed m s: 7.738975782029308
+- bag release speed px s: 1577.3335026787156
+- bag release speed se m s: 0.02158441857522675
+- bag release vertical acceleration arm lengths s2: -15.915779221401879
+- bag release vertical acceleration m s2: -8.685589877823654
+- bag release vertical acceleration px s2: -1770.2693858574087
+- bag release vertical velocity arm lengths s: 8.27362616650057
+- bag release vertical velocity m s: 4.5150993039676415
+- bag release vertical velocity px s: 920.2532222167044
+- bag time of flight seconds: 1.0343677010343677
+- bag trajectory apex rise m: 0.9920134813064745
+- bag trajectory model rmse arm lengths: 0.05594880262741365
+- board end along in: 23.26276058185239
+- board end from hole in: -15.73723941814761
+- board end in hole: 0.0
+- board hang s: unavailable
+- board phi deg: 2.6054846684787605
+- board slide deceleration m s2: 5.788819804684977
+- board slide entry speed m s: 2.081576221859948
+- board slide friction mu: 0.41006806080390623
+- board slide in: 16.564089629167228
+- board slide s: 0.4170837504170838
+- board touchdown along in: 6.682215528795291
+- board touchdown from hole in: -32.31778447120471
+- chain elbow angle at release deg: 155.4662073048029
+- chain elbow peak extension velocity deg s: 73.6783965463196
+- chain elbow peak time rel release ms: 83.41675008341676
+- chain energy match percent: -5.963212053757583
+- chain force direction at peak deg: 115.11583307687195
+- chain hand acceleration at release m s2: 56.29100617565976
+- chain hand direction rotation rate deg s: 413.4025026213262
+- chain hand speed at release m s: 7.536002920070971
+- chain hand tangential acceleration at release m s2: -14.565101289387954
+- chain hand velocity angle at release deg: 64.8152646877474
+- chain kinetic energy j: 13.37098173557861
+- chain mean net force on bag n: 20.84603526897171
+- chain measured along error in: -32.788197181850805
+- chain mechanical energy j: 16.81427879127149
+- chain momentum kg m s: 3.4554912981191634
+- chain peak net force on bag n: 37.60891791473546
+- chain peak power on bag w: 95.19884585408484
+- chain peak sequence: unavailable
+- chain potential energy j: 3.44329705569288
+- chain predicted along error in: -12.014340581505499
+- chain release angle deg: 35.69168600145712
+- chain release height m: 0.7863710190411797
+- chain release speed m s: 7.738975782029308
+- chain shoulder angle at release deg: 118.00819746659336
+- chain shoulder peak angular velocity deg s: 457.1632078708249
+- chain shoulder peak time rel release ms: -100.10010010010011
+- chain speed margin over minimum percent: -1.6183839195697214
+- chain timing sensitivity in per 10ms: unavailable
+- chain wrist peak speed time rel release ms: 0.0
+- elbow angle deg at release: 155.4662073048029
+- elbow angle deg max: 179.7700444931478
+- elbow angle deg mean: 154.89973574144383
+- elbow angle deg min: 125.87418454492824
+- elbow angle deg rom: 53.89585994821955
+- elbow angle velocity deg s mean: -4.094748706419882
+- elbow angle velocity deg s peak abs: 227.90618006181734
+- elbow extension change forward swing deg: -24.303837188344886
+- elbow extension deficit deg at release: 24.533792695197093
+- elbow extension deficit deg mean: 25.100264258556184
+- elbow peak extension time rel release ms: 83.41675008341676
+- elbow peak extension velocity deg s: 73.6783965463196
+- forearm orientation deg mean: -11.132149307811272
+- forearm orientation deg rom: 168.37603088168345
+- forearm orientation velocity deg s mean: -6.8955684191237046
+- forearm orientation velocity deg s peak abs: 619.6573847255257
+- hand to bag speed ratio: 1.3649791635062765
+- landing along error m: -0.8328202084190104
+- launch direction difference deg: -26.918090096446804
+- movement duration seconds: 3.0196863530196865
+- release timing cycle: 0.3149171270718232
+- release to board front m: 5.841091781616976
+- shoulder bag radius at release arm lengths: 1.516331241949103
+- shoulder peak speed arm lengths s: 1.3587906427752618
+- shoulder translation net arm lengths: 0.04162192086837987
+- shoulder translation path length arm lengths: 1.3227845859291008
+- shoulder translation straightness: 0.03146538091774433
+- shoulder wrist angular net change forward swing deg: 91.78294484047169
+- shoulder wrist angular sweep forward swing deg: 91.78294484047169
+- shoulder wrist peak angular velocity forward swing deg s: 515.024417735525
+- shoulder wrist radius at release arm lengths: 1.0302956790366433
+- shoulder wrist radius forward swing mean arm lengths: 1.020521016092169
+- shoulder wrist radius forward swing range arm lengths: 0.05875997233528274
+- shoulder wrist radius forward swing sd arm lengths: 0.0188093730496758
+- swing angular velocity at release deg s: 515.0244177355248
+- swing backswing angle deg: -31.484836147126728
+- swing backswing duration s: 0.6339673006339673
+- swing forward duration s: 0.33366700033366703
+- swing hand speed at release arm lengths s: 9.248720163464412
+- swing hand speed at release m s: 5.047229489498688
+- swing peak angular velocity deg s: 515.0244177355248
+- swing pendulum drive ratio: 2.4796607539182185
+- swing release arm angle deg: 60.646032082535626
+- swing tempo ratio: 1.9
+- swing total hand speed at release m s: 5.697810273854702
+- trunk inclination deg at release: 12.738810726076391
+- trunk inclination deg mean: 8.590680390409187
+- trunk inclination deg rom: 14.62987022579191
+- trunk inclination velocity deg s mean: -0.13327075911533715
+- trunk inclination velocity deg s peak abs: 72.9744186174532
+- upper arm orientation deg mean: -36.23241356636746
+- upper arm orientation deg rom: 149.98547727519303
+- upper arm orientation velocity deg s mean: -10.990317125543598
+- upper arm orientation velocity deg s peak abs: 454.2710766697926
+- wrist direction at release deg: 62.609776097903925
+- wrist forward swing path coverage: 1.0
+- wrist forward swing path curvature rad per arm length: 1.0437392699674266
+- wrist forward swing path length arm lengths: 1.6527997341535514
+- wrist forward swing path mean abs turn deg: 5.491138343338623
+- wrist forward swing path net displacement arm lengths: 1.4526395413545867
+- wrist forward swing path rms fitted line deviation arm lengths: 0.10813046802883362
+- wrist forward swing path sample count: 20
+- wrist forward swing path straightness ratio: 0.8788962820704513
+- wrist forward swing path total abs turn deg: 98.8404901800952
+- wrist global peak speed arm lengths s: 10.440867188036025
+- wrist path coverage: 1.0
+- wrist path curvature rad per arm length: 4.662676683449971
+- wrist path length arm lengths: 6.51500900008843
+- wrist path mean abs turn deg: 9.669420547717351
+- wrist path net displacement arm lengths: 0.5160221239169993
+- wrist path rms fitted line deviation arm lengths: 0.28042822242059157
+- wrist path sample count: 182
+- wrist path straightness ratio: 0.07920512832906221
+- wrist path total abs turn deg: 1740.4956985891233
+- wrist peak speed arm lengths s: 10.389294403575915
+- wrist peak speed m s: 5.669665873982935
+- wrist peak speed time rel release ms: 0.0
+- wrist relative peak speed arm lengths s: 9.248720163464412
+- wrist speed at release arm lengths s: 10.389294403575915
+- wrist speed at release m s: 5.669665873982935
+
+## Warnings
+
+- No automatic warnings.
+
+Reference similarity, when present, is not a performance-quality claim.

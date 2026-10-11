@@ -9,7 +9,7 @@ Analyse the clips first, so each has an `auto_flight.json`. Then:
 
 ```
 PYTHONPATH=python .venv/bin/python -m cornhole_biomech bag-annotation-frames \
-    --library "~/Documents/Cornhole Pilot Library" --output data/bag-validation
+    --library "data/libraries/Cornhole Pilot Library" --output data/bag-validation
 ```
 
 Frames come from seven phases of each automatic flight, two per phase:

@@ -6,7 +6,7 @@ Cornhole Biomechanics Lab is organized around athletes, throws, references, sess
 
 ## 1. Add an athlete
 
-On first launch, the app creates a visible athlete library in `~/Documents/Cornhole Biomechanics Lab Data`. Choose **Add Athlete**, enter a participant code or name and throwing hand, and optionally add height, arm span, and notes. These anthropometric fields are context; projected arm length is calculated from the video for Stage 1 normalization.
+On first launch, the app creates a visible athlete library in `data/libraries/Cornhole Biomechanics Lab Data`. Choose **Add Athlete**, enter a participant code or name and throwing hand, and optionally add height, arm span, and notes. These anthropometric fields are context; projected arm length is calculated from the video for Stage 1 normalization.
 
 The app restores this library at the next launch. To use another location or import an old `.cornholeproject`, use the File menu. Legacy import copies supported records and files into the active library and writes `migration-log.json`; it does not modify the old project. Command-N adds an athlete; creating a separate library is an occasional file-management action.
 

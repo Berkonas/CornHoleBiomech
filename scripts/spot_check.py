@@ -7,7 +7,7 @@ Markers: magenta = bag centre (release-frame path mapped onto that frame),
 cyan = throwing wrist. A reviewer notes per event: correct / off by n frames /
 marker off the bag. See docs/LIGHT_VALIDATION.md for the protocol and results.
 
-    PYTHONPATH=python .venv/bin/python scripts/spot_check.py --library ~/Documents/"Cornhole Pilot Library" \
+    PYTHONPATH=python .venv/bin/python scripts/spot_check.py --library "data/libraries/Cornhole Pilot Library" \
         --output spot-check --throws Throw-D4FF5A49 Throw-19A9640F
 """
 from __future__ import annotations

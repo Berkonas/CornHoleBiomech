@@ -19,7 +19,7 @@ The adapter's elbow conversion matches installed Pose2Sim `fixed_angles` on 120 
 
 ## UI and export review
 
-Before the second pass, project creation/opening, athlete creation, imports, reference and empty states were exercised. Current release Results now opens after replacing the crashing system SwiftUI AVKit wrapper with `AVPlayerView`. The native worker completes insight generation using the Application Support runtime and bundled engine.
+Before the second pass, project creation/opening, athlete creation, imports, reference and empty states were exercised. Current release Results now opens after replacing the crashing system SwiftUI AVKit wrapper with `AVPlayerView`. At that time, the native worker used the Application Support runtime and bundled engine. Repository builds now use the checkout’s `.venv` and `python/`; see [migration verification](MIGRATION_VERIFICATION.md).
 
 Nine clearly labeled synthetic throws exercise two references, repeated-trial consistency and paired movement/outcome summaries. Their generated values must never be presented as participant evidence.
 

@@ -28,17 +28,15 @@ if [[ -z "$PYTHON_BIN" ]]; then
   exit 2
 fi
 
-RUNTIME_DIR="$HOME/Library/Application Support/Cornhole Biomechanics Lab/Runtime"
-mkdir -p "${RUNTIME_DIR:h}"
-if [[ ! -d "$RUNTIME_DIR" && -d "$PROJECT_DIR/.venv" && ! -L "$PROJECT_DIR/.venv" ]]; then
-  mv "$PROJECT_DIR/.venv" "$RUNTIME_DIR"
+RUNTIME_DIR="$PROJECT_DIR/.venv"
+# Older releases linked to Application Support. Unlink only the pointer; never
+# remove the old environment or silently install into another checkout's runtime.
+if [[ -L "$RUNTIME_DIR" ]]; then
+  rm "$RUNTIME_DIR"
 fi
 "$PYTHON_BIN" -m venv "$RUNTIME_DIR"
-if [[ ! -e "$PROJECT_DIR/.venv" ]]; then
-  ln -s "$RUNTIME_DIR" "$PROJECT_DIR/.venv"
-fi
 "$RUNTIME_DIR/bin/python" -m pip install --upgrade pip
-"$RUNTIME_DIR/bin/python" -m pip install "${PROJECT_DIR}[test,pose,sports2d]"
+"$RUNTIME_DIR/bin/python" -m pip install -e "${PROJECT_DIR}[test,pose,sports2d]"
 
 MODEL_DIR="$PROJECT_DIR/app/Resources/models"
 MEDIAPIPE_MODEL="$MODEL_DIR/pose_landmarker_heavy.task"

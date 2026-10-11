@@ -1,0 +1,1595 @@
+diff --git a/app/CornholeBiomechanics/AppInfo.plist b/app/CornholeBiomechanics/AppInfo.plist
+index 071878c..4c4406e 100644
+--- a/app/CornholeBiomechanics/AppInfo.plist
++++ b/app/CornholeBiomechanics/AppInfo.plist
+@@ -19,9 +19,9 @@
+ 	<key>CFBundlePackageType</key>
+ 	<string>APPL</string>
+ 	<key>CFBundleShortVersionString</key>
+-	<string>0.6.1</string>
++	<string>0.6.2</string>
+ 	<key>CFBundleVersion</key>
+-	<string>5</string>
++	<string>6</string>
+ 	<key>LSApplicationCategoryType</key>
+ 	<string>public.app-category.education</string>
+ 	<key>LSMinimumSystemVersion</key>
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/AthleteSummaryView.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/AthleteSummaryView.swift
+index 9f4a5fe..867961f 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/AthleteSummaryView.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/AthleteSummaryView.swift
+@@ -282,6 +282,7 @@ struct AthleteSummaryContent: View {
+                     tableCard
+                     consistencyCard
+                     releaseMapCard
++                    boardEndsCard
+                     researchDetails
+                 }
+             }
+@@ -532,6 +533,21 @@ struct AthleteSummaryContent: View {
+         }
+     }
+ 
++    // MARK: Board map
++
++    @ViewBuilder private var boardEndsCard: some View {
++        let current = rows.filter { !$0.isStale }
++        let marks: [BoardEndMark] = current.compactMap { (row: SummaryThrowRow) -> BoardEndMark? in
++            guard var mark = row.boardEnd else { return nil }
++            mark.score = row.score
++            return mark
++        }
++        if !marks.isEmpty {
++            BoardEndsCard(marks: marks, centredCount: current.filter { $0.boardEnd != nil && !$0.boardEndHasLeftRight }.count,
++                          select: actions.watch)
++        }
++    }
++
+     // MARK: Research details
+ 
+     private var researchDetails: some View {
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/BoardOutcome.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/BoardOutcome.swift
+index 8eefbf6..fa3a62e 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/BoardOutcome.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/BoardOutcome.swift
+@@ -12,10 +12,13 @@ import SwiftUI
+ struct BoardPhase: Decodable, Equatable {
+     struct Touchdown: Decodable, Equatable {
+         var frame: Int; var u_in: Double; var v_in: Double; var from_hole_in: Double; var on_deck: Bool?; var basis: String?
++        /// Across the board from its centreline, inches; + = the thrower's right (approximate, side camera).
++        var right_of_centre_in: Double?
+     }
+     struct End: Decodable, Equatable {
+         /// "rest", "fell_in_hole", "left_deck", "lost", "moving_at_clip_end" or "never_on_deck".
+         var kind: String; var frame: Int?; var u_in: Double?; var v_in: Double?; var from_hole_in: Double?; var note: String?
++        var right_of_centre_in: Double?
+     }
+     struct Slide: Decodable, Equatable {
+         var distance_in: Double?; var duration_s: Double?; var entry_speed_m_s: Double?
+@@ -23,8 +26,8 @@ struct BoardPhase: Decodable, Equatable {
+     }
+     struct Hang: Decodable, Equatable { var seconds: Double }
+     struct Suggestion: Decodable, Equatable { var score: Int?; var basis: String; var confidence: String? }
+-    struct PathPoint: Decodable, Equatable { var frame: Int; var u_in: Double?; var v_in: Double? }
+-    struct Lateral: Decodable, Equatable { var state: String?; var note: String? }
++    struct PathPoint: Decodable, Equatable { var frame: Int; var u_in: Double?; var v_in: Double?; var right_of_centre_in: Double? }
++    struct Lateral: Decodable, Equatable { var state: String?; var note: String?; var precision_in: Double? }
+ 
+     var status: String
+     var touchdown: Touchdown?
+@@ -52,6 +55,18 @@ struct BoardPhase: Decodable, Equatable {
+         return "\(number(abs(fromHole), digits: 0)) in \(fromHole > 0 ? "past" : "short of") the hole"
+     }
+ 
++    /// Left/right was measured (analyses from before 0.6.2 put every bag on the centreline).
++    var measuresLeftRight: Bool { end?.right_of_centre_in != nil || touchdown?.right_of_centre_in != nil }
++
++    /// Left/right is only resolved to about this many inches from a side camera.
++    var lateralPrecision: Double { max(3, lateral?.precision_in ?? 3) }
++
++    /// "4 in to the thrower's right", or nil when within the side camera's precision of the centreline.
++    static func sideText(_ right: Double?, precision: Double = 3) -> String? {
++        guard let right, abs(right) > precision else { return nil }
++        return "\(number(abs(right), digits: 0)) in to the thrower's \(right > 0 ? "right" : "left")"
++    }
++
+     /// One plain sentence: landed → slid → ended.
+     var sentence: String {
+         guard let touchdown, let end else { return "Where the bag ended was not measured." }
+@@ -61,7 +76,9 @@ struct BoardPhase: Decodable, Equatable {
+         case "fell_in_hole":
+             parts.append(hang.map { "hung on the lip for \(number($0.seconds, digits: 1)) s and dropped in" } ?? "went into the hole")
+         case "rest":
+-            parts.append("stopped \(end.from_hole_in.map(Self.whereText) ?? "on the board")")
++            var stopped = "stopped \(end.from_hole_in.map(Self.whereText) ?? "on the board")"
++            if let side = Self.sideText(end.right_of_centre_in, precision: lateralPrecision) { stopped += " and \(side)" }
++            parts.append(stopped)
+         case "left_deck": parts.append("left the board")
+         case "moving_at_clip_end": parts.append("was still moving when the clip ended")
+         default: parts.append("was then lost from view")
+@@ -122,7 +139,7 @@ struct WhereItEndedCard: View {
+         Card("Where it ended", symbol: "flag.checkered",
+              subtitle: "Tracked on the board after landing: touchdown, slide, and where the bag stopped or dropped in.") {
+             Text(phase.sentence).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+-            BoardTopView(phase: phase).frame(height: 150)
++            BoardTopView(phase: phase).frame(height: 190)
+             HStack(spacing: Space.l) {
+                 if let touchdown = phase.touchdown {
+                     Button("Show landing", systemImage: "play.circle") { seek(touchdown.frame) }.buttonStyle(.link)
+@@ -196,55 +213,99 @@ struct WhereItEndedCard: View {
+     }
+ }
+ 
+-/// The deck from above, front edge at the left: hole, landing (●), slide (line) and end (■ rest, ◎ into the hole).
+-/// Left/right comes from a side camera and is only approximate, so points are drawn on the centreline.
++/// The deck drawn to scale from above, as the thrower sees it walking up: front edge at the left, back at the
++/// right, the thrower's left at the top and right at the bottom. Room is left around the deck so bags that
++/// stopped just off the board still show.
++struct DeckLayout {
++    /// Inches shown beyond each end and each side of the 48 × 24 in deck.
++    static let apron: CGFloat = 7
++    let deck: CGRect
++    let ppi: CGFloat
++
++    init(size: CGSize, labelRow: CGFloat = 16) {
++        let span = CGSize(width: 48 + 2 * Self.apron, height: 24 + 2 * Self.apron)
++        ppi = max(0.5, min(size.width / span.width, (size.height - 2 * labelRow) / span.height))
++        deck = CGRect(x: (size.width - 48 * ppi) / 2, y: (size.height - 24 * ppi) / 2, width: 48 * ppi, height: 24 * ppi)
++    }
++
++    /// Screen point of v inches up the deck and `right` inches to the thrower's right of the centreline.
++    func point(v: Double, right: Double?) -> CGPoint {
++        let a = Double(Self.apron)
++        let vv = min(max(v, -a), 48 + a), rr = min(max(right ?? 0, -12 - a), 12 + a)
++        return CGPoint(x: deck.minX + CGFloat(vv) * ppi, y: deck.midY + CGFloat(rr) * ppi)
++    }
++
++    var hole: CGPoint { point(v: 39, right: 0) }
++
++    /// The board, hole and edge labels.
++    func drawBoard(_ context: GraphicsContext, dark: Bool) {
++        context.fill(Path(roundedRect: deck, cornerRadius: 3), with: .color(Color.red.opacity(dark ? 0.30 : 0.16)))
++        context.stroke(Path(roundedRect: deck, cornerRadius: 3), with: .color(.primary.opacity(0.5)), lineWidth: 1.5)
++        var centre = Path(); centre.move(to: CGPoint(x: deck.minX, y: deck.midY)); centre.addLine(to: CGPoint(x: deck.maxX, y: deck.midY))
++        context.stroke(centre, with: .color(.primary.opacity(0.18)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
++        let r = 3 * ppi
++        context.fill(Path(ellipseIn: CGRect(x: hole.x - r, y: hole.y - r, width: 2 * r, height: 2 * r)), with: .color(.primary.opacity(0.85)))
++        let caption = { (text: String) in Text(text).font(.caption2).foregroundStyle(.secondary) }
++        context.draw(caption("Thrower's left"), at: CGPoint(x: deck.minX, y: deck.minY - 3), anchor: .bottomLeading)
++        context.draw(caption("Hole"), at: CGPoint(x: hole.x, y: deck.minY - 3), anchor: .bottom)
++        context.draw(caption("Front"), at: CGPoint(x: deck.minX, y: deck.maxY + 3), anchor: .topLeading)
++        context.draw(caption("Thrower's right"), at: CGPoint(x: deck.midX - 4 * ppi, y: deck.maxY + 3), anchor: .top)
++        context.draw(caption("Back"), at: CGPoint(x: deck.maxX, y: deck.maxY + 3), anchor: .topTrailing)
++    }
++
++    /// A 6 × 6 in bag at `centre`.
++    func bag(at centre: CGPoint) -> Path {
++        let side = 6 * ppi
++        return Path(roundedRect: CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side), cornerRadius: side * 0.18)
++    }
++}
++
++/// One throw on the board from above: landing (●), the tracked slide, and where it ended (the bag, drawn to size,
++/// or ◎ into the hole). Left/right comes from a side camera and is approximate: the faint bar shows its ± range.
+ struct BoardTopView: View {
+     let phase: BoardPhase
+     @Environment(\.colorScheme) private var colorScheme
+ 
+     var body: some View {
+         Canvas { context, size in
+-            let margin: CGFloat = 16
+-            let length = size.width - 2 * margin
+-            let width = min(size.height - 2 * margin - 14, length / 2)
+-            let origin = CGPoint(x: margin, y: (size.height - width) / 2 - 6)
+-            func point(_ v: Double) -> CGPoint {
+-                CGPoint(x: origin.x + CGFloat(min(max(v, -4), 52) / 48) * length, y: origin.y + width / 2)
+-            }
+-            let deck = CGRect(x: origin.x, y: origin.y, width: length, height: width)
+-            context.fill(Path(roundedRect: deck, cornerRadius: 3), with: .color(Color.red.opacity(colorScheme == .dark ? 0.30 : 0.18)))
+-            context.stroke(Path(roundedRect: deck, cornerRadius: 3), with: .color(.primary.opacity(0.5)), lineWidth: 1.5)
+-            let holeCentre = CGPoint(x: origin.x + CGFloat(39.0 / 48) * length, y: origin.y + width / 2)
+-            let r = CGFloat(3.0 / 48) * length
+-            context.fill(Path(ellipseIn: CGRect(x: holeCentre.x - r, y: holeCentre.y - r, width: 2 * r, height: 2 * r)),
+-                         with: .color(.primary.opacity(0.85)))
+-            context.draw(Text("Front").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: deck.minX, y: deck.maxY + 3), anchor: .topLeading)
+-            context.draw(Text("Back").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: deck.maxX, y: deck.maxY + 3), anchor: .topTrailing)
+-            context.draw(Text("Hole").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: holeCentre.x, y: deck.minY - 2), anchor: .bottom)
++            let layout = DeckLayout(size: size)
++            layout.drawBoard(context, dark: colorScheme == .dark)
+             guard let touchdown = phase.touchdown else { return }
+-            let start = point(touchdown.v_in)
+             let ink = Color.accentColor
++            let start = layout.point(v: touchdown.v_in, right: touchdown.right_of_centre_in)
++            var slide = Path(); slide.move(to: start)
++            for p in phase.path ?? [] {
++                guard let v = p.v_in, p.frame >= touchdown.frame, p.frame <= (phase.end?.frame ?? .max) else { continue }
++                slide.addLine(to: layout.point(v: v, right: p.right_of_centre_in ?? touchdown.right_of_centre_in))
++            }
+             if let end = phase.end, let v = end.v_in {
+-                let stop = point(v)
+-                var slide = Path(); slide.move(to: start); slide.addLine(to: stop)
+-                context.stroke(slide, with: .color(ink), style: StrokeStyle(lineWidth: 3, lineCap: .round))
++                let stop = layout.point(v: v, right: end.right_of_centre_in)
++                slide.addLine(to: stop)
++                context.stroke(slide, with: .color(ink.opacity(0.85)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
++                if phase.measuresLeftRight {
++                    // Side-camera left/right uncertainty.
++                    let half = CGFloat(phase.lateralPrecision) * layout.ppi
++                    var bar = Path(); bar.move(to: CGPoint(x: stop.x, y: stop.y - half)); bar.addLine(to: CGPoint(x: stop.x, y: stop.y + half))
++                    context.stroke(bar, with: .color(ink.opacity(0.35)), style: StrokeStyle(lineWidth: 6, lineCap: .round))
++                }
+                 switch end.kind {
+                 case "fell_in_hole":
+                     for radius in [7.0, 3.0] as [CGFloat] {
+                         context.stroke(Path(ellipseIn: CGRect(x: stop.x - radius, y: stop.y - radius, width: 2 * radius, height: 2 * radius)),
+                                        with: .color(.green), lineWidth: 2.5)
+                     }
+-                case "rest":
+-                    let side: CGFloat = 12
+-                    let square = Path(roundedRect: CGRect(x: stop.x - side / 2, y: stop.y - side / 2, width: side, height: side), cornerRadius: 2)
+-                    context.fill(square, with: .color(ink)); context.stroke(square, with: .color(.white.opacity(0.9)), lineWidth: 1.5)
++                case "rest", "left_deck", "lost", "moving_at_clip_end":
++                    let bag = layout.bag(at: stop)
++                    context.fill(bag, with: .color(ink.opacity(end.kind == "rest" ? 0.9 : 0.35)))
++                    context.stroke(bag, with: .color(.white.opacity(0.9)), lineWidth: 1.5)
++                    if end.kind != "rest" { context.draw(Text("?").font(.headline).foregroundStyle(.white), at: stop) }
+                 default:
+                     context.draw(Text("?").font(.headline).foregroundStyle(ink), at: stop)
+                 }
+             }
+-            let dot = Path(ellipseIn: CGRect(x: start.x - 6, y: start.y - 6, width: 12, height: 12))
++            let dot = Path(ellipseIn: CGRect(x: start.x - 5, y: start.y - 5, width: 10, height: 10))
+             context.fill(dot, with: .color(.white)); context.stroke(dot, with: .color(ink), lineWidth: 2.5)
+-            context.draw(Text("Landed").font(.caption2.weight(.semibold)), at: CGPoint(x: start.x, y: start.y + 9), anchor: .top)
++            context.draw(Text("Landed").font(.caption2.weight(.semibold)), at: CGPoint(x: start.x, y: start.y - 8), anchor: .bottom)
+         }
+         .accessibilityElement()
+         .accessibilityLabel("Board seen from above")
+@@ -252,6 +313,125 @@ struct BoardTopView: View {
+     }
+ }
+ 
++/// Where one throw ended, for the athlete's board map.
++struct BoardEndMark: Identifiable, Equatable, Sendable {
++    var id: UUID
++    var number: Int
++    var label: String
++    /// Inches up the deck from the front edge (hole centre 39) and to the thrower's right of the centreline.
++    var v: Double
++    var right: Double?
++    /// "rest", "fell_in_hole", "left_deck", …
++    var kind: String
++    var score: ScoreCategory?
++}
++
++/// Every throw's end on one board: bags drawn to size and coloured by the recorded result, numbered like the
++/// throw table. Click a bag to watch that throw.
++struct BoardEndsMap: View {
++    let marks: [BoardEndMark]
++    var select: ((UUID) -> Void)? = nil
++    @Environment(\.colorScheme) private var colorScheme
++
++    static func color(_ score: ScoreCategory?) -> Color {
++        switch score {
++        case .throughHole: Color(red: 0.1, green: 0.62, blue: 0.25)
++        case .onBoard: scoredInk
++        case .offBoard: missInk
++        case nil: Color.gray
++        }
++    }
++
++    var body: some View {
++        GeometryReader { geometry in
++            let layout = DeckLayout(size: geometry.size)
++            ZStack(alignment: .topLeading) {
++                Canvas { context, _ in
++                    layout.drawBoard(context, dark: colorScheme == .dark)
++                    for mark in marks {
++                        let p = layout.point(v: mark.v, right: mark.right)
++                        let color = Self.color(mark.score)
++                        if mark.kind == "fell_in_hole" {
++                            let r = 2.4 * layout.ppi
++                            context.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(color), lineWidth: 2.5)
++                        } else {
++                            let bag = layout.bag(at: p)
++                            context.fill(bag, with: .color(color.opacity(0.72)))
++                            context.stroke(bag, with: .color(.white.opacity(0.9)), lineWidth: 1)
++                        }
++                        context.draw(Text("\(mark.number)").font(.system(size: max(8, min(11, 3 * layout.ppi)), weight: .bold))
++                                        .foregroundStyle(mark.kind == "fell_in_hole" ? color : .white), at: p)
++                    }
++                }
++                if let select {
++                    ForEach(marks) { mark in
++                        let p = layout.point(v: mark.v, right: mark.right)
++                        Button { select(mark.id) } label: { Color.clear.frame(width: max(14, 6 * layout.ppi), height: max(14, 6 * layout.ppi)).contentShape(Rectangle()) }
++                            .buttonStyle(.plain)
++                            .position(p)
++                            .help("\(mark.label): click to watch")
++                            .accessibilityLabel("Watch \(mark.label)")
++                    }
++                }
++            }
++        }
++        .accessibilityElement(children: .contain)
++        .accessibilityLabel("Where each bag ended on the board")
++    }
++}
++
++/// The athlete's board map card, with the spread of where bags ended.
++struct BoardEndsCard: View {
++    let marks: [BoardEndMark]
++    /// Throws analyzed with a version that did not measure left/right (drawn on the centreline).
++    var centredCount = 0
++    var select: ((UUID) -> Void)? = nil
++
++    var body: some View {
++        Card("Where the bags ended", symbol: "square.grid.3x3.topleft.filled",
++             subtitle: "Each analyzed throw on the board, seen from above, coloured by its recorded result.") {
++            BoardEndsMap(marks: marks, select: select).frame(height: 240)
++            HStack(spacing: Space.l) {
++                legend(.throughHole, "Hole"); legend(.onBoard, "Board"); legend(.offBoard, "Miss"); legend(nil, "No result yet")
++            }
++            .font(.caption)
++            if let spread { Text(spread).font(.callout).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
++            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
++        }
++    }
++
++    private func legend(_ score: ScoreCategory?, _ text: String) -> some View {
++        HStack(spacing: 5) {
++            RoundedRectangle(cornerRadius: 2).fill(BoardEndsMap.color(score).opacity(0.8)).frame(width: 10, height: 10)
++            Text(text).foregroundStyle(.secondary)
++        }
++    }
++
++    /// "Stopped on average 6 in short and 2 in right of the hole; spread ± 9 in along, ± 5 in across (SD)."
++    private var spread: String? {
++        let stopped = marks.filter { $0.kind == "rest" }
++        guard stopped.count >= 2, let along = MedianSD.of(stopped.map { $0.v - 39 }) else { return nil }
++        var text = "Bags that stopped on the board: typically \(BoardPhase.whereText(along.median))"
++        let rights = stopped.compactMap(\.right)
++        if rights.count >= 2, let across = MedianSD.of(rights) {
++            if let side = BoardPhase.sideText(across.median) { text += ", \(side)" }
++            text += "; spread ± \(number(along.sd, digits: 0)) in along the board and ± \(number(across.sd, digits: 0)) in left/right (SD)."
++        } else {
++            text += "; spread ± \(number(along.sd, digits: 0)) in along the board (SD)."
++        }
++        return text
++    }
++
++    private var caption: String {
++        var parts = ["Bags are drawn to size (6 in). Along the board is measured to about ± 3 in; left/right from the side camera is approximate (about ± 3 in)."]
++        if centredCount > 0 {
++            parts.append("\(centredCount) \(centredCount == 1 ? "throw was" : "throws were") analyzed before left/right was measured and \(centredCount == 1 ? "is" : "are") drawn on the centreline: re-analyze to place \(centredCount == 1 ? "it" : "them").")
++        }
++        if select != nil { parts.append("Click a bag to watch that throw.") }
++        return parts.joined(separator: " ")
++    }
++}
++
+ // MARK: - Personal green zone
+ 
+ /// The athlete's own green zone on the release map: their height, measured distance and slide, with the
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/DesignSystem.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/DesignSystem.swift
+index 44d0a4f..f63bb5a 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/DesignSystem.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/DesignSystem.swift
+@@ -85,9 +85,17 @@ struct RangeBarModel {
+     let values: [Double]
+     let current: Double?
+     let target: ClosedRange<Double>?
++    /// A scale shared by every throw of the athlete (`MetricScale`), so the bar does not rescale throw to throw.
++    var fixedDomain: ClosedRange<Double>? = nil
+ 
+-    /// Everything that must be visible (values, current, target), padded 10 % of the span each side.
++    init(values: [Double], current: Double?, target: ClosedRange<Double>?, fixedDomain: ClosedRange<Double>? = nil) {
++        self.values = values; self.current = current; self.target = target; self.fixedDomain = fixedDomain
++    }
++
++    /// The fixed athlete-wide scale when given; otherwise everything that must be visible (values, current,
++    /// target), padded 10 % of the span each side.
+     var domain: ClosedRange<Double> {
++        if let fixedDomain, fixedDomain.upperBound > fixedDomain.lowerBound { return fixedDomain }
+         var points = values.filter(\.isFinite)
+         if let current, current.isFinite { points.append(current) }
+         if let target { points += [target.lowerBound, target.upperBound] }
+@@ -116,30 +124,69 @@ struct RangeBarModel {
+ 
+ struct RangeBar: View {
+     let model: RangeBarModel
+-    init(model: RangeBarModel) { self.model = model }
++    /// Digits for the scale's end labels; nil hides them.
++    var scaleDigits: Int? = nil
++    var unit: String = ""
++    init(model: RangeBarModel, scaleDigits: Int? = nil, unit: String = "") {
++        self.model = model; self.scaleDigits = scaleDigits; self.unit = unit
++    }
+ 
+     var body: some View {
++        VStack(spacing: 2) {
++            bar
++            if let scaleDigits {
++                HStack {
++                    Text(label(model.domain.lowerBound, scaleDigits))
++                    Spacer()
++                    Text(label(model.domain.upperBound, scaleDigits))
++                }
++                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
++                .accessibilityHidden(true)
++            }
++        }
++    }
++
++    private func label(_ value: Double, _ digits: Int) -> String {
++        // Short units only ("m/s", "m", "°"); long ones are already beside the value above.
++        number(value, digits: digits) + (unit == "°" ? "°" : unit.isEmpty || unit.count > 4 ? "" : " \(unit)")
++    }
++
++    private var bar: some View {
+         Canvas { context, size in
+             let domain = model.domain
+             let span = domain.upperBound - domain.lowerBound
+-            func x(_ value: Double) -> CGFloat { CGFloat((value - domain.lowerBound) / span) * size.width }
++            // Values beyond a fixed scale are pinned to its ends (drawn hollow), never off the bar.
++            func x(_ value: Double) -> CGFloat { min(max(CGFloat((value - domain.lowerBound) / span), 0), 1) * size.width }
++            func outside(_ value: Double) -> Bool { !domain.contains(value) }
+             let mid = size.height / 2
+             context.fill(Path(roundedRect: CGRect(x: 0, y: mid - 1.5, width: size.width, height: 3), cornerRadius: 1.5),
+                          with: .color(.secondary.opacity(0.18)))
+             if let target = model.target {
+-                let rect = CGRect(x: x(target.lowerBound), y: 2, width: max(x(target.upperBound) - x(target.lowerBound), 2), height: size.height - 4)
+-                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.18)))
+-                context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.55)), lineWidth: 1)
++                if target.upperBound < domain.lowerBound || target.lowerBound > domain.upperBound {
++                    // The hole window is off this scale: a green arrowhead at the end it lies beyond.
++                    let right = target.lowerBound > domain.upperBound
++                    let tip = right ? size.width : 0, back = right ? size.width - 7 : 7
++                    var arrow = Path()
++                    arrow.move(to: CGPoint(x: tip, y: mid)); arrow.addLine(to: CGPoint(x: back, y: mid - 6)); arrow.addLine(to: CGPoint(x: back, y: mid + 6))
++                    arrow.closeSubpath()
++                    context.fill(arrow, with: .color(.green.opacity(0.75)))
++                } else {
++                    let rect = CGRect(x: x(target.lowerBound), y: 2, width: max(x(target.upperBound) - x(target.lowerBound), 2), height: size.height - 4)
++                    context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.18)))
++                    context.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.green.opacity(0.55)), lineWidth: 1)
++                }
+             }
+             if let (q1, q3) = model.quartiles {
+                 let rect = CGRect(x: x(q1), y: mid - 4, width: max(x(q3) - x(q1), 3), height: 8)
+                 context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(athleteInk.opacity(0.35)))
+             }
+             for value in model.values where value.isFinite {
+-                context.fill(Path(ellipseIn: CGRect(x: x(value) - 2, y: mid - 2, width: 4, height: 4)), with: .color(.secondary.opacity(0.7)))
++                let dot = Path(ellipseIn: CGRect(x: x(value) - 2, y: mid - 2, width: 4, height: 4))
++                if outside(value) { context.stroke(dot, with: .color(.secondary.opacity(0.7)), lineWidth: 1) }
++                else { context.fill(dot, with: .color(.secondary.opacity(0.7))) }
+             }
+             if let current = model.current, current.isFinite {
+-                let marker = CGRect(x: x(current) - 2, y: 1, width: 4, height: size.height - 2)
++                let marker = CGRect(x: min(max(x(current) - 2, 0), size.width - 4), y: 1, width: 4, height: size.height - 2)
+                 context.fill(Path(roundedRect: marker, cornerRadius: 2), with: .color(.primary))
+             }
+         }
+@@ -158,6 +205,38 @@ struct RangeBar: View {
+     }
+ }
+ 
++// MARK: - Shared metric scales
++
++/// One scale per headline metric for all of an athlete's throws, so the Release and Body bars read the same
++/// from throw to throw: the athlete's full range (every throw, this one included), never narrower than a
++/// meaningful minimum span, rounded outward to a round step. The hole-window band does not stretch it.
++enum MetricScale {
++    /// Minimum span and rounding step, in the metric's unit.
++    static let spec: [String: (span: Double, step: Double)] = [
++        "bag_release_speed_m_s": (2.0, 0.5), "bag_release_angle_deg": (20, 5), "bag_release_height_m": (0.4, 0.1),
++        "elbow_angle_deg_at_release": (40, 10), "trunk_inclination_deg_at_release": (20, 5),
++        "wrist_peak_speed_arm_lengths_s": (4, 1), "swing_backswing_angle_deg": (40, 10), "swing_tempo_ratio": (1.0, 0.25),
++    ]
++
++    static func domain(key: String, values: [Double]) -> ClosedRange<Double>? {
++        let finite = values.filter(\.isFinite)
++        guard var lo = finite.min(), var hi = finite.max() else { return nil }
++        let rule: (span: Double, step: Double) = spec[key] ?? (span: max(1e-3, 0.2 * max(abs(lo), abs(hi))), step: 0.0)
++        let span = rule.span, step = rule.step
++        if hi - lo < span { let mid = (lo + hi) / 2; lo = mid - span / 2; hi = mid + span / 2 }
++        let pad = 0.08 * (hi - lo)
++        lo -= pad; hi += pad
++        if step > 0 { lo = (lo / step).rounded(.down) * step; hi = (hi / step).rounded(.up) * step }
++        return lo...hi
++    }
++
++    /// Digits for the scale labels (whole steps show no decimals).
++    static func digits(key: String) -> Int {
++        guard let step = spec[key]?.step, step > 0 else { return 1 }
++        return step >= 1 ? 0 : step >= 0.1 && (step * 10).rounded() == step * 10 ? 1 : 2
++    }
++}
++
+ // MARK: - Metric tile
+ 
+ /// Plus-or-minus next to a tile value: a standard error from the fit, or the metric's noise floor.
+@@ -175,11 +254,14 @@ struct MetricTile: View {
+     var target: ClosedRange<Double>? = nil
+     var uncertainty: MetricUncertainty? = nil
+     var seek: ((Int) -> Void)? = nil
++    /// The athlete-wide scale for this metric (same on every throw); nil fits the bar to the values shown.
++    var scale: ClosedRange<Double>? = nil
+     @State private var showsInfo = false
+ 
+     init(row: CoachMetricRow, history: [Double], target: ClosedRange<Double>? = nil,
+-         uncertainty: MetricUncertainty? = nil, seek: ((Int) -> Void)? = nil) {
++         uncertainty: MetricUncertainty? = nil, seek: ((Int) -> Void)? = nil, scale: ClosedRange<Double>? = nil) {
+         self.row = row; self.history = history; self.target = target; self.uncertainty = uncertainty; self.seek = seek
++        self.scale = scale
+     }
+ 
+     var body: some View {
+@@ -204,8 +286,9 @@ struct MetricTile: View {
+                         .help("± \(uncertainty.kind.rawValue)")
+                 }
+             }
+-            if !history.isEmpty || target != nil {
+-                RangeBar(model: RangeBarModel(values: history, current: value, target: target))
++            if !history.isEmpty || target != nil || scale != nil {
++                RangeBar(model: RangeBarModel(values: history, current: value, target: target, fixedDomain: scale),
++                         scaleDigits: scale == nil ? nil : MetricScale.digits(key: row.key ?? ""), unit: row.unit)
+             }
+             if isFlagged {
+                 Text(row.reasons.first ?? row.statusText).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/Models.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/Models.swift
+index f241a2d..4f95e81 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/Models.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/Models.swift
+@@ -1,7 +1,7 @@
+ import Foundation
+ 
+ let applicationName = "Cornhole Biomechanics Lab"
+-let applicationVersion = "0.6.1"
++let applicationVersion = "0.6.2"
+ let currentProjectSchemaVersion = 4
+ 
+ /// What the detail column shows: an athlete's summary, one throw's report, or the Launch Lab tool.
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ReplayModels.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ReplayModels.swift
+index a359548..619fa41 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ReplayModels.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ReplayModels.swift
+@@ -36,6 +36,11 @@ struct ReplayDocument: Decodable {
+         return try? JSONDecoder().decode(ReplayDocument.self, from: data)
+     }
+ 
++    enum CodingKeys: String, CodingKey {
++        case fps, frame_count, width, height, coordinates, release_to_frame, measured, filtered, model, after_contact
++        case model_note, model_rmse_px, events, grades
++    }
++
+     /// Release-frame pixels → pixels of `frame` (identity for a fixed camera).
+     func toFrame(_ x: Double, _ y: Double, frame: Int) -> CGPoint {
+         guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m[0].count == 3 else {
+@@ -56,6 +61,28 @@ struct ReplayDocument: Decodable {
+     }
+ }
+ 
++extension ReplayDocument {
++    /// Tolerant of two things older analyses wrote: `after_contact` as the slide summary (a dictionary, not points)
++    /// and a null grade. Either used to make the whole replay (and so the video) disappear from the report.
++    init(from decoder: Decoder) throws {
++        let c = try decoder.container(keyedBy: CodingKeys.self)
++        fps = try c.decode(Double.self, forKey: .fps)
++        frame_count = try c.decode(Int.self, forKey: .frame_count)
++        width = try c.decode(Int.self, forKey: .width)
++        height = try c.decode(Int.self, forKey: .height)
++        coordinates = (try? c.decode(String.self, forKey: .coordinates)) ?? "raw_video_pixels"
++        release_to_frame = try? c.decodeIfPresent([String: [[Double]]].self, forKey: .release_to_frame)
++        measured = (try? c.decode([Point].self, forKey: .measured)) ?? []
++        filtered = (try? c.decode([Point].self, forKey: .filtered)) ?? []
++        model = (try? c.decode([Point].self, forKey: .model)) ?? []
++        after_contact = (try? c.decode([Point].self, forKey: .after_contact)) ?? []
++        model_note = try? c.decodeIfPresent(String.self, forKey: .model_note)
++        model_rmse_px = try? c.decodeIfPresent(Double.self, forKey: .model_rmse_px)
++        events = try c.decode([String: Event].self, forKey: .events)
++        grades = ((try? c.decode([String: String?].self, forKey: .grades)) ?? [:]).compactMapValues { $0 }
++    }
++}
++
+ /// Per-throw coach metric with reliability (results.json → coach_metrics).
+ struct CoachMetricRow: Decodable, Identifiable {
+     var id: String { key ?? label }
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowCharts.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowCharts.swift
+index 3ba46d6..41d9c2a 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowCharts.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowCharts.swift
+@@ -20,10 +20,11 @@ struct EventTimeline {
+     func ms(_ frame: Int) -> Double { 1000 * Double(frame - (release ?? 0)) / fps }
+     func frame(ms: Double) -> Int { (release ?? 0) + Int((ms / 1000 * fps).rounded()) }
+ 
+-    /// Backswing top (or 0.8 s before release) − 150 ms … release + 250 ms.
++    /// The same time axis for every throw: 1 s before release … 250 ms after, reaching further back only when
++    /// the backswing top came earlier than 850 ms before release (so throws compare at a glance).
+     var window: ClosedRange<Double> {
+-        let start = frames["peak_backswing"].map { ms($0) - 150 } ?? -800
+-        return min(start, -300)...250
++        let start = frames["peak_backswing"].map { ms($0) - 150 } ?? -1000
++        return min(start, -1000)...250
+     }
+ 
+     /// Markers drawn on the body charts.
+@@ -135,12 +136,13 @@ struct JointAngleChart: View {
+ 
+     static let elbowInk = athleteInk
+ 
+-    /// Padded min–max of the plotted angles (at least 20° tall), so negative trunk lean is never clipped.
++    /// One angle scale for every throw: −20…190° (elbow straight = 180°, trunk upright = 0°), widened in 10°
++    /// steps only when a throw goes beyond it, so curves from different throws compare directly.
+     static func domain(_ values: [Double]) -> ClosedRange<Double> {
+-        guard var lo = values.min(), var hi = values.max() else { return 0...180 }
+-        if hi - lo < 20 { let mid = (lo + hi) / 2; lo = mid - 10; hi = mid + 10 }
+-        let pad = 0.08 * (hi - lo)
+-        return (lo - pad)...(hi + pad)
++        let finite = values.filter(\.isFinite)
++        let lo = min(-20, ((finite.min() ?? 0) / 10).rounded(.down) * 10)
++        let hi = max(190, ((finite.max() ?? 180) / 10).rounded(.up) * 10)
++        return lo...hi
+     }
+     static let trunkInk = Color.indigo
+ 
+@@ -190,6 +192,12 @@ struct WristSpeedChart: View {
+ 
+     private var timeline: EventTimeline { EventTimeline(fps: fps, frames: events.compactMapValues { $0 }) }
+ 
++    /// One speed scale for every throw: 0 to at least 12 arm lengths/s, rounded up to the next 2 when a throw is faster.
++    static func domain(_ values: [Double]) -> ClosedRange<Double> {
++        let top = values.filter(\.isFinite).max() ?? 0
++        return 0...max(12, (top * 1.05 / 2).rounded(.up) * 2)
++    }
++
+     private var samples: [TimePoint] {
+         let window = timeline.window
+         return speed.enumerated().compactMap { frame, value in
+@@ -215,6 +223,7 @@ struct WristSpeedChart: View {
+                 eventRules(timeline, keys: EventTimeline.bodyEvents, now: currentFrame)
+             }
+             .chartXScale(domain: timeline.window)
++            .chartYScale(domain: Self.domain(samples.map(\.value)))
+             .chartXAxisLabel(timeAxisTitle, alignment: .center)
+             .chartYAxisLabel("Wrist speed (arm lengths/s)", position: .leading)
+             .chartYAxis { AxisMarks(position: .leading) }
+@@ -291,9 +300,19 @@ struct FlightChartData: Equatable {
+     var unit: String { metres ? "m" : "px" }
+ 
+     private var everything: [Point] { measured + model + board + slide + [landing, end].compactMap { $0 } }
+-    /// Tight axis domains: from the smaller of 0 and the data to the data's far edge, 5 % padding.
+-    var xDomain: ClosedRange<Double> { Self.domain(everything.map(\.x) + [0]) }
+-    var yDomain: ClosedRange<Double> { Self.domain(everything.map(\.y) + [0]) }
++    /// In metres the axes are the same for every throw (release to just past the back of the board, floor to
++    /// 2.5 m), widened only when a throw goes beyond; in pixels they fit this throw.
++    var xDomain: ClosedRange<Double> {
++        let fitted = Self.domain(everything.map(\.x) + [0])
++        guard metres else { return fitted }
++        let back = board.map(\.x).max() ?? 7.5
++        return min(fitted.lowerBound, 0)...max(fitted.upperBound, ((back + 0.3) * 2).rounded(.up) / 2)
++    }
++    var yDomain: ClosedRange<Double> {
++        let fitted = Self.domain(everything.map(\.y) + [0])
++        guard metres else { return fitted }
++        return min(fitted.lowerBound, 0)...max(fitted.upperBound, 2.5)
++    }
+     var endLabel: String { endKind == "fell_in_hole" ? "Into the hole" : endKind == "rest" ? "Stopped" : "Last seen" }
+     private static func domain(_ values: [Double]) -> ClosedRange<Double> {
+         let finite = values.filter(\.isFinite)
+@@ -448,11 +467,11 @@ struct TimingStrip: View {
+         }
+     }
+ 
+-    /// The events' span plus room for the outer labels, so the axis does not run far past the data.
++    /// The same time axis for every throw (−1 s … +1 s around release), widened only when an event lies beyond it,
++    /// with room for the outer labels.
+     static func domain(_ values: [Double]) -> ClosedRange<Double> {
+-        guard let lo = values.min(), let hi = values.max(), hi > lo else { return -500...500 }
+-        let pad = max(0.12 * (hi - lo), 60)
+-        return (lo - pad)...(hi + pad)
++        guard let lo = values.min(), let hi = values.max() else { return -1000...1000 }
++        return min(-1000, lo - 120)...max(1000, hi + 120)
+     }
+ 
+     var body: some View {
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowComparisonTable.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowComparisonTable.swift
+index 19315ba..4499f1c 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowComparisonTable.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowComparisonTable.swift
+@@ -47,6 +47,10 @@ struct SummaryThrowRow: Identifiable, Equatable, Sendable {
+     var endFromHole: Double?
+     /// The bag was seen dropping into the hole.
+     var endInHole: Bool?
++    /// Where the bag ended on the board (along and left/right), for the athlete's board map.
++    var boardEnd: BoardEndMark?
++    /// This analysis measured left/right on the board (0.6.2 and later).
++    var boardEndHasLeftRight = false
+ 
+     /// "Hole", "−9 in", "+3 in" or "—".
+     var endText: String {
+@@ -128,6 +132,11 @@ extension SummaryThrowRow {
+         if let phase = BoardPhase.load(results: results), let end = phase.end {
+             row.endInHole = end.kind == "fell_in_hole"
+             if end.kind == "rest" { row.endFromHole = end.from_hole_in }
++            if let v = end.v_in, ["rest", "fell_in_hole", "left_deck"].contains(end.kind) {
++                row.boardEnd = BoardEndMark(id: source.id, number: source.number, label: source.label, v: v,
++                                            right: end.right_of_centre_in, kind: end.kind, score: source.score)
++                row.boardEndHasLeftRight = end.right_of_centre_in != nil
++            }
+         }
+         return row
+     }
+diff --git a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowReportView.swift b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowReportView.swift
+index fb42516..72e7a54 100644
+--- a/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowReportView.swift
++++ b/app/CornholeBiomechanics/Sources/CornholeBiomechanics/ThrowReportView.swift
+@@ -660,8 +660,11 @@ struct ThrowReportContent: View {
+     private func tiles(_ specs: [(key: String, label: String, unit: String)], group: String) -> some View {
+         let rows = specs.map { row($0, group: group) }
+         func tile(_ row: CoachMetricRow) -> some View {
+-            MetricTile(row: row, history: data.history[row.key ?? ""] ?? [], target: data.targets[row.key ?? ""],
+-                       uncertainty: uncertainty(row), seek: { seekRequest = $0 })
++            let history = data.history[row.key ?? ""] ?? []
++            // One scale for all of this athlete's throws (this one included), so the bars compare throw to throw.
++            let scale = MetricScale.domain(key: row.key ?? "", values: history + [row.usableValue].compactMap { $0 })
++            return MetricTile(row: row, history: history, target: data.targets[row.key ?? ""],
++                              uncertainty: uncertainty(row), seek: { seekRequest = $0 }, scale: scale)
+         }
+         return ViewThatFits(in: .horizontal) {
+             HStack(alignment: .top, spacing: Space.m) {
+@@ -681,7 +684,7 @@ struct ThrowReportContent: View {
+             }
+             Card("Body", symbol: "figure.disc.sports", subtitle: "The arm and trunk around release.") {
+                 tiles(Self.bodyKeys, group: "Body")
+-                Text("Grey dots: this athlete's other throws; shaded box: their usual middle half; tall mark: this throw. Angles are measured in the camera's view.")
++                Text("Grey dots: this athlete's other throws; shaded box: their usual middle half; tall mark: this throw. Each bar keeps the same scale for every throw of this athlete (its ends are labelled). Angles are measured in the camera's view.")
+                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+             }
+         }
+@@ -689,11 +692,11 @@ struct ThrowReportContent: View {
+ 
+     private var releaseCaption: String {
+         guard let physics = data.insight?.verdict?.physics else {
+-            return "Grey dots: this athlete's other throws. — means not measured or not reliable enough to show."
++            return "Grey dots: this athlete's other throws. Each bar keeps the same scale for every throw of this athlete. — means not measured or not reliable enough to show."
+         }
+         let board = physics.distance_source == "assumed"
+             ? "the \(number(physics.distance_m, digits: 1)) m distance assumed in Settings" : "\(number(physics.distance_m, digits: 1)) m to the board"
+-        return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board). Grey dots: this athlete's other throws."
++        return "Green band: speeds (at this angle) or angles (at this speed) that would land in the hole zone, with this release height and \(board); a green arrow means it lies beyond the scale. Grey dots: this athlete's other throws. Each bar keeps the same scale for every throw of this athlete."
+     }
+ 
+     // MARK: Scientific details
+diff --git a/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/BoardOutcomeTests.swift b/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/BoardOutcomeTests.swift
+new file mode 100644
+index 0000000..b9cc696
+--- /dev/null
++++ b/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/BoardOutcomeTests.swift
+@@ -0,0 +1,47 @@
++import XCTest
++@testable import CornholeBiomechanics
++
++/// results.json → board_phase, and the board drawn from above.
++final class BoardOutcomeTests: XCTestCase {
++    private func phase(right: Double?) throws -> BoardPhase {
++        let rightJSON = right.map { "\($0)" } ?? "null"
++        let json = """
++        {"board_phase":{"status":"measured",
++          "touchdown":{"frame":270,"u_in":14,"v_in":30,"from_hole_in":-9,"on_deck":true,"right_of_centre_in":\(rightJSON)},
++          "end":{"kind":"rest","frame":300,"u_in":18,"v_in":37,"from_hole_in":-2,"right_of_centre_in":\(rightJSON)},
++          "slide":{"distance_in":7,"duration_s":0.2},
++          "path":[{"frame":270,"v_in":30,"right_of_centre_in":\(rightJSON)},{"frame":300,"v_in":37}],
++          "lateral":{"state":"approximate","precision_in":3.2}}}
++        """
++        let url = FileManager.default.temporaryDirectory.appendingPathComponent("results-\(UUID()).json")
++        try Data(json.utf8).write(to: url)
++        return try XCTUnwrap(BoardPhase.load(results: url))
++    }
++
++    func testLeftRightIsReadAndNamedFromTheThrowersSide() throws {
++        let right = try phase(right: 6)
++        XCTAssertTrue(right.measuresLeftRight)
++        XCTAssertEqual(right.lateralPrecision, 3.2, accuracy: 1e-9)
++        XCTAssertEqual(right.sentence, "Landed 9 in short of the hole, slid 7 in, stopped at the hole and 6 in to the thrower's right.")
++        XCTAssertEqual(BoardPhase.sideText(-5), "5 in to the thrower's left")
++        XCTAssertNil(BoardPhase.sideText(2), "within the side camera's precision it is not called left or right")
++    }
++
++    func testOlderAnalysesWithoutLeftRightStayOnTheCentreline() throws {
++        let old = try phase(right: nil)
++        XCTAssertFalse(old.measuresLeftRight)
++        XCTAssertEqual(old.sentence, "Landed 9 in short of the hole, slid 7 in, stopped at the hole.")
++    }
++
++    func testDeckLayoutIsToScaleWithTheThrowersRightDown() {
++        let layout = DeckLayout(size: CGSize(width: 620, height: 240))
++        XCTAssertEqual(layout.deck.width / layout.deck.height, 2, accuracy: 1e-9)
++        let centre = layout.point(v: 39, right: 0), right = layout.point(v: 39, right: 6), left = layout.point(v: 39, right: -6)
++        XCTAssertEqual(centre, layout.hole)
++        XCTAssertGreaterThan(right.y, centre.y)
++        XCTAssertLessThan(left.y, centre.y)
++        XCTAssertEqual(right.y - centre.y, 6 * layout.ppi, accuracy: 1e-9)
++        // Bags far off the board are drawn at the edge of the apron, not off the canvas.
++        XCTAssertEqual(layout.point(v: 200, right: 0).x, layout.deck.maxX + DeckLayout.apron * layout.ppi, accuracy: 1e-9)
++    }
++}
+diff --git a/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/ReplayModelTests.swift b/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/ReplayModelTests.swift
+index 6558e51..20e6cab 100644
+--- a/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/ReplayModelTests.swift
++++ b/app/CornholeBiomechanics/Tests/CornholeBiomechanicsTests/ReplayModelTests.swift
+@@ -22,6 +22,21 @@ final class ReplayModelTests: XCTestCase {
+         XCTAssertEqual(replay.events["release"]?.values?.first?.value, 41.5)
+     }
+ 
++    /// An analysis from the board-phase version wrote the slide summary into after_contact; the replay
++    /// (and so the video) must still load, with no slide points.
++    func testReplayWithSlideSummaryInAfterContactStillDecodes() throws {
++        let json = """
++        {"fps":59.94,"frame_count":330,"width":1920,"height":1080,"coordinates":"raw_video_pixels",
++         "measured":[{"frame":2,"x":100,"y":200}],"filtered":[],"model":[],
++         "after_contact":{"distance_in":0.1,"duration_s":0.13,"state":"unavailable","samples":7},
++         "events":{"release":{"frame":2,"label":"Release"}},"grades":{"bag":"good","scale":null}}
++        """
++        let replay = try JSONDecoder().decode(ReplayDocument.self, from: Data(json.utf8))
++        XCTAssertTrue(replay.after_contact.isEmpty)
++        XCTAssertEqual(replay.grades, ["bag": "good"])
++        XCTAssertEqual(replay.measured.count, 1)
++    }
++
+     func testCoachMetricsKeepWithheldValuesEmpty() throws {
+         let json = """
+         {"coach_metrics":{
+diff --git a/pyproject.toml b/pyproject.toml
+index d255a1c..cd83b5d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
+ 
+ [project]
+ name = "cornhole-biomech"
+-version = "0.6.1"
++version = "0.6.2"
+ description = "Transparent single-camera 2D cornhole biomechanics analysis"
+ readme = "README.md"
+ requires-python = ">=3.11,<3.13"
+diff --git a/python/cornhole_biomech/__init__.py b/python/cornhole_biomech/__init__.py
+index 0d35b48..22b8a37 100644
+--- a/python/cornhole_biomech/__init__.py
++++ b/python/cornhole_biomech/__init__.py
+@@ -1,13 +1,13 @@
+ """Cornhole Biomechanics Lab scientific analysis package."""
+ 
+-__version__ = "0.6.1"
++__version__ = "0.6.2"
+ 
+ # Version of the measurement definitions. Bump it only when a change alters
+ # what a saved number means (a formula, filter, event rule or unit). Throws
+ # analysed under different method versions are never pooled or compared.
+ # The engine source hash stays in each manifest as provenance, but it is not
+ # used for compatibility, so edits to comments or UI code keep old analyses usable.
+-METHOD_VERSION = "2026.09.29-board-phase"
++METHOD_VERSION = "2026.09.30-board-lateral"
+ 
+ REQUIRED_LANDMARKS = (
+     "left_shoulder",
+diff --git a/python/cornhole_biomech/auto_bag.py b/python/cornhole_biomech/auto_bag.py
+index 1db4fed..aacab8e 100644
+--- a/python/cornhole_biomech/auto_bag.py
++++ b/python/cornhole_biomech/auto_bag.py
+@@ -37,7 +37,7 @@ import numpy as np
+ from .background import build_plate
+ from .bag import GRAVITY_M_S2, _robust_polynomial
+ from .bag_segment import SEGMENT_REVISION, backfill_to_hand, refine_flight, track_after_contact
+-from .board import detect_board, solve_board
++from .board import CAMERA_HEIGHT_RANGE_M, camera_height_m, detect_board, solve_board
+ from .contact import classify_flight_end, landing_summary, predict_contact, suggest_outcome
+ from .quality import RELEASE_WINDOW_GOOD_FRAMES
+ 
+@@ -869,6 +869,14 @@ def _scene_and_board(frames, chain, target_direction, masks, board_corners_px=No
+     except ValueError as exc:
+         return scene_info, {**found, "status": "not_found", "reasons": [*found.get("reasons", []), str(exc)],
+                             "model": None}
++    lift = camera_height_m(model)
++    low, high = CAMERA_HEIGHT_RANGE_M
++    if clicked is None and not low <= lift <= high:
++        # Detected, not clicked: a red rectangle that would put the camera this high is not the board.
++        reason = (f"The red shape found puts the camera {lift:.1f} m above the floor, so it is not the board "
++                  f"(a screen or sign?). Click the four deck corners if the board is in the picture.")
++        return scene_info, {**found, "status": "not_found", "reasons": [*found.get("reasons", []), reason],
++                            "model": None}
+     return scene_info, {**found, "model": model}
+ 
+ 
+@@ -1153,7 +1161,8 @@ def _auto_track_bag_working(video_path: str, wrist: np.ndarray | None, arm_lengt
+                       for f, r in refined.items() if f in chain}
+         try:
+             board_phase = analyze_board_phase(frames, chain, board["model"], release, contact, flight_ref, fps,
+-                                              typical_area, touchdown_hint=contact if contact_known else None)
++                                              typical_area, touchdown_hint=contact if contact_known else None,
++                                              target_direction=target_direction)
+         except Exception as error:  # never lose the flight because the board stage failed
+             board_phase = {"status": "failed", "reason": f"Board-phase tracking failed: {error}"}
+         if board_phase.get("status") == "measured":
+diff --git a/python/cornhole_biomech/board.py b/python/cornhole_biomech/board.py
+index 502fdd9..a621e2e 100644
+--- a/python/cornhole_biomech/board.py
++++ b/python/cornhole_biomech/board.py
+@@ -116,6 +116,35 @@ class BoardModel:
+         a, b = self.to_deck_inches(np.array([p, p + [0.0, 1.0]]))
+         return abs(float(b[0] - a[0]))
+ 
++    def deck_inches_lifted(self, points_px: np.ndarray, lift_m: float) -> np.ndarray:
++        """(u, v) deck inches of image points that lie `lift_m` above the deck surface (e.g. a bag's centre).
++
++        Each pixel's viewing ray (camera pose from the board corners) is intersected with the plane parallel to the
++        deck at that height, then expressed as u across (0 = far side, 24 = camera side) and v up the deck from the
++        front edge. From a side camera the across direction runs nearly along the line of sight, so treating a bag's
++        centre as if it lay ON the deck shifts u by several inches; this removes that bias. Rows whose ray does not
++        meet the plane in front of the camera are NaN.
++        """
++        pts = np.asarray(points_px, float).reshape(-1, 2)
++        R = cv2.Rodrigues(np.asarray(self.rvec, float))[0]
++        t = np.asarray(self.tvec, float).ravel()
++        centre = -R.T @ t
++        b = self.board
++        alpha, half_width = b.angle, b.width_m / 2
++        origin = np.array([0.0, b.front_height_m, -half_width])           # front-far corner (u = 0, v = 0)
++        normal = np.array([-math.sin(alpha), math.cos(alpha), 0.0])
++        along = np.array([math.cos(alpha), math.sin(alpha), 0.0])
++        rays = (R.T @ np.linalg.inv(self.K) @ np.column_stack([pts, np.ones(len(pts))]).T).T
++        denom = rays @ normal
++        out = np.full((len(pts), 2), np.nan)
++        ok = np.abs(denom) > 1e-9
++        s = np.where(ok, (lift_m - (centre - origin) @ normal) / np.where(ok, denom, 1.0), np.nan)
++        ok &= s > 0
++        world = centre + s[:, None] * rays
++        out[ok, 0] = (world[ok, 2] + half_width) / INCH_M
++        out[ok, 1] = ((world[ok] - origin) @ along) / INCH_M
++        return out
++
+     def as_dict(self) -> dict[str, Any]:
+         return {"corners_px": self.corners_px.tolist(), "hfov_deg": self.hfov_deg, "phi_deg": self.phi_deg,
+                 "phi_status": "measured" if self.phi_deg <= MAX_PHI_DEG else "estimated",
+@@ -126,13 +155,51 @@ class BoardModel:
+                 "front_height_in": self.board.front_height_m / INCH_M}
+ 
+ 
++def _physical_pose(object_points: np.ndarray, corners: np.ndarray, K: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
++    """Board pose from four coplanar corners, choosing the physically possible one of IPPE's two solutions.
++
++    A planar target seen at a grazing angle has two poses that reproject almost equally well: the real one and
++    its mirror, which puts the camera on the FAR side of the board, metres up, with the throw line tilted
++    ~40° out of the image. Taking the smaller reprojection error alone picked the mirror on some tripod clips
++    (tilting the throw plane, so distance and scale were wrong, and flipping left/right on the deck). The
++    corners are ordered so the near side (lower in the image) is +z, so the camera must be at z > 0 and above
++    the floor; among such poses the best-fitting one wins, and the best overall is used only if none is.
++    """
++    try:
++        count, rvecs, tvecs, errors = cv2.solvePnPGeneric(object_points, corners, K, None, flags=cv2.SOLVEPNP_IPPE)
++    except cv2.error:
++        count = 0
++    if not count:
++        ok, rvec, tvec = cv2.solvePnP(object_points, corners, K, None, flags=cv2.SOLVEPNP_IPPE)
++        if not ok:
++            raise ValueError("Board pose could not be solved from these corners.")
++        return rvec, tvec
++    candidates = []
++    for rvec, tvec, error in zip(rvecs, tvecs, np.asarray(errors, float).reshape(-1)):
++        R = cv2.Rodrigues(rvec)[0]
++        centre = -R.T @ np.asarray(tvec, float).ravel()
++        physical = centre[2] > 0 and centre[1] > 0.05
++        candidates.append((not physical, float(error), rvec, tvec))
++    candidates.sort(key=lambda c: (c[0], c[1]))
++    return candidates[0][2], candidates[0][3]
++
++
++def camera_height_m(model: "BoardModel") -> float:
++    """Height of the camera above the floor implied by the board pose (metres)."""
++    R = cv2.Rodrigues(np.asarray(model.rvec, float))[0]
++    return float((-R.T @ np.asarray(model.tvec, float).ravel())[1])
++
++
++# A real side-view setup has the camera on a tripod or in a hand: 0.1-4 m above the floor. A "board" implying
++# a camera 7 m up is something else red and rectangular (a screen, a sign) seen high in the picture.
++CAMERA_HEIGHT_RANGE_M = (0.1, 4.0)
++
++
+ def solve_board(corners_px: np.ndarray, image_size: tuple[int, int], board: Board = Board(),
+                 hfov_deg: float = NOMINAL_HFOV_DEG) -> BoardModel:
+     corners = np.asarray(corners_px, float).reshape(4, 2)
+     K = camera_matrix(image_size[0], image_size[1], hfov_deg)
+-    ok, rvec, tvec = cv2.solvePnP(_deck_object_points(board), corners, K, None, flags=cv2.SOLVEPNP_IPPE)
+-    if not ok:
+-        raise ValueError("Board pose could not be solved from these corners.")
++    rvec, tvec = _physical_pose(_deck_object_points(board), corners, K)
+     R = cv2.Rodrigues(rvec)[0]
+     phi = math.degrees(math.asin(min(1.0, abs(R[2, 0]))))
+     plane_H = K @ np.column_stack([R[:, 0], R[:, 1], tvec.ravel()])
+diff --git a/python/cornhole_biomech/board_phase.py b/python/cornhole_biomech/board_phase.py
+index 265eb4d..b1580ec 100644
+--- a/python/cornhole_biomech/board_phase.py
++++ b/python/cornhole_biomech/board_phase.py
+@@ -29,10 +29,13 @@ Method (side camera, board located by `board.py`):
+    coefficient for a bag sliding UP the slope (angle alpha):  a = g (sin alpha + mu cos alpha).
+ 
+ Lateral position: from a side camera the deck's across direction runs nearly along the
+-optical axis, so a few pixels of height (the bag's thickness) move u by several inches.
+-u is therefore reported as approximate and is not used to decide the outcome; decisions
+-use the along-deck coordinate v, which is well determined. The protocol throws straight
+-at the board, so left/right errors are not measured by this camera (use the board camera).
++optical axis, so a few pixels of height move u by several inches. The bag's centre sits
++about half its thickness above the deck, so u is found by intersecting the centre's viewing
++ray (camera pose from the board corners) with the plane 0.6 in above the deck, not with the
++deck itself (which put every bag several inches toward the far side). It is reported as
++approximate (about +/-3 in), drawn on the board, and signed from the thrower's point of view
++(`right_of_centre_in`, + = thrower's right); it is not used to decide the outcome, which uses
++the along-deck coordinate v. The board camera measures left/right precisely.
+ 
+ The suggested score always needs a coach's confirmation (one click).
+ """
+@@ -59,6 +62,7 @@ VANISH_S = 0.12                # absent this long = gone
+ DRAIN_AREA_DROP = 0.35         # visible area falling by this fraction before vanishing = tipping into the hole
+ MIN_SLIDE_FOR_FRICTION_IN = 4.0
+ LATERAL_UNRELIABLE_IN = 0.5    # inches across per pixel above which u is only approximate
++BAG_CENTRE_HEIGHT_IN = 0.6     # a resting/sliding bag's centre above the deck (about half its thickness)
+ DECK_TOLERANCE_M = 0.07        # bag half-thickness + plane-mapping noise
+ 
+ 
+@@ -181,7 +185,8 @@ def slide_kinematics(times_s: np.ndarray, along_in: np.ndarray, deck_angle_rad:
+ 
+ def analyze_board_phase(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], model, release: int,
+                         last_flight: int, flight_ref: dict[int, tuple[float, float]], fps: float,
+-                        typical_area: float | None, touchdown_hint: int | None = None) -> dict[str, Any]:
++                        typical_area: float | None, touchdown_hint: int | None = None,
++                        target_direction: str = "left_to_right") -> dict[str, Any]:
+     """Follow the bag on the deck from touchdown to the end of the clip.
+ 
+     `chains[f]` maps raw pixels of frame f into the release frame's pixels; the board model and
+@@ -249,13 +254,14 @@ def analyze_board_phase(frames: Sequence[np.ndarray], chains: dict[int, np.ndarr
+         position, missed = (x, y), 0
+         samples.append({"frame": f, "present": True, "x_release_frame": x, "y_release_frame": y, "area_px": chosen["area"]})
+     return summarize_board_phase(samples, model, fps, n, typical_area=area, chains=chains,
+-                                 touchdown_hint=touchdown_hint, background_frames=background_frames)
++                                 touchdown_hint=touchdown_hint, background_frames=background_frames,
++                                 target_direction=target_direction)
+ 
+ 
+ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, frame_count: int,
+                           typical_area: float | None = None, chains: dict[int, np.ndarray] | None = None,
+-                          touchdown_hint: int | None = None, background_frames: list[int] | None = None
+-                          ) -> dict[str, Any]:
++                          touchdown_hint: int | None = None, background_frames: list[int] | None = None,
++                          target_direction: str = "left_to_right") -> dict[str, Any]:
+     """Events, outcome and slide kinematics from per-frame deck samples (release-frame pixels).
+ 
+     Split from the image work so the decision rules can be tested directly.
+@@ -268,8 +274,13 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+         pts = np.array([[s["x_release_frame"], s["y_release_frame"]] for s in present], float)
+         uv = model.to_deck_inches(pts)
+         plane = model.to_plane(pts)
+-        for s, (u, v), (px, py) in zip(present, uv, plane):
+-            s["u_in"], s["v_in"] = float(u), float(v)
++        lifted = _lifted_u(model, pts)
++        side = 1.0 if target_direction == "left_to_right" else -1.0
++        for s, (u, v), (px, py), u_lift in zip(present, uv, plane, lifted):
++            s["u_in_deck_plane"] = float(u)
++            s["u_in"], s["v_in"] = (float(u_lift) if math.isfinite(u_lift) else float(u)), float(v)
++            # Thrower's right is the camera side for a left-to-right throw (the far side right-to-left).
++            s["right_of_centre_in"] = side * (s["u_in"] - HOLE_U_IN)
+             s["plane_x_m"], s["plane_y_m"] = float(px), float(py)
+             deck_y = board.deck_height_at(min(max(float(px), 0.0), board.horizontal_length_m))
+             s["on_deck_surface"] = bool(-0.5 * 6 * INCH_M <= px <= board.horizontal_length_m + 3 * INCH_M
+@@ -283,9 +294,10 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+         lateral_precision = model.across_precision_in_per_px(mid)
+     lateral = {"state": "approximate" if lateral_precision is None or lateral_precision > LATERAL_UNRELIABLE_IN else "estimated",
+                "inches_per_pixel": lateral_precision,
+-               "note": "Left/right on the board is poorly resolved from a side camera (the bag's thickness alone "
+-                       "moves it several inches); the outcome is decided from the along-board position. "
+-                       "Throws are assumed straight at the board; use the board camera to measure left/right."}
++               "precision_in": None if lateral_precision is None else float(max(3.0, 3.0 * lateral_precision)),
++               "note": "Left/right on the board is approximate from a side camera (about ±3 in): the across "
++                       "direction runs along the camera's line of sight. The result is decided from the "
++                       "along-board position; the board camera measures left/right precisely."}
+     base["lateral"] = lateral
+     if not present:
+         return {**base, "status": "not_found", "path": [],
+@@ -354,6 +366,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+                         + (" (resting at the lip of the hole)." if abs(rest_v - HOLE_V_IN) <= HOLE_RADIUS_IN + BAG_HALF_IN
+                            else "."))}
+         end_sample = {**stop, "u_in": float(np.median([s["u_in"] for s in quiet])),
++                      "right_of_centre_in": float(np.median([s["right_of_centre_in"] for s in quiet])),
+                       "v_in": float(np.median([s["v_in"] for s in quiet])),
+                       "x_release_frame": float(np.median([s["x_release_frame"] for s in quiet])),
+                       "y_release_frame": float(np.median([s["y_release_frame"] for s in quiet]))}
+@@ -365,6 +378,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+                "note": "The bag was still moving when the clip ended."}
+         end_sample = last_seen
+     end.update(u_in=float(end_sample["u_in"]), v_in=float(end_sample["v_in"]),
++               right_of_centre_in=float(end_sample["right_of_centre_in"]),
+                from_hole_in=float(end_sample["v_in"] - HOLE_V_IN),
+                x_release_frame=float(end_sample["x_release_frame"]), y_release_frame=float(end_sample["y_release_frame"]))
+     if "x" in end_sample:
+@@ -373,6 +387,7 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+         end["from_hole_in"] = 0.0 if abs(end["from_hole_in"]) <= HOLE_RADIUS_IN else end["from_hole_in"]
+ 
+     touchdown = {"frame": touch["frame"], "u_in": touch["u_in"], "v_in": touch["v_in"],
++                 "right_of_centre_in": touch["right_of_centre_in"],
+                  "from_hole_in": touch["v_in"] - HOLE_V_IN,
+                  "x_release_frame": touch["x_release_frame"], "y_release_frame": touch["y_release_frame"],
+                  "on_deck": bool(0.0 <= touch["v_in"] <= 48.0),
+@@ -406,13 +421,24 @@ def summarize_board_phase(samples: list[dict[str, Any]], model, fps: float, fram
+     suggested = None if score is None else {
+         "score": score, "basis": basis, "confidence": confidence, "needs_confirmation": True,
+         "source": "board_phase"}
+-    path = [{k: s[k] for k in ("frame", "x", "y", "x_release_frame", "y_release_frame", "u_in", "v_in", "area_px")
++    path = [{k: s[k] for k in ("frame", "x", "y", "x_release_frame", "y_release_frame", "u_in", "v_in",
++                               "right_of_centre_in", "area_px")
+              if k in s} for s in deck]
+     return {**base, "status": "measured", "touchdown": touchdown, "end": end, "hang": hang, "drained": drained,
+             "slide": slide_summary, "path": path, "suggested_outcome": suggested,
+             "samples_present": len(present), "samples_total": len(samples)}
+ 
+ 
++def _lifted_u(model, pts: np.ndarray) -> np.ndarray:
++    """Across-deck inches of bag centres (BAG_CENTRE_HEIGHT_IN above the deck); NaN where unavailable."""
++    if not hasattr(model, "deck_inches_lifted") or getattr(model, "rvec", None) is None:
++        return np.full(len(pts), np.nan)
++    try:
++        return model.deck_inches_lifted(pts, BAG_CENTRE_HEIGHT_IN * INCH_M)[:, 0]
++    except Exception:  # a degenerate pose never costs the along-deck result
++        return np.full(len(pts), np.nan)
++
++
+ def _where(from_hole_in: float) -> str:
+     if abs(from_hole_in) <= HOLE_RADIUS_IN:
+         return "at the hole"
+diff --git a/python/cornhole_biomech/insights.py b/python/cornhole_biomech/insights.py
+index ddc1c02..1c7dcda 100644
+--- a/python/cornhole_biomech/insights.py
++++ b/python/cornhole_biomech/insights.py
+@@ -305,8 +305,9 @@ def generate_insights(project_path, trial_id, export_report=True):
+                                       if len(measured)>=3 else
+                                       'Not enough throws with a measured distance; the distance from Settings is used.'},
+                      lateral={'measured':False,
+-                              'note':'Left/right is not measured by the side camera; these throws were made straight at the board. '
+-                                     'Record a board camera to measure left/right misses.'},
++                              'note':'The green zone covers distance along the throw line only; left/right aim is not modelled. '
++                                     'Where each bag ended left/right is estimated from the side camera (about ±3 in) and drawn on the board; '
++                                     'a board camera measures it precisely.'},
+                      consistency=consistency,
+                      cohort={'included':[n['trial_id'] for n in compatible],'excluded':exclusion_reasons,
+                              'base_trial_id':trial_id})
+diff --git a/python/cornhole_biomech/replay.py b/python/cornhole_biomech/replay.py
+index 8b7119e..eac7ac0 100644
+--- a/python/cornhole_biomech/replay.py
++++ b/python/cornhole_biomech/replay.py
+@@ -50,8 +50,16 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
+     filtered_rows = [{"frame": r["frame"], "x": r["x"], "y": r["y"], "status": r["status"]}
+                      for r in (filtered or {}).get("frames", []) if r.get("x") is not None]
+     model_rows = list((model_check or {}).get("curve") or [])
+-    slide = [{"frame": p["frame"], "x": p.get("x_release_frame", p["x"]), "y": p.get("y_release_frame", p["y"])}
+-             for p in (after_contact or {}).get("path", [])]
++    phase = board_phase if board_phase and board_phase.get("status") == "measured" else None
++    # The slide on the board, as points (release-frame pixels). The board phase follows the bag to
++    # the end of the clip even when the flight still needs review, so its path is preferred.
++    slide_source = (phase or {}).get("path") or (after_contact or {}).get("path", [])
++    if phase and phase["end"].get("kind") == "rest":
++        slide_source = [p for p in slide_source if p["frame"] <= phase["end"]["frame"]]
++    slide_points = [{"frame": int(p["frame"]), "x": float(p.get("x_release_frame", p.get("x"))),
++                     "y": float(p.get("y_release_frame", p.get("y")))}
++                    for p in slide_source
++                    if p.get("x_release_frame", p.get("x")) is not None and p.get("y_release_frame", p.get("y")) is not None]
+     positions = {r["frame"]: (r["x"], r["y"]) for r in measured_rows}
+     positions.update({r["frame"]: (r["x"], r["y"]) for r in filtered_rows if r["frame"] not in positions})
+     release, contact = events.get("release"), events.get("first_contact")
+@@ -90,10 +98,10 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
+                        "position": {"x": rest["x_release_frame"], "y": rest["y_release_frame"]} if rest else None,
+                        "status": (after_contact or {}).get("status"), "note": (after_contact or {}).get("note")},
+     }
+-    if board_phase and board_phase.get("status") == "measured":
+-        end = board_phase["end"]
+-        touch = board_phase["touchdown"]
+-        slide = board_phase.get("slide") or {}
++    if phase:
++        end = phase["end"]
++        touch = phase["touchdown"]
++        slide = phase.get("slide") or {}
+         if event_rows["first_contact"]["frame"] is None or event_rows["first_contact"].get("position") is None:
+             event_rows["first_contact"].update(frame=touch["frame"],
+                                                position={"x": touch["x_release_frame"], "y": touch["y_release_frame"]})
+@@ -107,6 +115,10 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
+                                        "values": [{"key": "board_slide_in", "label": "Slide", "unit": "in",
+                                                    "value": slide.get("distance_in"), "status": "reported"}]}
+         elif end["kind"] == "rest":
++            if event_rows["final_rest"]["frame"] is None:
++                # The flight was not accepted (no after_contact), but the board phase saw the bag stop.
++                event_rows["final_rest"].update(frame=end["frame"], status="rest_found", note=end.get("note"),
++                                                position={"x": end["x_release_frame"], "y": end["y_release_frame"]})
+             event_rows["final_rest"]["values"] = [
+                 {"key": "board_end_from_hole_in", "label": "Stopped (from hole centre)", "unit": "in",
+                  "value": end.get("from_hole_in"), "status": "reported"},
+@@ -118,9 +130,9 @@ def build_replay(*, fps: float, frame_count: int, width: int, height: int, camer
+         "coordinates": "release_frame_pixels" if camera_to_release else "raw_video_pixels",
+         "reference_frame": release,
+         "release_to_frame": _inverse_transforms(camera_to_release),
+-        "measured": measured_rows, "filtered": filtered_rows, "model": model_rows, "after_contact": slide,
++        "measured": measured_rows, "filtered": filtered_rows, "model": model_rows, "after_contact": slide_points,
+         "model_note": (model_check or {}).get("interpretation"),
+         "model_rmse_px": (model_check or {}).get("in_sample_rmse_px"),
+         "events": {k: v for k, v in event_rows.items() if v.get("frame") is not None},
+-        "grades": {k: v.get("grade") for k, v in grades.items() if isinstance(v, dict) and "grade" in v},
++        "grades": {k: str(v["grade"]) for k, v in grades.items() if isinstance(v, dict) and v.get("grade") is not None},
+     }
+diff --git a/tests/swift_contract.py b/tests/swift_contract.py
+new file mode 100644
+index 0000000..7e85814
+--- /dev/null
++++ b/tests/swift_contract.py
+@@ -0,0 +1,210 @@
++"""Check JSON written by the Python engine against the app's Swift `Decodable` structs.
++
++The app decodes most engine files with `try?`: one wrong type anywhere (a dict where the struct wants a list,
++a null where it wants a string, 3.0 where it wants an Int, a NaN token) silently drops the whole document, and a
++card, the replay or the video disappears. This parser reads the stored properties of every `Decodable` /
++`Codable` struct in the app's sources, so the contract follows the Swift code without a second copy.
++
++Usage (tests): `problems("ReplayDocument", json.load(...))` → list of "path: problem" strings.
++"""
++from __future__ import annotations
++
++import re
++from pathlib import Path
++from typing import Any
++
++SOURCES = Path(__file__).resolve().parents[1] / "app" / "CornholeBiomechanics" / "Sources" / "CornholeBiomechanics"
++
++_STRUCT = re.compile(r"\b(struct|enum|extension)\s+([A-Za-z_][\w.]*)\s*(?::\s*([^{]*))?\{")
++_PROP = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|fileprivate|internal|public)(?:\(set\))?\s+)*"
++                   r"(var|let)\s+`?(\w+)`?\s*:\s*([^={]+?)\s*(=\s*.*)?$")
++
++
++def _blocks(text: str):
++    """(kind, name, conformances, body, start, end) for every type or extension block, nested ones included."""
++    for m in _STRUCT.finditer(text):
++        depth, i = 1, m.end()
++        while i < len(text) and depth:
++            if text[i] == "{":
++                depth += 1
++            elif text[i] == "}":
++                depth -= 1
++            i += 1
++        yield m.group(1), m.group(2), m.group(3) or "", text[m.end():i - 1], m.start(), i
++
++
++def _coding_keys(body: str) -> dict[str, str]:
++    """Swift property → JSON key from a nested `enum CodingKeys` (empty when there is none)."""
++    m = None
++    for candidate in re.finditer(r"enum\s+CodingKeys\s*:[^{]*\{([^}]*)\}", body):
++        prefix = body[:candidate.start()]
++        if prefix.count("{") == prefix.count("}"):      # the type's own keys, not a nested type's
++            m = candidate
++            break
++    if not m:
++        return {}
++    out = {}
++    for case in re.findall(r"case\s+([^\n]+)", m.group(1)):
++        for item in case.split(","):
++            item = item.strip()
++            if not item:
++                continue
++            name, _, raw = item.partition("=")
++            name = name.strip().strip("`")
++            out[name] = raw.strip().strip('"') if raw else name
++    return out
++
++
++def _top_level_lines(body: str) -> list[str]:
++    """Lines of `body` at brace depth 0 (a type's own members, not nested types' or functions')."""
++    out, depth, line = [], 0, []
++    for ch in body:
++        if ch == "{":
++            if depth == 0:
++                out.append("".join(line) + "{")
++                line = []
++            depth += 1
++        elif ch == "}":
++            depth -= 1
++        elif ch == "\n":
++            if depth == 0:
++                out.append("".join(line))
++            line = []
++        elif depth == 0:
++            line.append(ch)
++    out.append("".join(line))
++    return out
++
++
++class Registry:
++    def __init__(self, sources: Path = SOURCES):
++        self.structs: dict[str, dict[str, Any]] = {}     # full name ("ReplayDocument.Point") → spec
++        self.string_enums: set[str] = set()
++        self.custom: set[str] = set()                     # full names with a hand-written init(from:)
++        for path in sorted(sources.glob("*.swift")):
++            text = re.sub(r"//[^\n]*", "", path.read_text())
++            self._scan(text)
++
++    def _scan(self, text: str) -> None:
++        blocks = list(_blocks(text))
++        def full_name(index: int) -> str:
++            kind, name, _, _, start, end = blocks[index]
++            parents = [j for j, b in enumerate(blocks) if b[4] < start and b[5] >= end and j != index]
++            if not parents:
++                return name
++            parent = max(parents, key=lambda j: blocks[j][4])
++            return f"{full_name(parent)}.{name}"
++        for index, (kind, name, conformances, body, start, end) in enumerate(blocks):
++            full = full_name(index)
++            own = "\n".join(_top_level_lines(body))
++            if kind == "extension":
++                if re.search(r"init\s*\(\s*from\s+decoder", own):
++                    self.custom.add(name)
++                continue
++            if kind == "enum":
++                if re.search(r"\bString\b", conformances):
++                    self.string_enums.add(name)
++                continue
++            if re.search(r"init\s*\(\s*from\s+decoder", own):
++                self.custom.add(full)
++            if not re.search(r"\b(Decodable|Codable)\b", conformances):
++                continue
++            props = {}
++            lines = [part for raw in _top_level_lines(body) for part in raw.split(";")]
++            renames = _coding_keys(body)
++            for line in lines:
++                if re.match(r"^\s*(static|class)\b", line):
++                    continue
++                m = _PROP.match(line)
++                if not m or line.rstrip().endswith("{"):
++                    continue
++                keyword, prop, typ, default = m.groups()
++                if keyword == "let" and default:
++                    continue          # a `let` with a value is never decoded
++                if renames and prop not in renames:
++                    continue          # left out of an explicit CodingKeys: not decoded
++                props[renames.get(prop, prop)] = typ.strip()
++            self.structs[full] = {"props": props}
++
++    def resolve(self, typ: str, scope: str) -> str | None:
++        """Swift name lookup: innermost enclosing scope first, then global, then a unique suffix match."""
++        parts = scope.split(".") if scope else []
++        for i in range(len(parts), -1, -1):
++            candidate = ".".join(parts[:i] + [typ])
++            if candidate in self.structs or candidate in self.custom:
++                return candidate
++        matches = [n for n in list(self.structs) + list(self.custom) if n.endswith("." + typ)]
++        return matches[0] if len(set(matches)) == 1 else None
++
++    # -- validation ---------------------------------------------------------------------------------------------
++    def problems(self, type_name: str, value: Any, path: str = "$") -> list[str]:
++        return self._check(type_name.strip(), value, path, "")
++
++    def _check(self, typ: str, value: Any, path: str, scope: str) -> list[str]:
++        typ = typ.strip()
++        if typ.endswith("?"):
++            return [] if value is None else self._check(typ[:-1], value, path, scope)
++        if typ.startswith("[") and typ.endswith("]"):
++            inner = typ[1:-1]
++            depth, colon = 0, None
++            for i, ch in enumerate(inner):
++                if ch in "[(":
++                    depth += 1
++                elif ch in "])":
++                    depth -= 1
++                elif ch == ":" and depth == 0:
++                    colon = i
++                    break
++            if colon is not None:
++                if not isinstance(value, dict):
++                    return [f"{path}: expected a dictionary, got {type(value).__name__}"]
++                out = []
++                for k, v in value.items():
++                    out += self._check(inner[colon + 1:], v, f"{path}.{k}", scope)
++                return out
++            if not isinstance(value, list):
++                return [f"{path}: expected a list, got {type(value).__name__}"]
++            out = []
++            for i, v in enumerate(value):
++                out += self._check(inner, v, f"{path}[{i}]", scope)
++            return out
++        if value is None:
++            return [f"{path}: null where {typ} is required"]
++        if typ in ("Double", "CGFloat", "Float"):
++            if isinstance(value, bool) or not isinstance(value, (int, float)):
++                return [f"{path}: expected a number, got {type(value).__name__}"]
++            if value != value or value in (float("inf"), float("-inf")):
++                return [f"{path}: NaN/Infinity (JSONDecoder rejects the whole file)"]
++            return []
++        if typ == "Int":
++            if isinstance(value, bool) or not isinstance(value, int):
++                return [f"{path}: expected an integer, got {value!r}"]
++            return []
++        if typ == "Bool":
++            return [] if isinstance(value, bool) else [f"{path}: expected true/false, got {value!r}"]
++        if typ in ("String", "UUID", "Date", "URL") or typ in self.string_enums:
++            return [] if isinstance(value, str) else [f"{path}: expected a string, got {value!r}"]
++        name = self.resolve(typ, scope)
++        if name is None or name in self.custom:
++            return []         # unknown (enum with payloads, typealias …) or a hand-written, tolerant decoder
++        spec = self.structs[name]
++        if not isinstance(value, dict):
++            return [f"{path}: expected an object ({name}), got {type(value).__name__}"]
++        out = []
++        for prop, ptyp in spec["props"].items():
++            if prop not in value:
++                if not ptyp.strip().endswith("?"):
++                    out.append(f"{path}.{prop}: missing (required {ptyp})")
++                continue
++            out += self._check(ptyp, value[prop], f"{path}.{prop}", name)
++        return out
++
++
++_registry: Registry | None = None
++
++
++def problems(type_name: str, value: Any) -> list[str]:
++    global _registry
++    if _registry is None:
++        _registry = Registry()
++    return _registry.problems(type_name, value)
+diff --git a/tests/test_board.py b/tests/test_board.py
+index 940e752..c8879a0 100644
+--- a/tests/test_board.py
++++ b/tests/test_board.py
+@@ -463,3 +463,26 @@ def test_pale_non_regulation_decoy_is_not_found_through_the_full_cascade(far_l,
+     # ... and every pass rejects it
+     out = detect_board(img, "left_to_right", B)
+     assert out["status"] == "not_found" and out["reasons"]
++
++
++def test_pose_is_the_physical_one_not_its_mirror():
++    """Tripod clip (Player 1, throw 19): IPPE's lower-error pose put the camera 3 m up on the FAR side of the board
++    with the throw line 38° out of the picture; the real camera is on the near side at tripod height."""
++    import cv2 as _cv2
++    from cornhole_biomech.board import camera_height_m
++    corners = np.array([[1611.0, 672.0], [1660.0, 701.0], [1919.0, 662.0], [1869.0, 631.0]])
++    model = solve_board(corners, (1920, 1080))
++    R = _cv2.Rodrigues(model.rvec)[0]
++    centre = -R.T @ model.tvec.ravel()
++    assert centre[2] > 0                                  # near side (+z, lower in the image)
++    assert 1.0 < camera_height_m(model) < 3.0
++    assert model.phi_deg < 15
++
++
++def test_a_red_rectangle_high_in_the_picture_is_not_a_board():
++    """Player 1, throw 20: a screen high on the wall was taken for the board (camera 8.7 m up)."""
++    from cornhole_biomech.board import CAMERA_HEIGHT_RANGE_M, camera_height_m
++    screen = solve_board(np.array([[854.0, 240.0], [867.0, 356.0], [1049.0, 324.0], [1050.0, 232.0]]), (1920, 1080))
++    assert camera_height_m(screen) > CAMERA_HEIGHT_RANGE_M[1]
++    board = solve_board(np.array([[1583.0, 671.6], [1632.0, 698.9], [1919.0, 654.1], [1837.0, 627.2]]), (1920, 1080))
++    assert CAMERA_HEIGHT_RANGE_M[0] < camera_height_m(board) < CAMERA_HEIGHT_RANGE_M[1]
+diff --git a/tests/test_board_phase.py b/tests/test_board_phase.py
+index d21cb01..adf77de 100644
+--- a/tests/test_board_phase.py
++++ b/tests/test_board_phase.py
+@@ -106,3 +106,34 @@ def test_slide_friction_recovers_the_simulated_coefficient():
+ def test_short_slide_gives_no_friction():
+     kin = slide_kinematics(np.arange(4) / FPS, np.array([10, 10.5, 10.8, 11.0]), Board().angle)
+     assert kin["mu_effective"] is None and kin["reason"]
++
++
++def _image_of_bag_centre(model, u_in, v_in, lift_in=0.6):
++    """Pixel of a point u, v on the deck, lifted lift_in above it (camera pose from the board corners)."""
++    b = model.board
++    origin = np.array([0.0, b.front_height_m, -b.width_m / 2])
++    along = np.array([math.cos(b.angle), math.sin(b.angle), 0.0])
++    normal = np.array([-math.sin(b.angle), math.cos(b.angle), 0.0])
++    world = origin + along * v_in * INCH_M + np.array([0, 0, u_in * INCH_M]) + normal * lift_in * INCH_M
++    px, _ = cv2.projectPoints(world.reshape(1, 3), model.rvec, model.tvec, model.K, None)
++    return px.reshape(2)
++
++
++@pytest.mark.parametrize("u_true", [4.0, 12.0, 20.0])
++def test_left_right_position_on_the_board_is_recovered(model, u_true):
++    """Bags land all over the board: the across-deck position is measured (bag centre above the deck), not centred."""
++    samples = []
++    for i in range(60):
++        x, y = _image_of_bag_centre(model, u_true, 30.0)
++        samples.append({"frame": 100 + i, "present": True, "x_release_frame": float(x), "y_release_frame": float(y),
++                        "area_px": 800.0})
++    right = summarize_board_phase(samples, model, FPS, 160, target_direction="left_to_right")
++    assert right["end"]["kind"] == "rest"
++    assert right["end"]["u_in"] == pytest.approx(u_true, abs=0.5)
++    assert right["end"]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
++    assert right["touchdown"]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
++    # Thrown the other way, the camera side is the thrower's left.
++    left = summarize_board_phase(samples, model, FPS, 160, target_direction="right_to_left")
++    assert left["end"]["right_of_centre_in"] == pytest.approx(12.0 - u_true, abs=0.5)
++    # The old deck-plane mapping put a lifted bag centre inches toward the far side.
++    assert right["path"][0]["right_of_centre_in"] == pytest.approx(u_true - 12.0, abs=0.5)
+diff --git a/tests/test_replay_contract.py b/tests/test_replay_contract.py
+new file mode 100644
+index 0000000..a89a3e6
+--- /dev/null
++++ b/tests/test_replay_contract.py
+@@ -0,0 +1,79 @@
++"""replay.json must decode in the app (Swift `ReplayDocument`), or the report shows no replay and no video.
++
++The Swift decoder is strict: `after_contact` is a list of {frame:int, x, y}; every event has an int frame and a
++string label; grades are strings; the file has no NaN/Infinity. A board-phase slide summary once overwrote
++`after_contact` with a dict, and every re-analyzed throw lost its video replay.
++"""
++import json
++
++import numpy as np
++
++from cornhole_biomech.board import solve_board
++from cornhole_biomech.board_phase import summarize_board_phase
++from cornhole_biomech.replay import build_replay
++
++from test_board_phase import CORNERS, FPS, decelerating, track
++
++
++def assert_swift_decodable(replay: dict) -> None:
++    text = json.dumps(replay, allow_nan=False)          # JSONDecoder rejects NaN / Infinity
++    doc = json.loads(text)
++    assert isinstance(doc["fps"], (int, float))
++    for key in ("frame_count", "width", "height"):
++        assert isinstance(doc[key], int) and not isinstance(doc[key], bool), key
++    assert isinstance(doc["coordinates"], str)
++    for key in ("measured", "filtered", "model", "after_contact"):
++        assert isinstance(doc[key], list), key
++        for point in doc[key]:
++            assert isinstance(point["frame"], int), (key, point)
++            assert isinstance(point["x"], (int, float)) and isinstance(point["y"], (int, float)), (key, point)
++    assert isinstance(doc["events"], dict)
++    for name, event in doc["events"].items():
++        assert isinstance(event["frame"], int), name
++        assert isinstance(event["label"], str), name
++        if event.get("position") is not None:
++            assert all(isinstance(event["position"][c], (int, float)) for c in "xy"), name
++        for value in event.get("values") or []:
++            assert all(isinstance(value[f], str) for f in ("key", "label", "unit", "status")), (name, value)
++            assert value.get("value") is None or isinstance(value["value"], (int, float)), (name, value)
++    assert isinstance(doc["grades"], dict) and all(isinstance(v, str) for v in doc["grades"].values())
++
++
++def _replay(phase):
++    measured = np.full((200, 2), np.nan)
++    measured[50:90] = np.column_stack([np.linspace(200, 1500, 40), np.linspace(500, 640, 40)])
++    return build_replay(
++        fps=FPS, frame_count=200 + 200, width=1920, height=1080, camera_to_release=None, measured=measured,
++        filtered=None, model_check=None, after_contact=None,
++        events={"release": 50, "first_contact": None, "peak_backswing": 30},
++        summaries={}, coach_metrics={}, grades={"bag": {"grade": "good"}, "scale": {"grade": None}},
++        release_window=(49, 51), board_phase=phase)
++
++
++def test_replay_with_a_board_bag_decodes_in_the_app():
++    model = solve_board(CORNERS, (1920, 1080))
++    along = decelerating(90, 220, 12.0, 40)
++    along += [along[-1]] * 60
++    phase = summarize_board_phase(track(model, along), model, FPS, 100 + len(along))
++    replay = _replay(phase)
++    assert_swift_decodable(replay)
++    # The slide is drawn from the board phase even though the flight itself was not accepted.
++    assert replay["after_contact"] and replay["after_contact"][0]["frame"] == phase["touchdown"]["frame"]
++    assert replay["after_contact"][-1]["frame"] <= phase["end"]["frame"]
++    assert replay["events"]["final_rest"]["frame"] == phase["end"]["frame"]
++    assert replay["events"]["first_contact"]["frame"] == phase["touchdown"]["frame"]
++
++
++def test_replay_with_a_bag_into_the_hole_decodes_in_the_app():
++    model = solve_board(CORNERS, (1920, 1080))
++    along = decelerating(80, 160, 20.0, 30) + [40.5] * 36 + [None] * 40
++    areas = [800.0] * 50 + list(np.linspace(800, 350, 16)) + [0] * 40
++    phase = summarize_board_phase(track(model, along, areas=areas), model, FPS, 100 + len(along))
++    replay = _replay(phase)
++    assert_swift_decodable(replay)
++    assert "into_hole" in replay["events"]
++    assert replay["grades"] == {"bag": "good"}
++
++
++def test_replay_without_a_board_phase_decodes_in_the_app():
++    assert_swift_decodable(_replay(None))

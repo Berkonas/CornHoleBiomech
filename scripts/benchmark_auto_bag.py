@@ -6,7 +6,7 @@ differences (jitter), mask-vs-detection centroid shift, and runtime. Accuracy
 against hand-marked centroids comes from `cornhole-biomech bag-benchmark`.
 
     PYTHONPATH=python .venv/bin/python scripts/benchmark_auto_bag.py \
-        --library "~/Documents/Cornhole Pilot Library" --output bag_benchmark.json
+        --library "data/libraries/Cornhole Pilot Library" --output bag_benchmark.json
 """
 from __future__ import annotations
 

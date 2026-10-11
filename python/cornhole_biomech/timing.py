@@ -13,8 +13,10 @@ Definitions (x toward the target after reflection, y up; t_release = release fra
 - peak wrist speed = max |v_w| between peak backswing and release + 0.1 s;
   its timing = (t_peak − t_release) in ms (negative = before release).
 - peak elbow extension velocity = max dθ_elbow/dt (positive = straightening, °/s) in the
-  same window; timing relative to release in ms. θ_elbow is the 2D projected
-  shoulder–elbow–wrist included angle.
+  forward swing: the same window, but starting where extension carried over from the
+  backswing has ended (first dθ/dt ≤ 0 after the top; `events.elbow_extension_search_start`).
+  An elbow that only flexes in the forward swing has no peak (unavailable). Timing relative
+  to release in ms. θ_elbow is the 2D projected shoulder–elbow–wrist included angle.
 - hand-to-bag speed ratio = bag release speed / wrist speed at release (both in
   arm lengths/s). The bag sits beyond the wrist on the swinging arm, so > 1 is
   expected; a large change between throws means the hand did something different at release.
@@ -31,6 +33,7 @@ from typing import Any
 import numpy as np
 
 from .bag_filter import stabilize_points
+from .events import elbow_extension_search_start
 from .filtering import derivative
 
 
@@ -92,7 +95,7 @@ def release_timing_metrics(wrist_px: np.ndarray, elbow_angle_deg: np.ndarray, fp
         if pixels_per_meter:
             out["wrist_peak_speed_m_s"] = float(speed[peak] * arm_length_px / pixels_per_meter)
     extension = derivative(np.asarray(elbow_angle_deg, float), fps)
-    peak_elbow = _peak(extension, start, stop)
+    peak_elbow = _peak(extension, elbow_extension_search_start(extension, start, release), stop)
     if peak_elbow is not None and extension[peak_elbow] > 0:
         out.update(peak_elbow_extension_frame=peak_elbow,
                    elbow_peak_extension_velocity_deg_s=float(extension[peak_elbow]),

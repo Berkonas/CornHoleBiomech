@@ -133,9 +133,11 @@ def segment_bag(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], fra
     touches_edge = bool(stats[best, cv2.CC_STAT_LEFT] == 0 or stats[best, cv2.CC_STAT_TOP] == 0
                         or stats[best, cv2.CC_STAT_LEFT] + stats[best, cv2.CC_STAT_WIDTH] >= component.shape[1]
                         or stats[best, cv2.CC_STAT_TOP] + stats[best, cv2.CC_STAT_HEIGHT] >= component.shape[0])
+    mean_lab = patch[component.astype(bool)].mean(axis=0)
     return {"x": float(x0 + cx), "y": float(y0 + cy), "area_px": float(m["m00"]),
             "orientation_deg": float(orientation), "radius_px": 2.0 * spread,
-            "distance_from_prediction_px": float(best_d), "touches_window_edge": touches_edge}
+            "distance_from_prediction_px": float(best_d), "touches_window_edge": touches_edge,
+            "mean_lab": [float(v) for v in mean_lab]}
 
 
 def refine_flight(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray],
@@ -191,61 +193,218 @@ def refine_flight(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray],
     return out
 
 
+# Backward fill from the first measured bag centre to the hand (`backfill_to_hand`). Pilot evidence
+# (METHODS_AND_MATH §1.x, backward fill): the grey-level detector missed the first 10-22 frames of
+# free flight while a red bag crossed the brown slat wall (Player 2 take 4 throw 2: release 168/169,
+# first detection 190; Player 4 take 5 throw 3: release 180, first detection 190-192). A 15-frame
+# cap stopped the walk 6 frames short of the hand on the first, so the flight was left starting
+# 1.8 arm lengths from the wrist and release fell back to the wrist-only proxy. 0.5 s (30 frames at
+# 60 fps) covers the longest observed gap; the hand rule still ends the walk at release.
+BACKFILL_MAX_SECONDS = 0.5
+
+
 def backfill_to_hand(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], rows: list[dict[str, Any]],
-                     wrist: np.ndarray | None, in_hand_px: float | None, max_frames: int = 15,
-                     support: int = 6, max_misses: int = 2) -> list[dict[str, Any]]:
+                     wrist: np.ndarray | None, in_hand_px: float | None, max_frames: int = 30,
+                     support: int = 6, max_misses: int = 2,
+                     gravity_px_per_frame2: float | None = None) -> list[dict[str, Any]]:
     """Bag centres in the frames between the hand and the first detection, found by segmentation.
 
     The detector differences grey levels, so a red bag crossing a wall of similar brightness
-    (brown slats on the 4K pilot clips) goes undetected for its first frames of flight; the
-    colour (LAB) segmentation still separates it. Walking back from the first measured point,
+    (brown slats on the pilot clips) goes undetected for its first frames of flight; the
+    colour (LAB) segmentation still separates it. Walking back from the first mask-measured centre,
     each frame is searched at the position predicted by a parabola through the nearest
-    `support` measured centres, and accepted by the gap-filling rule (within half a bag length
-    of the prediction, typical bag size). The walk stops before a prediction reaches the hand
+    `support` mask-measured centres, and accepted by the gap-filling rule (within half a bag length
+    of the prediction, typical bag size). With `gravity_px_per_frame2` (the flight fit's image
+    gravity, px/frame^2) the prediction is a projectile: y has that fixed curvature and only position
+    and velocity are fitted (x straight). A free quadratic through six early centres extrapolated
+    backwards bends with their noise (pilot Player 4 take 5 throw 3: it missed the bag by 21 px one
+    frame back and by 49 px three frames back, so the walk stopped at once; with gravity fixed the
+    bag was found in every frame back to the hand, 12 frames). Rows whose mask was not found (`source` "detection") are
+    not used to predict: the detector centroid marks the bag's highest-contrast edge, up to ~18 px
+    from its centre on a pilot throw, which bends the backward parabola away from the bag. Such a
+    frame is re-searched; when the mask is found there the row is replaced (its detector centroid
+    kept), otherwise it does not break the walk. The walk stops before a prediction reaches the hand
     (within `in_hand_px` of the wrist: the release rule), after `max_misses` misses in a row, or
-    after `max_frames`. Returns rows (source `backfilled_mask`) in ascending frame order.
+    after `max_frames` (callers pass `BACKFILL_MAX_SECONDS` x fps). Returns rows (source
+    `backfilled_mask`) in ascending frame order.
     """
-    measured = [r for r in rows if r.get("source") in ("mask", "detection", "reacquired_mask")]
-    areas = [r["area_px"] for r in measured if r.get("area_px")]
-    if len(measured) < 4 or not areas or wrist is None or not in_hand_px:
+    masked = [r for r in rows if r.get("source") in ("mask", "reacquired_mask")]
+    areas = [r["area_px"] for r in masked if r.get("area_px")]
+    if len(masked) < 4 or not areas or wrist is None or not in_hand_px:
         return []
+    by_frame = {int(r["frame"]): r for r in rows}
     typical_area = float(np.median(areas))
     bag_length = 2.0 * math.sqrt(typical_area / math.pi)
-    track = [dict(r) for r in measured[:support]]
+    track = [dict(r) for r in masked[:support]]
     found: list[dict[str, Any]] = []
     misses = 0
     for f in range(track[0]["frame"] - 1, max(-1, track[0]["frame"] - 1 - max_frames), -1):
         near = track[:support]
         t = np.array([r["frame"] for r in near], float) - f
-        degree = 2 if len(near) >= 4 else 1
-        guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
-                 float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
+        if gravity_px_per_frame2 is not None:
+            ys = np.array([r["y"] for r in near], float) - 0.5 * gravity_px_per_frame2 * t ** 2
+            guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], 1), 0.0)),
+                     float(np.polyval(np.polyfit(t, ys, 1), 0.0)))
+        else:
+            degree = 2 if len(near) >= 4 else 1
+            guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
+                     float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
         if f >= len(wrist) or not np.isfinite(wrist[f]).all() \
                 or math.hypot(guess[0] - wrist[f][0], guess[1] - wrist[f][1]) < in_hand_px:
             break
+        existing = by_frame.get(f)
         seg = segment_bag(frames, chains, f, guess, typical_area)
         if seg and not seg["touches_window_edge"] and seg["distance_from_prediction_px"] <= 0.5 * bag_length \
                 and math.hypot(seg["x"] - wrist[f][0], seg["y"] - wrist[f][1]) >= in_hand_px:
             row = {"frame": f, "x": seg["x"], "y": seg["y"], "area_px": seg["area_px"],
                    "orientation_deg": seg["orientation_deg"], "source": "backfilled_mask",
-                   "detection_x": None, "detection_y": None}
+                   "detection_x": None if existing is None else existing.get("detection_x"),
+                   "detection_y": None if existing is None else existing.get("detection_y")}
             found.append(row)
             track.insert(0, row)
             misses = 0
+        elif existing is not None:
+            continue   # a detection without a mask: keep it, it neither supports nor breaks the walk
         else:
             misses += 1
             if misses >= max_misses:
                 break
-    # A miss between accepted frames leaves a gap; keep only the run touching the detections.
+    # A miss between accepted frames leaves a gap; keep only the run touching the measured rows.
     found.sort(key=lambda r: r["frame"])
     run: list[dict[str, Any]] = []
-    expected = measured[0]["frame"] - 1
+    expected = masked[0]["frame"] - 1
     for r in reversed(found):
-        if expected - r["frame"] > 1:
+        while expected > r["frame"] and expected in by_frame:
+            expected -= 1
+        if expected != r["frame"]:
             break
         run.insert(0, r)
         expected = r["frame"] - 1
     return run
+
+
+# Forward growth to first contact (`extend_to_contact`). Pilot evidence (six staged two-camera
+# throws, Players 1/2/4, see METHODS_AND_MATH §1.6): the bag's chromaticity distance from its own
+# recent frames, as a fraction of its chroma, was p95 0.48 / p99 0.72 / max 0.91 (lighting changes
+# brightness L*, much less a*/b*); other mask components 50-90 px away were >= 0.45 (median 0.80).
+# The colour gate is therefore only one of four (position, size, colour, person region).
+FORWARD_MAX_MISSES = 6                 # frames the bag may be unseen (pillar, glare) and still be re-acquired
+FORWARD_SUPPORT = 8                    # recent centres in the local parabola that predicts the next frame
+FORWARD_GATE_BAG_LENGTHS = 0.5         # same as gap re-acquisition; widened by half per missed frame
+FORWARD_AREA_BOUNDS = (0.4, 2.5)       # x the median area of the last centres (as after contact)
+COLOUR_GATE_CHROMA_FRACTION = 0.75     # a*/b* distance from the bag's own colour, x its chroma
+COLOUR_GATE_MIN_AB = 10.0              # floor for weakly coloured bags (Lab units, 8-bit OpenCV scale)
+FORWARD_BACKGROUND_OFFSETS = (4, 6, 8, 10, 12)   # earlier frames only (see extend_to_contact)
+
+
+def _chroma_distance(lab: Sequence[float], reference: np.ndarray) -> float:
+    return math.hypot(lab[1] - reference[1], lab[2] - reference[2])
+
+
+def extend_to_contact(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], rows: list[dict[str, Any]],
+                      max_frames: int, seeds: dict[int, list[tuple[float, float]]] | None = None,
+                      surface: Any = None, in_person: Any = None, max_misses: int = FORWARD_MAX_MISSES,
+                      support: int = FORWARD_SUPPORT) -> dict[str, Any]:
+    """Grow a flight FORWARD from its last centre to first contact, by colour segmentation.
+
+    Why: the motion detector loses the bag in clutter (pillar, posters, people walking), and
+    when one throw is split into two candidate flights the later part's detections are no
+    longer available to the earlier one, so the track used to stop 0.3 s before touchdown
+    while the bag was plainly visible. Each next frame is searched at the position predicted
+    by a quadratic through the last `support` centres (raw pixels; frame-to-frame camera
+    motion is a few pixels), seeded also at nearby motion candidates (`seeds`). A mask
+    component is accepted when it is (1) within FORWARD_GATE_BAG_LENGTHS bag lengths of the
+    prediction (x (1 + misses/2) after missed frames), (2) of the recent bag size
+    (FORWARD_AREA_BOUNDS), (3) of the bag's own colour (a*/b* within COLOUR_GATE_CHROMA_FRACTION
+    of its chroma, reference = median of the last ten centres), not touching the search window
+    edge, and (4) after a missed frame, outside a person mask/bystander box (`in_person`), so the
+    track never re-acquires on a person. Up to `max_misses` consecutive frames may be missing.
+
+    `surface(frame, (x, y))` (the board model's contact classification, "air" when in flight)
+    stops the walk at the first accepted centre on the deck/front/floor, or when the predicted
+    position has reached a surface and nothing was found there (`surface_reached`: that frame,
+    the surface and the predicted raw-pixel position). Returns {"rows" (source `extended_mask`),
+    "stop", "surface_reached", "bridged_frames", "colour_reference_lab", ...}.
+    """
+    measured = [r for r in rows if r.get("x") is not None]
+    areas = [r["area_px"] for r in measured if r.get("area_px")]
+    if len(measured) < 5 or len(areas) < 3:
+        return {"rows": [], "stop": "too_few_centres", "bridged_frames": 0, "colour_reference_lab": None}
+    bag_length = 2.0 * math.sqrt(float(np.median(areas)) / math.pi)
+    colours = []
+    for r in [r for r in measured if r.get("area_px")][-10:]:
+        seg = segment_bag(frames, chains, r["frame"], (r["x"], r["y"]), r["area_px"])
+        if seg and not seg["touches_window_edge"] and math.hypot(seg["x"] - r["x"], seg["y"] - r["y"]) <= 0.5 * bag_length:
+            colours.append(seg["mean_lab"])
+    if len(colours) < 3:
+        return {"rows": [], "stop": "no_colour_reference", "bridged_frames": 0, "colour_reference_lab": None}
+    reference = np.median(np.asarray(colours), axis=0)
+    colour_gate = max(COLOUR_GATE_CHROMA_FRACTION * math.hypot(reference[1] - 128.0, reference[2] - 128.0),
+                      COLOUR_GATE_MIN_AB)
+    height, width = frames[0].shape[:2]
+    track = [dict(r) for r in measured[-support:]]
+    recent_areas = areas[-5:]
+    found: list[dict[str, Any]] = []
+    misses, bridged, stop, reached = 0, 0, "end_of_clip", None
+    last = int(measured[-1]["frame"])
+    for f in range(last + 1, min(len(frames), last + 1 + max_frames)):
+        near = track[-support:]
+        t = np.array([r["frame"] for r in near], float) - f
+        degree = 2 if len(near) >= 5 else 1
+        guess = (float(np.polyval(np.polyfit(t, [r["x"] for r in near], degree), 0.0)),
+                 float(np.polyval(np.polyfit(t, [r["y"] for r in near], degree), 0.0)))
+        if not (0 <= guess[0] < width and 0 <= guess[1] < height):
+            stop = "left_view"
+            break
+        gate = FORWARD_GATE_BAG_LENGTHS * bag_length * (1 + 0.5 * misses)
+        typical = float(np.median(recent_areas))
+        bounds = (FORWARD_AREA_BOUNDS[0] * typical, FORWARD_AREA_BOUNDS[1] * typical)
+        starts = [guess] + [s for s in (seeds or {}).get(f, ())
+                            if math.hypot(s[0] - guess[0], s[1] - guess[1]) <= gate]
+        # Background from EARLIER frames only: near the landing the bag rests, in later frames, where it
+        # touched down, so a symmetric median would merge it with the falling bag (synthetic landing test:
+        # mask area x2.2, centre 6 px off; no measurable change on the six staged real throws).
+        past = [f - k for k in FORWARD_BACKGROUND_OFFSETS]
+        best = None
+        for start in starts:
+            seg = segment_bag(frames, chains, f, start, None, background_frames=past, area_bounds=bounds)
+            if not seg or seg["touches_window_edge"]:
+                continue
+            d = math.hypot(seg["x"] - guess[0], seg["y"] - guess[1])
+            if d > gate or _chroma_distance(seg["mean_lab"], reference) > colour_gate:
+                continue
+            if misses and in_person is not None and in_person(f, seg["x"], seg["y"]):
+                continue
+            if best is None or d < best[0]:
+                best = (d, seg)
+        if best is None:
+            misses += 1
+            if surface is not None and surface(f, guess) != "air":
+                stop = "predicted_surface_not_seen"
+                reached = {"frame": f, "kind": surface(f, guess), "x": guess[0], "y": guess[1],
+                           "after_misses": misses}
+                break
+            if misses > max_misses:
+                stop = "lost"
+                break
+            continue
+        d, seg = best
+        bridged += misses
+        misses = 0
+        row = {"frame": f, "x": seg["x"], "y": seg["y"], "area_px": seg["area_px"],
+               "orientation_deg": seg["orientation_deg"], "source": "extended_mask",
+               "detection_x": None, "detection_y": None, "prediction_distance_px": d}
+        found.append(row)
+        track.append(row)
+        recent_areas = (recent_areas + [seg["area_px"]])[-5:]
+        if surface is not None:
+            kind = surface(f, (seg["x"], seg["y"]))
+            if kind != "air":
+                stop = f"surface_contact_{kind}"
+                break
+    return {"rows": found, "stop": stop, "surface_reached": reached, "bridged_frames": bridged,
+            "colour_reference_lab": reference.tolist(),
+            "colour_gate_ab": colour_gate, "bag_length_px": bag_length}
 
 
 def track_after_contact(frames: Sequence[np.ndarray], chains: dict[int, np.ndarray], contact: int,
