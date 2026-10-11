@@ -10,10 +10,12 @@ from .geometry import (
     robust_segment_length,
     signed_orientation_degrees,
     throw_centered_points,
-    unsigned_vector_angle_degrees,
     vector_angle_degrees,
 )
 
+
+# Branch cut of the signed shoulder flexion behind and above the shoulder (see calculate_kinematics).
+SHOULDER_FLEXION_CUT_DEG = -125.0
 
 ANGLE_FIELDS = (
     "elbow_angle_deg",
@@ -245,7 +247,10 @@ def calculate_kinematics(
     - elbow_angle_deg: unsigned shoulder-elbow-wrist planar angle, degrees.
     - upper_arm_orientation_deg: shoulder-to-elbow direction from +x, degrees.
     - forearm_orientation_deg: elbow-to-wrist direction from +x, degrees.
-    - arm_to_trunk_deg: unsigned upper-arm versus hip-to-shoulder angle, degrees.
+    - arm_to_trunk_deg: upper arm versus the hip-to-shoulder line, degrees, continuous through the
+      trunk line: 180 − signed shoulder flexion (flexion from the trunk's downward axis, + toward the
+      target, wrapped into (−125, 235]). 180 = arm along the trunk, < 180 in front of it, > 180
+      behind it; −55 … 305 overall.
     - trunk_inclination_deg: signed trunk displacement from image vertical,
       degrees; positive is toward the target after direction reflection.
     - wrist/elbow_path_arm_lengths: throwing-shoulder-relative position divided
@@ -292,7 +297,23 @@ def calculate_kinematics(
     elbow_angle = vector_angle_degrees(shoulder, elbow, wrist)
     upper_orientation = signed_orientation_degrees(arm_vec)
     forearm_orientation = signed_orientation_degrees(forearm_vec)
-    arm_to_trunk = unsigned_vector_angle_degrees(arm_vec, trunk_vec)
+    # Upper arm vs trunk, continuous through the trunk line: 180° − signed shoulder flexion, where
+    # flexion is the angle from the trunk's downward axis (shoulder → hip) to the upper arm, + toward
+    # the target. Equal to the unsigned upper-arm/trunk angle while the arm is in front of the trunk
+    # (every release); > 180° while it is behind (backswing). The unsigned angle folded at 180° as the
+    # arm swung past the trunk line (CALCULATION_AUDIT.md §A3): ROM 15–68° too small on 14 audited throws.
+    # Flexion is wrapped into (SHOULDER_FLEXION_CUT_DEG, SHOULDER_FLEXION_CUT_DEG + 360°] rather than
+    # unwrapped: the cut lies behind and above the shoulder, beyond both the deepest backswing (−67°)
+    # and the highest follow-through (+178°) seen, so a swing never crosses it, while an upper arm that
+    # briefly points at the camera (2D direction undefined) cannot add a spurious 360°.
+    down_trunk = -trunk_vec
+    flexion = np.degrees(np.arctan2(down_trunk[:, 0] * arm_vec[:, 1] - down_trunk[:, 1] * arm_vec[:, 0],
+                                    np.sum(down_trunk * arm_vec, axis=-1)))
+    flexion = SHOULDER_FLEXION_CUT_DEG + np.mod(flexion - SHOULDER_FLEXION_CUT_DEG, 360.0)
+    degenerate = ~(np.isfinite(flexion) & (np.linalg.norm(arm_vec, axis=-1) > 1e-12)
+                   & (np.linalg.norm(trunk_vec, axis=-1) > 1e-12))
+    flexion[degenerate] = np.nan
+    arm_to_trunk = 180.0 - flexion
     # Positive means the trunk top is displaced toward the target from the hips.
     trunk_inclination = np.degrees(np.arctan2(trunk_vec[:, 0], trunk_vec[:, 1]))
     trunk_inclination[~np.isfinite(trunk_vec).all(axis=-1)] = np.nan

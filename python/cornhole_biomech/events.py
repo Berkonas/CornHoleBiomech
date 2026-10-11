@@ -41,10 +41,26 @@ FOLLOW_THROUGH_TOLERANCE_ARM_LENGTHS = 0.02
 
 
 def _sustained(mask: np.ndarray, count: int) -> np.ndarray:
+    """Every frame of each run of at least `count` consecutive True frames (a morphological opening).
+
+    The earlier centred-convolution test (`convolve(mask, ones(count), "same") >= count`) kept only
+    the centres of full windows, eroding each run by ⌊count/2⌋ frames at its start and
+    ⌈count/2⌉ − 1 at its end, so motion_end was one frame early at 60 fps (three frames late /
+    two early at 120 fps) (CALCULATION_AUDIT.md §A6).
+    """
+    mask = np.asarray(mask, bool)
     if count <= 1:
         return mask
-    convolution = np.convolve(mask.astype(int), np.ones(count, dtype=int), mode="same")
-    return convolution >= count
+    out = np.zeros_like(mask)
+    start = None
+    for i, value in enumerate(np.append(mask, False)):
+        if value and start is None:
+            start = i
+        elif not value and start is not None:
+            if i - start >= count:
+                out[start:i] = True
+            start = None
+    return out
 
 
 def _swing_onset(speed: np.ndarray, velocity_x: np.ndarray, valid: np.ndarray, top: int,

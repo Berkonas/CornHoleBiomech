@@ -786,6 +786,52 @@ def _gravity_constrained_launch(
     }
 
 
+def plane_launch_fit(
+    bag_pixels: np.ndarray,
+    release_frame: int | None,
+    fps: float,
+    to_plane: Any,
+    window_seconds: float = 0.12,
+    minimum_points: int = 4,
+) -> dict[str, Any] | None:
+    """Gravity-constrained launch fitted in the board's throw plane (metres, x toward the board, y up).
+
+    `estimate_projectile_release_kinematics` fits in image pixels and converts with one scalar
+    pixels-per-metre (the throw plane's horizontal scale at the release point). The plane is mapped by
+    a homography, so its local vertical and horizontal scales differ and image directions are sheared:
+    on a synthetic side camera the pixel fit was −0.9 % / +0.8° off (camera 6 m away, pitched down)
+    and +5.7 % / +3.5° (release 1.2 m off the optical axis, φ = 11°); on 82 pilot throws this plane fit
+    differs from the pixel fit by −1.3…+0.9 % in speed (at most 0.10 m/s) and −1.2…+1.5° in angle
+    (CALCULATION_AUDIT.md §D2). Not yet used by the pipeline (it passes a scalar scale).
+    Here the same samples (release … release + `window_seconds`, first within two frames of
+    release) are mapped through `to_plane` (e.g. `BoardModel.to_plane`) first, then
+    y + ½ g t² and x are fitted with straight lines (Huber IRLS), as in the pixel version. Returns
+    None when the samples are insufficient.
+    """
+    points = np.asarray(bag_pixels, float)
+    if release_frame is None or fps <= 0 or not 0 <= release_frame < len(points):
+        return None
+    end = min(len(points), release_frame + max(minimum_points, int(math.ceil(window_seconds * fps)) + 1))
+    valid = np.isfinite(points[:, 0]) & np.isfinite(points[:, 1])
+    idx = release_frame + np.flatnonzero(valid[release_frame:end])
+    if len(idx) < minimum_points or idx[0] - release_frame > 2:
+        return None
+    xy = np.asarray(to_plane(points[idx]), float).reshape(-1, 2)
+    if not np.isfinite(xy).all():
+        return None
+    t = (idx - release_frame) / fps
+    coeff_x, res_x, cov_x = _robust_polynomial(t, xy[:, 0], 1)
+    coeff_y, res_y, cov_y = _robust_polynomial(t, xy[:, 1] + 0.5 * GRAVITY_M_S2 * t**2, 1)
+    vx, vy = float(coeff_x[1]), float(coeff_y[1])
+    se = _velocity_uncertainty(vx, vy, None if cov_x is None else float(cov_x[1, 1]),
+                               None if cov_y is None else float(cov_y[1, 1]))
+    return {"model": "gravity_constrained_linear_throw_plane", "forward_m_s": vx, "vertical_m_s": vy,
+            "speed_m_s": math.hypot(vx, vy), "angle_deg": math.degrees(math.atan2(vy, vx)),
+            "standard_error": {"forward_m_s": se["forward_px_s"], "vertical_m_s": se["vertical_px_s"],
+                               "speed_m_s": se["speed_px_s"], "angle_deg": se["angle_deg"]},
+            "sample_count": int(len(idx)), "fit_rmse_m": float(np.sqrt(np.mean(res_x**2 + res_y**2)))}
+
+
 def estimate_projectile_release_kinematics(
     bag_pixels: np.ndarray,
     release_frame: int | None,
