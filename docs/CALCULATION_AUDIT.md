@@ -13,7 +13,7 @@ This audit re-derived each calculation in the side-camera engine and tested it a
 | A3 | Shoulder angle (upper arm vs trunk) folded at 180° | **Fixed** | ROM +11 to +65° on 14/14 throws; release value, shoulder peak velocity and its timing unchanged on 14/14 |
 | A6 | Sustained-motion mask eroded each run | **Fixed** | motion end +1 frame (16.7 ms) on 14/14 throws, so movement duration +1 frame |
 | B3 | Slide friction μ: negative and > 1.5 values | **Fixed and gated** | old: 40 μ values from −0.14 to 1.58, plus 15 fits with negative deceleration shown in the app. New: 24 values from 0.31 to 1.17 (median 0.52), none negative |
-| D2 | Launch fit in pixels with one horizontal scale | **Found, not wired** (`bag.plane_launch_fit`) | plane minus pixel fit on 82 throws: speed −1.3…+0.9 % (at most 0.10 m/s), angle −1.2…+1.5° |
+| D2 | Launch fit in pixels with one horizontal scale | **Fixed** (`bag.plane_launch_fit`, wired 2026-10-11) | plane minus pixel fit on 82 throws: speed −1.3…+0.9 % (at most 0.10 m/s), angle −1.2…+1.5° |
 | B2 | 6 Hz filter flattens fast peaks | Limitation | peak wrist speed a median 5 % lower than at 12 Hz; timing within 1 frame on 9/14 |
 | D3 | Bag flying off the board's centre-line plane | Limitation | synthetic: 0.4 m offset gives −8 cm in height and +1.2° in angle |
 | G2 | Normal-approximation critical Cliff's δ at n = 5 + 5 | Limitation | exact false-positive rate 5.6 % (nominal 5 %) |
@@ -94,7 +94,7 @@ These are covered by A6. The remaining rules (onset, top of backswing, follow-th
 
 A right-to-left throw gives identical results.
 
-**D2. Pixel-space launch with one scalar scale. Found, not wired.** The pipeline fits the launch in image pixels, then divides by q, the throw plane's horizontal pixels per metre at the release point. The plane is a homography, so its local vertical and horizontal scales differ and image directions are sheared. On a synthetic phone 6 m to the side (test D2):
+**D2. Pixel-space launch with one scalar scale. Fixed.** The pipeline fits the launch in image pixels, then divides by q, the throw plane's horizontal pixels per metre at the release point. The plane is a homography, so its local vertical and horizontal scales differ and image directions are sheared. On a synthetic phone 6 m to the side (test D2):
 - the gravity-calibrated field of view recovers the true 62.0° (±0.05°);
 - the release point maps to (−5.5, 1.0) m within 2 mm;
 - a fit in plane metres recovers exactly 7.00 m/s and 40.00°;
@@ -102,7 +102,7 @@ A right-to-left throw gives identical results.
 
 On 82 pilot throws, the plane fit minus the pixel fit was −1.3…+0.9 % in speed (median +0.1 %, at most 0.10 m/s) and −1.2…+1.5° in angle (median +0.2°), below the 0.15 m/s and 3° noise floors.
 
-`bag.plane_launch_fit(points_px, release, fps, model.to_plane)` performs the plane fit. Using it needs a change in `pipeline.py`, outside this audit's files: where the board throw plane is the scale source, take `bag_release_speed_m_s`, the angle and their SEs from it.
+`bag.plane_launch_fit(points_px, release, fps, model.to_plane)` performs the plane fit. Since 2026-10-11 `pipeline._plane_launch` calls it whenever the board throw plane is the scale source: `bag_release_speed_m_s`, the forward and vertical m/s, `bag_release_angle_deg` and their SEs come from it, and `projectile.json` records it as `throw_plane_fit` with `metric_model: gravity_constrained_linear_throw_plane` (`primary_model` still names the pixel fit behind the px values). It needs the board measured in the flight's release frame (the same gate as the throw-plane joints); otherwise `throw_plane_fit` is `unavailable` with a reason and the pixel route stays. Pixel and arm-length values are unchanged. Test: `test_d2_pipeline_uses_the_plane_fit_only_when_the_board_is_in_the_release_frame`.
 
 **D3. Bag off the board's centre-line plane. Limitation.** The throw plane is the board's centre line, but a thrower stands beside the board. With the bag 0.4 m nearer the camera (test D3), the gravity-calibrated field of view absorbs the offset (62° → 55.6°). Speed stays within 0.4 %, but release height reads 8 cm low and angle 1.2° high. Session pooling of the field of view turns this into a per-session offset. Two-camera 3D flight can measure the offset.
 
@@ -160,7 +160,7 @@ The Monte-Carlo landmark noise is white noise passed through the 6 Hz filter (�
 - `kinematics.py`: continuous shoulder angle (A3).
 - `events.py`: `_sustained` (A6).
 - `board_phase.py`: settled, SE-gated slide fit; `BOARD_PHASE_REVISION` v4 (B3).
-- `bag.py`: `plane_launch_fit` (D2; not yet called by the pipeline).
+- `bag.py`: `plane_launch_fit` (D2); `pipeline.py`: `_plane_launch` uses it for the board-plane scale.
 - `__init__.py`: `METHOD_VERSION`.
 - `docs/METHODS_AND_MATH.md`: version table; §1.9 motion end and slide kinematics; §1.10 shoulder angle; Eq. 3.4.8; Eq. 3.14.3; §4.3 limitations.
 - `docs/METRICS.md`: arm-relative-to-trunk definition and motion end.

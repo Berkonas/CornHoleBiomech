@@ -296,11 +296,33 @@ def test_d2_gravity_calibrated_fov_and_plane_launch_recover_a_known_throw(camera
     plane = plane_launch_fit(px, 0, FPS, model.to_plane)
     assert (plane["speed_m_s"], plane["angle_deg"]) == pytest.approx((7.0, 40.0), abs=0.01)
     assert model.to_plane(px[:1])[0] == pytest.approx([-5.5, 1.0], abs=0.002)        # release point, height
-    # The current pixel fit + one horizontal scale is off by a known amount (audit §D2: not yet wired).
+    # The pixel fit + one horizontal scale is off by a known amount (audit §D2), hence the plane fit.
     pixel = estimate_projectile_release_kinematics(
         px, 0, FPS, 140.0, "left_to_right",
         SpatialCalibration(cal["pixels_per_meter"], "board_throw_plane", True, "test"))["gravity_constrained"]
     assert pixel_error_deg[0] < abs(pixel["angle_deg"] - 40.0) < pixel_error_deg[1]
+
+
+def test_d2_pipeline_uses_the_plane_fit_only_when_the_board_is_in_the_release_frame():
+    """`pipeline._plane_launch` maps the release-frame pixels through the board and recovers 7 m/s, 40°;
+    a board measured in another frame, or no field of view, leaves it unavailable with a reason."""
+    from cornhole_biomech.pipeline import _plane_launch
+    project = _camera(centre=(-1.0, 1.1, 6.0))
+    corners = project(_deck_object_points(Board()))
+    t, world = _flight()
+    px = project(world)
+    px[3] = np.nan                                                  # a gap in the window is tolerated
+    identity = {str(f): [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] for f in range(len(t))}
+    auto_flight = {"width": 1920, "height": 1080, "release_frame": 0, "camera_to_release": identity,
+                   "board": {"status": "found", "corners_px": corners.tolist(), "reference_frame": 0}}
+    config = {"release_fit_window_seconds": 0.12, "minimum_velocity_points": 4}
+    fit = _plane_launch(auto_flight, {"hfov_deg": 62.0}, identity, px, 0, FPS, config)
+    assert fit["status"] == "measured" and fit["model"] == "gravity_constrained_linear_throw_plane"
+    assert (fit["speed_m_s"], fit["angle_deg"]) == pytest.approx((7.0, 40.0), abs=0.02)
+    other = {**auto_flight, "board": {**auto_flight["board"], "reference_frame": 5}}
+    assert _plane_launch(other, {"hfov_deg": 62.0}, identity, px, 0, FPS, config)["status"] == "unavailable"
+    missing = _plane_launch(auto_flight, {"hfov_deg": None, "reason": "no flight"}, identity, px, 0, FPS, config)
+    assert missing["status"] == "unavailable" and "no flight" in missing["reason"]
 
 
 def test_d3_bag_flying_off_the_board_centre_line_biases_the_scale():

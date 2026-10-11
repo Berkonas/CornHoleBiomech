@@ -802,7 +802,7 @@ def plane_launch_fit(
     on a synthetic side camera the pixel fit was −0.9 % / +0.8° off (camera 6 m away, pitched down)
     and +5.7 % / +3.5° (release 1.2 m off the optical axis, φ = 11°); on 82 pilot throws this plane fit
     differs from the pixel fit by −1.3…+0.9 % in speed (at most 0.10 m/s) and −1.2…+1.5° in angle
-    (CALCULATION_AUDIT.md §D2). Not yet used by the pipeline (it passes a scalar scale).
+    (CALCULATION_AUDIT.md §D2). `pipeline._plane_launch` uses it when the board plane is the scale.
     Here the same samples (release … release + `window_seconds`, first within two frames of
     release) are mapped through `to_plane` (e.g. `BoardModel.to_plane`) first, then
     y + ½ g t² and x are fitted with straight lines (Huber IRLS), as in the pixel version. Returns
