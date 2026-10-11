@@ -19,12 +19,14 @@ struct CornholeBiomechanicsApp: App {
     @FocusedObject private var trackingEditor: TrialDataController?
     @StateObject private var store = ProjectStore()
     @StateObject private var analysis = AnalysisService()
+    @StateObject private var glances = ThrowGlanceStore()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(analysis)
+                .environmentObject(glances)
                 .frame(minWidth: 980, minHeight: 680)
         }
         .defaultSize(width: 1240, height: 820)
@@ -49,9 +51,9 @@ struct CornholeBiomechanicsApp: App {
                 Button("Import Videos…") { post(.importTrialVideo) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                     .disabled(analysis.isRunning)
-                Button("Import Two-Camera Takes…") { post(.importTakes) }
+                // Takes join the analysis queue, so they can be imported while it runs.
+                Button("Import Takes…") { post(.importTakes) }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
-                    .disabled(analysis.isRunning)
                 Button("Analyze Throw") { post(.analyzeSelectedTrial) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(analysis.isRunning)

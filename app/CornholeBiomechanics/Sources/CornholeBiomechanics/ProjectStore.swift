@@ -26,6 +26,13 @@ enum ProjectStoreError: LocalizedError {
     }
 }
 
+/// What Undo needs after a result was confirmed: the throw and the outcome it had before (nil = none).
+struct OutcomeUndo: Equatable {
+    let trialID: UUID
+    let previous: TrialOutcome?
+    let recorded: ScoreCategory
+}
+
 private func moveToTrash(_ url: URL) throws {
     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
 }
@@ -44,7 +51,9 @@ final class ProjectStore: ObservableObject {
                 if let athleteID = project?.trials.first(where: { $0.id == trialID })?.athleteID, athleteID != selectedAthleteID {
                     selectedAthleteID = athleteID
                 }
-            case .launchLab, nil: break
+            case .take(let key):
+                if key.athleteID != selectedAthleteID { selectedAthleteID = key.athleteID }
+            case .launchLab, .reviewInbox, nil: break
             }
         }
     }
@@ -86,6 +95,81 @@ final class ProjectStore: ObservableObject {
         default: return
         }
         destination = .throwReport(trial.id)
+    }
+
+    /// After a take is imported, open its Take screen (the default view after import; the bags fill in as they are
+    /// analysed) unless the user has moved to another athlete or a tool: only when nothing is shown, or this
+    /// athlete's summary, one of their takes or one of their throws is shown.
+    func showImportedTake(_ key: TakeKey) {
+        switch destination {
+        case nil: break
+        case .summary(let athleteID) where athleteID == key.athleteID: break
+        case .take(let shown) where shown.athleteID == key.athleteID: break
+        case .throwReport(let id) where project?.trials.first(where: { $0.id == id })?.athleteID == key.athleteID: break
+        default: return
+        }
+        destination = .take(key)
+    }
+
+    /// The throws of one take, in throwing order.
+    func trials(in key: TakeKey) -> [Trial] {
+        (project?.trials ?? []).filter { $0.takeKey == key }
+            .sorted { ($0.throwInTake ?? 0, $0.createdAt) < ($1.throwInTake ?? 0, $1.createdAt) }
+    }
+
+    /// This athlete's takes in order (take number, then recording date).
+    func takeKeys(athleteID: UUID) -> [TakeKey] {
+        var seen: Set<TakeKey> = []
+        var ordered: [(key: TakeKey, number: Int, date: String)] = []
+        for trial in project?.trials ?? [] where trial.athleteID == athleteID {
+            guard let key = trial.takeKey, !seen.contains(key) else { continue }
+            seen.insert(key)
+            ordered.append((key, trial.takeNumber ?? 0, trial.recordingDate ?? ""))
+        }
+        return ordered.sorted { ($0.number, $0.date, $0.key.record) < ($1.number, $1.date, $1.key.record) }.map(\.key)
+    }
+
+    /// Remember the throwing side and board direction used to import this athlete's takes.
+    func rememberTakeImportDefaults(athleteID: UUID, throwingSide: ThrowingSide, targetDirection: TargetDirection) {
+        guard var athlete = project?.athletes.first(where: { $0.id == athleteID }) else { return }
+        let defaults = TakeImportDefaults(throwingSide: throwingSide, targetDirection: targetDirection)
+        guard athlete.takeImportDefaults != defaults else { return }
+        athlete.takeImportDefaults = defaults
+        do { try updateAthlete(athlete) } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Record a person's In / On / Off for a throw the front camera was unsure about. Never replaces a person's
+    /// entry: it only fills an empty result or replaces an automatic one. Landing and rest points measured by the
+    /// cameras are kept (or added when missing). Returns what Undo needs, or nil when nothing was changed.
+    @discardableResult
+    func confirmResult(_ score: ScoreCategory, trialID: UUID, contact: BoardPoint?, rest: BoardPoint?,
+                       note: String = TrialOutcome.confirmedByEyeNote) throws -> OutcomeUndo? {
+        guard let current = project?.trials.first(where: { $0.id == trialID }) else { throw ProjectStoreError.recordNotFound("throw") }
+        if let existing = current.outcome, existing.scoreCategory != nil, !existing.isAutomatic { return nil }
+        let previous = current.outcome
+        var outcome = previous ?? TrialOutcome(intendedPoint: BoardPoint(xInches: 12, yInches: 39))
+        outcome.scoreCategory = score
+        outcome.notes = note
+        if outcome.firstContactPoint == nil { outcome.firstContactPoint = contact }
+        if outcome.finalRestingPoint == nil, score != .offBoard { outcome.finalRestingPoint = rest }
+        try saveOutcome(outcome, for: current)
+        return OutcomeUndo(trialID: trialID, previous: previous, recorded: score)
+    }
+
+    /// Put back the result a throw had before (Undo after a confirmation): nil clears it.
+    func restoreOutcome(_ outcome: TrialOutcome?, trialID: UUID) throws {
+        guard let current = project?.trials.first(where: { $0.id == trialID }) else { throw ProjectStoreError.recordNotFound("throw") }
+        if let outcome {
+            try saveOutcome(outcome, for: current)
+            return
+        }
+        var changed = current
+        changed.outcome = nil
+        try updateTrial(changed)
+        if let analysis = analysisURL(for: changed) {
+            let file = analysis.appendingPathComponent("outcome.json")
+            if fileManager.fileExists(atPath: file.path) { try? fileManager.removeItem(at: file) }
+        }
     }
 
     var selectedAthlete: Athlete? {
@@ -348,6 +432,7 @@ final class ProjectStore: ObservableObject {
         }
         if selectedTrialID == trial.id { selectedTrialID = project?.trials.first?.id }
         if destination == .throwReport(trial.id) { destination = .summary(trial.athleteID) }
+        if case .take(let key) = destination, trials(in: key).isEmpty { destination = .summary(trial.athleteID) }
         notice = "Deleted the throw record. Its managed video and analysis were moved to Trash when available."
     }
 
@@ -385,6 +470,7 @@ final class ProjectStore: ObservableObject {
         switch destination {
         case .summary(athlete.id): destination = selectedAthleteID.map { .summary($0) }
         case .throwReport(let id) where trialIDs.contains(id): destination = selectedAthleteID.map { .summary($0) }
+        case .take(let key) where key.athleteID == athlete.id: destination = selectedAthleteID.map { .summary($0) }
         default: break
         }
         notice = "Deleted \(athlete.displayName). Managed videos and analyses were moved to Trash when available."

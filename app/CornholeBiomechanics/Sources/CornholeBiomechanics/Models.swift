@@ -4,11 +4,27 @@ let applicationName = "Cornhole Biomechanics Lab"
 let applicationVersion = "0.6.2"
 let currentProjectSchemaVersion = 4
 
-/// What the detail column shows: an athlete's summary, one throw's report, or the Launch Lab tool.
+/// What the detail column shows: an athlete's summary, one throw's report, a two-camera take (its four bags),
+/// the "Needs your eye" inbox, or the Launch Lab tool.
 enum Destination: Hashable {
     case summary(UUID)
     case throwReport(UUID)
     case launchLab
+    case take(TakeKey)
+    case reviewInbox
+}
+
+/// One imported two-camera take of one athlete: identified by its take record (take.json, library-relative),
+/// so two takes that share a number (different days) stay apart.
+struct TakeKey: Hashable, Codable {
+    var athleteID: UUID
+    var record: String
+}
+
+/// Throwing side and board direction last used to import this athlete's takes (remembered per athlete).
+struct TakeImportDefaults: Codable, Hashable {
+    var throwingSide: ThrowingSide
+    var targetDirection: TargetDirection
 }
 
 enum ThrowingSide: String, Codable, CaseIterable, Identifiable {
@@ -85,6 +101,8 @@ struct Athlete: Codable, Identifiable, Hashable {
     var upperArmCentimeters: Double?
     var forearmCentimeters: Double?
     var notes: String
+    /// Remembered by the take import (optional: older libraries have none).
+    var takeImportDefaults: TakeImportDefaults? = nil
 
     var displayName: String { participantCode.isEmpty ? "Unnamed participant" : participantCode }
 }
@@ -913,4 +931,56 @@ struct ArmMotionAnalysis: Codable {
     var coverage: Double?
     var radius_coverage: Double?
     var message: String
+}
+
+// MARK: - Takes and automatic results
+
+extension Trial {
+    /// The take this throw belongs to (two-camera takes only).
+    var takeKey: TakeKey? {
+        if let record = takeRecordRelativePath { return TakeKey(athleteID: athleteID, record: record) }
+        if let number = takeNumber { return TakeKey(athleteID: athleteID, record: "take-\(number)") }
+        return nil
+    }
+}
+
+extension TrialOutcome {
+    /// Notes written on a result the app recorded from the front camera (AnalysisService); a person's entry never
+    /// starts with it, so it is never overwritten by a later analysis.
+    static let automaticNotePrefix = "Recorded automatically"
+    /// Notes written when a person confirms an unsure result in "Needs your eye" (or on the Take screen).
+    static let confirmedByEyeNote = "Confirmed by eye: the front camera was not sure."
+
+    /// Recorded by the app, not by a person (reversible: a person's entry replaces it).
+    var isAutomatic: Bool { notes.hasPrefix(Self.automaticNotePrefix) }
+}
+
+extension ScoreCategory {
+    /// "In" / "On" / "Off": the words on the confirmation buttons.
+    var shortWord: String {
+        switch self {
+        case .throughHole: "In"
+        case .onBoard: "On"
+        case .offBoard: "Off"
+        }
+    }
+
+    /// "In the hole" / "On the board" / "Off the board".
+    var plainLabel: String {
+        switch self {
+        case .throughHole: "In the hole"
+        case .onBoard: "On the board"
+        case .offBoard: "Off the board"
+        }
+    }
+
+    /// The engine's category name in two_view.json ("throughHole", "onBoard", "offBoard").
+    init?(engineCategory: String?) {
+        switch engineCategory {
+        case "throughHole": self = .throughHole
+        case "onBoard": self = .onBoard
+        case "offBoard": self = .offBoard
+        default: return nil
+        }
+    }
 }

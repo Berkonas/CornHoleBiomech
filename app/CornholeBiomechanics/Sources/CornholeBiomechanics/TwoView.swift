@@ -48,6 +48,43 @@ struct TwoViewDocument: Decodable, Equatable {
         enum CodingKeys: String, CodingKey { case status, outcome = "where", path, contact, rest, ambiguous, notes, reason }
     }
     struct FrontPathPoint: Decodable, Equatable { var frame: Int; var px: [Double]; var deck_in: [Double]? }
+    /// two_view.json → flight_3d (python `flight3d.reconstruct_flight`, METHODS_AND_MATH §5.4). World frame: x along the
+    /// throw from the release point, y sideways from the board's centre line (+ thrower's right), z height above the
+    /// floor (m); t from release (s, side camera clock). Numbers are present only when `status` is measured or estimated.
+    struct Flight3D: Decodable, Equatable {
+        struct Release: Decodable, Equatable { var lateral_m: Double?; var height_m: Double?; var to_board_front_m: Double? }
+        struct Velocity: Decodable, Equatable { var along: Double?; var lateral: Double?; var vertical: Double?; var speed: Double? }
+        struct Landing: Decodable, Equatable {
+            var t_s: Double?; var at: String?; var predicted_x_in: Double?; var predicted_along_m: Double?
+            var predicted_height_m: Double?; var measured_x_in: Double?; var difference_in: Double?
+        }
+        struct Fit: Decodable, Equatable {
+            var inlier_frames: Int?; var frames_searched: Int?; var rms_px: Double?; var timing_offset_s: Double?
+            var front_hfov_deg: Double?; var coverage_by_third: [Double]?; var side_scale_status: String?
+        }
+        struct ReleaseCheck: Decodable, Equatable { var front_pose_hand_lateral_m: Double?; var difference_m: Double? }
+        struct HeadingCheck: Decodable, Equatable { var two_view_heading_deg: Double?; var difference_deg: Double? }
+        /// One 60 Hz sample of the fitted 3D path (the model through the measured side arc and front line).
+        struct Sample: Decodable, Equatable { var t_s: Double; var x_m: Double; var y_m: Double; var z_m: Double }
+
+        var method_version: String?
+        var status: String?
+        var reason: String?
+        var release: Release?
+        var velocity_m_s: Velocity?
+        /// atan2(lateral velocity, along velocity): + = launched towards the thrower's right.
+        var lateral_launch_angle_deg: Double?
+        var landing: Landing?
+        var fit: Fit?
+        var release_check: ReleaseCheck?
+        var heading_check: HeadingCheck?
+        var path_m: [Sample]?
+        /// The 3D path projected into every front frame from release to first contact.
+        var front_path: [PathPoint]?
+        var notes: [String]?
+
+        var isAvailable: Bool { status == "measured" || status == "estimated" }
+    }
 
     var status: String
     var reason: String?
@@ -72,10 +109,42 @@ struct TwoViewDocument: Decodable, Equatable {
     var notes: [String]?
     /// The result to record automatically (front camera confident, views agree); nil otherwise.
     var auto_outcome: TrialOutcome?
+    /// "flight_3d" when `front_path` is the projected 3D flight, "front_track" for the older front tracker.
+    var front_path_source: String?
+    /// The 3D flight (§5.4) and the per-throw miss attribution. Decoded separately in `load` so that a block written
+    /// by a newer engine that does not match these types never hides the rest of the front camera's analysis.
+    var flight_3d: Flight3D? = nil
+    var attribution: ThrowAttribution? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case status, reason, take, throw_in_take, sync, sync_check, camera, alignment, frames, heading, result, miss
+        case explanation, landing, front_landing, frontal, front_path, deck_corners_by_frame_px, front_size
+        case side_to_front_frames, notes, auto_outcome, front_path_source
+    }
 
     static func load(_ analysisURL: URL?) -> TwoViewDocument? {
         guard let analysisURL, let data = try? Data(contentsOf: analysisURL.appendingPathComponent("two_view.json")) else { return nil }
-        return try? JSONDecoder().decode(TwoViewDocument.self, from: data)
+        guard var document = try? JSONDecoder().decode(TwoViewDocument.self, from: data) else { return nil }
+        struct FlightBox: Decodable { var flight_3d: Flight3D? }
+        struct AttributionBox: Decodable { var attribution: ThrowAttribution? }
+        document.flight_3d = (try? JSONDecoder().decode(FlightBox.self, from: data))?.flight_3d
+        document.attribution = (try? JSONDecoder().decode(AttributionBox.self, from: data))?.attribution
+        return document
+    }
+
+    /// The 3D flight when it was fitted and accepted (measured or estimated); nil otherwise.
+    var flight: Flight3D? { flight_3d?.isAvailable == true ? flight_3d : nil }
+
+    /// Sideways launch direction (° , + = right) and where it came from: the 3D flight when accepted, else the
+    /// two-view heading (release hand → first contact). Nil when neither was measured.
+    var launchDirection: (deg: Double, releaseRightM: Double?, source: String, status: String?)? {
+        if let flight, let deg = flight.lateral_launch_angle_deg {
+            return (deg, flight.release?.lateral_m, "3D flight", flight.status)
+        }
+        if let heading, heading.status == "measured" || heading.status == "estimated", let deg = heading.deg {
+            return (deg, heading.release_offset_m, "release hand → first contact", heading.status)
+        }
+        return nil
     }
 
     var isMeasured: Bool { status == "measured" }
@@ -128,38 +197,24 @@ func distanceText(_ inches: Double?) -> String? {
     return "\(number(abs(inches), digits: 0)) in \(inches > 0 ? "long" : "short")"
 }
 
-// MARK: - Both cameras card
+// MARK: - Two-camera details
 
-/// The throw's two-camera summary: the plain sentence, the signed miss, the throw from above
-/// (animated with the replay) and the frontal-plane body measures that went with it.
-struct TwoViewCard: View {
+/// The front camera's supporting measures, shown under the throw's Details: the frontal-plane body at release
+/// (plausibility checks, never per-throw causes; council §7), how the two cameras were synchronised and the board
+/// tracked, and how well the 3D flight fitted.
+struct TwoViewDetailsCard: View {
     let document: TwoViewDocument
-    let phase: BoardPhase?
-    let recorded: ScoreCategory?
-    /// Release → front of the board (m), from the side camera, for the drawing.
-    var releaseToBoardM: Double? = nil
-    var currentFrame: Int = 0
-    var canEdit = true
-    var accept: (ScoreCategory) -> Void = { _ in }
-    var seek: (Int) -> Void = { _ in }
 
     var body: some View {
-        Card("Both cameras", symbol: "video.badge.checkmark",
-             subtitle: "Side camera: release and distance. Front camera: left/right, where the bag ended and the body seen from the front.") {
+        Card("Front camera", symbol: "video.badge.checkmark",
+             subtitle: "Body seen from the front, camera sync and the 3D flight fit.") {
             if document.isMeasured {
-                if let sentence = document.explanation?.sentence {
-                    Text(sentence).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                }
-                chips
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: Space.l) {
-                        throwFromAbove.frame(minWidth: 420)
-                        frontalGrid.frame(width: 360)
-                    }
-                    VStack(alignment: .leading, spacing: Space.l) { throwFromAbove; frontalGrid }
-                }
-                suggestion
-                trust
+                frontalGrid
+                Text("Frontal angles are 2D image angles at release: plausibility checks, not causes of this throw's result.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(Self.trustText(document))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                flightFacts
             } else {
                 Label(document.reason ?? "The front camera could not be used for this throw.", systemImage: "video.slash")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -167,51 +222,11 @@ struct TwoViewCard: View {
         }
     }
 
-    // Signed miss and aim as chips (text + arrow, never colour alone).
-    private var chips: some View {
-        HStack(spacing: Space.s) {
-            if let right = document.miss?.left_right_in, let text = sidewaysText(right, precision: 3) {
-                chip(text, symbol: right > 0 ? "arrow.right" : "arrow.left", tint: text == "on line" ? .green : .orange)
-            }
-            if let long = document.miss?.short_long_in, let text = distanceText(long) {
-                chip(text, symbol: long > 0 ? "arrow.up" : "arrow.down", tint: abs(long) < 3 ? .green : .orange)
-            }
-            if let deg = document.heading?.deg {
-                chip("aimed \(number(abs(deg), digits: 1))° \(abs(deg) < 0.3 ? "straight" : deg > 0 ? "right" : "left")",
-                     symbol: "scope", tint: .secondary)
-            }
-            if let contact = document.frames?.contact_side {
-                Button("Show landing", systemImage: "play.circle") { seek(contact) }.buttonStyle(.link).font(.callout)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func chip(_ text: String, symbol: String, tint: Color) -> some View {
-        Label(text, systemImage: symbol)
-            .font(.callout.weight(.semibold)).monospacedDigit()
-            .padding(.horizontal, 10).padding(.vertical, 4)
-            .foregroundStyle(tint == .secondary ? Color.primary : tint)
-            .background((tint == .secondary ? Color.secondary : tint).opacity(0.14), in: Capsule())
-            .accessibilityElement(children: .combine)
-    }
-
-    private var throwFromAbove: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            ThrowFromAbove(document: document, phase: phase, currentFrame: currentFrame, releaseToBoardM: releaseToBoardM)
-                .frame(height: 320)
-            Text(releaseToBoardM == nil
-                 ? "Seen from above, to scale: the board enlarged, front (low) edge at the left and the thrower's left at the top. The release distance was not measured, so the flight is not drawn. The dashed line is the miss from the hole; the bag moves with the replay."
-                 : "Seen from above, to scale (nothing stretched). Top: release to board, throw running left to right. Below: the board enlarged, front (low) edge at the left and the thrower's left at the top. The dashed line is the miss from the hole; the bag moves with the replay.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     private var frontalGrid: some View {
         let frontal = document.frontal ?? [:]
         return VStack(alignment: .leading, spacing: Space.s) {
             Text("Body from the front, at release").font(.headline)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.s), GridItem(.flexible(), spacing: Space.s)], spacing: Space.s) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: Space.s, alignment: .top)], spacing: Space.s) {
                 ForEach(TwoViewDocument.frontalKeys, id: \.key) { item in
                     FrontalTile(label: item.label, help: item.help, metric: frontal[item.key])
                 }
@@ -219,26 +234,52 @@ struct TwoViewCard: View {
         }
     }
 
-    @ViewBuilder private var suggestion: some View {
-        if let suggested = document.suggestedScore {
-            HStack(spacing: Space.m) {
-                Image(systemName: "video").foregroundStyle(.secondary).accessibilityHidden(true)
-                Text("Front camera: ").foregroundStyle(.secondary) + Text(WhereItEndedCard.label(suggested)).bold()
-                    + Text(document.result?.views_agree == false ? " (the side camera saw it differently — check the video)" : "")
-                        .foregroundStyle(.secondary)
-                Spacer(minLength: Space.m)
-                if recorded == suggested {
-                    Label("Matches the recorded result", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                } else {
-                    Button(recorded == nil ? "Use This Result" : "Change to \(WhereItEndedCard.label(suggested))") { accept(suggested) }
-                        .disabled(!canEdit)
+    /// The 3D flight's fit: status, launch direction, release position and the agreement checks.
+    @ViewBuilder private var flightFacts: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("3D flight").font(.headline)
+            if let flight = document.flight {
+                Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.xs) {
+                    GridRow { Text("Status"); Text(flight.status == "measured" ? "Measured" : "Estimated (side scale or front field of view estimated)") }
+                    if let deg = flight.lateral_launch_angle_deg {
+                        GridRow { Text("Launch direction"); Text(launchText(deg)) }
+                    }
+                    if let x0 = flight.release?.lateral_m {
+                        GridRow { Text("Release point"); Text(releaseText(x0)) }
+                    }
+                    if let fit = flight.fit, let inliers = fit.inlier_frames, let searched = fit.frames_searched {
+                        GridRow {
+                            Text("Bag found on the path")
+                            Text("\(inliers) of \(searched) front frames" + (fit.rms_px.map { " · \(number($0, digits: 1)) px RMS" } ?? ""))
+                        }
+                    }
+                    if let landing = flight.landing, let difference = landing.difference_in {
+                        GridRow { Text("Landing vs front camera"); Text("\(number(abs(difference), digits: 1)) in apart across the deck") }
+                    }
+                    if let check = flight.heading_check, let difference = check.difference_deg {
+                        GridRow { Text("vs two-view heading"); Text("\(number(abs(difference), digits: 1))° apart") }
+                    }
                 }
+                .font(.callout).monospacedDigit()
+            } else {
+                Text(document.flight_3d?.reason ?? "The 3D flight was not computed for this throw.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            .font(.callout)
         }
     }
 
-    private var trust: some View {
+    private func launchText(_ deg: Double) -> String {
+        let half = (abs(deg) * 2).rounded() / 2
+        return half == 0 ? "straight down the centre line" : "\(number(half, digits: 1))° \(deg > 0 ? "right" : "left")"
+    }
+
+    private func releaseText(_ metres: Double) -> String {
+        let cm = abs(metres) * 100
+        return cm < 0.5 ? "on the board's centre line" : "\(number(cm, digits: 0)) cm \(metres > 0 ? "right" : "left") of the board's centre line"
+    }
+
+    /// "Cameras synchronised by sound (match 0.66, ±18 ms) · first contact seen 0 front frames apart · …"
+    static func trustText(_ document: TwoViewDocument) -> String {
         var parts: [String] = []
         if let sync = document.sync, sync.status == "measured", let r = sync.correlation {
             parts.append("Cameras synchronised by sound (match \(number(r, digits: 2)), ±\(number(1000 * (sync.uncertainty_s ?? 0.0175), digits: 0)) ms)")
@@ -252,8 +293,7 @@ struct TwoViewCard: View {
         if let drift = document.alignment?.max_drift_px {
             parts.append("board tracked through \(number(drift, digits: 0)) px of camera drift")
         }
-        return Text(parts.joined(separator: " · ") + ".")
-            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        return parts.isEmpty ? "Camera sync details were not saved." : parts.joined(separator: " · ") + "."
     }
 }
 
@@ -361,7 +401,7 @@ struct ThrowFromAbove: View {
     struct Geometry {
         /// A point on or near the board: `v` inches up the deck from the front edge (below 0 or above 48 = on the
         /// floor beyond that end) and `right` inches to the thrower's right of the centreline.
-        struct DeckPoint { var v: Double; var right: Double }
+        struct DeckPoint: Equatable { var v: Double; var right: Double }
 
         /// The top strip: the whole throw to scale.
         struct Overview {
@@ -699,10 +739,23 @@ struct ThrowFromAbove: View {
 
 /// Drawn over the front video: the deck outline (tracked through camera drift), the bag's path towards the
 /// board up to this frame, first contact and where it ended, and which side is the thrower's left.
+///
+/// When the 3D flight was accepted (§5.4) its projection into the front frames is the path: solid between frames
+/// where the front camera saw the bag on it (`seenFrames`, flight3d.json → detections), dashed where the path is the
+/// model only (the bag hidden, out of the picture or not found). Without the 3D flight the older front tracker's
+/// path is drawn (solid: it is a tracked path) and the reason the 3D flight is missing is stated.
 struct FrontReplayOverlay: View {
     let document: TwoViewDocument
     let frontFrame: Int
     let size: CGSize
+    /// Front frames where the bag was found on the 3D path; nil when not known (the whole path is then dashed).
+    var seenFrames: Set<Int>? = nil
+
+    /// The path drawn and whether it is the projected 3D flight.
+    private var flightPath: (points: [TwoViewDocument.PathPoint], isModel: Bool) {
+        if let flight = document.flight, let path = flight.front_path, !path.isEmpty { return (path, true) }
+        return (document.front_path ?? [], document.front_path_source == "flight_3d")
+    }
 
     var body: some View {
         Canvas { context, _ in
@@ -714,13 +767,39 @@ struct FrontReplayOverlay: View {
                 var deck = Path(); deck.addLines(quad.map { screen($0.x, $0.y) }); deck.closeSubpath()
                 context.stroke(deck, with: .color(.green.opacity(0.85)), lineWidth: 1.5)
             }
-            let path = (document.front_path ?? []).filter { $0.frame <= frontFrame && $0.px.count == 2 }
+            let source = flightPath
+            let path = source.points.filter { $0.frame <= frontFrame && $0.px.count == 2 }
             if path.count > 1 {
-                var line = Path()
-                line.addLines(path.map { screen($0.px[0], $0.px[1]) })
-                context.stroke(line, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                context.stroke(line, with: .color(measuredInk), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                if source.isModel {
+                    // Seen segments (both ends on a frame where the bag was found) solid, model-only segments dashed.
+                    var seen = Path(), model = Path()
+                    for (a, b) in zip(path, path.dropFirst()) {
+                        let isSeen = seenFrames.map { $0.contains(a.frame) && $0.contains(b.frame) } ?? false
+                        if isSeen {
+                            seen.move(to: screen(a.px[0], a.px[1])); seen.addLine(to: screen(b.px[0], b.px[1]))
+                        } else {
+                            model.move(to: screen(a.px[0], a.px[1])); model.addLine(to: screen(b.px[0], b.px[1]))
+                        }
+                    }
+                    context.stroke(model, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [5, 5]))
+                    context.stroke(model, with: .color(.white.opacity(0.9)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 5]))
+                    context.stroke(seen, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    context.stroke(seen, with: .color(measuredInk), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                } else {
+                    var line = Path()
+                    line.addLines(path.map { screen($0.px[0], $0.px[1]) })
+                    context.stroke(line, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    context.stroke(line, with: .color(measuredInk), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                }
             }
+            // The bag now, on the path, while it is in the air.
+            if let now = source.points.first(where: { $0.frame == frontFrame && $0.px.count == 2 }) {
+                let p = screen(now.px[0], now.px[1])
+                let seenNow = !source.isModel || (seenFrames?.contains(now.frame) ?? false)
+                context.stroke(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(.white),
+                               style: StrokeStyle(lineWidth: 2, dash: seenNow ? [] : [3, 3]))
+            }
+            drawLegend(context, rect: rect, isModel: source.isModel, hasPath: !source.points.isEmpty)
             let slide = (document.front_landing?.path ?? []).filter { $0.frame <= frontFrame && $0.px.count == 2 }
             if slide.count > 1 {
                 var line = Path()
@@ -742,6 +821,26 @@ struct FrontReplayOverlay: View {
         .allowsHitTesting(false)
     }
 
+    /// What the path is, top left: the 3D flight (solid seen / dashed model), the older tracker, or why there is none.
+    private func drawLegend(_ context: GraphicsContext, rect: CGRect, isModel: Bool, hasPath: Bool) {
+        var lines: [String] = []
+        if isModel {
+            lines.append(seenFrames == nil ? "Bag path: 3D flight (dashed: model; frames where the bag was seen not saved)"
+                         : "Bag path: 3D flight · solid = bag seen here · dashed = model only")
+        } else if hasPath {
+            lines.append("Bag path: front tracker")
+            if let flight = document.flight_3d, !flight.isAvailable { lines.append("No 3D flight: \(shortReason(flight.reason))") }
+        } else if let flight = document.flight_3d, !flight.isAvailable {
+            lines.append("No bag path: \(shortReason(flight.reason))")
+        }
+        guard !lines.isEmpty else { return }
+        let text = context.resolve(Text(lines.joined(separator: "\n")).font(.system(size: 10, weight: .medium)).foregroundColor(.white))
+        let measured = text.measure(in: CGSize(width: max(80, rect.width * 0.6), height: 60))
+        let box = CGRect(x: rect.minX + 8, y: rect.minY + 8, width: measured.width + 12, height: measured.height + 6)
+        context.fill(Path(roundedRect: box, cornerRadius: 5), with: .color(.black.opacity(0.55)))
+        context.draw(text, in: box.insetBy(dx: 6, dy: 3))
+    }
+
     private func marker(_ context: GraphicsContext, _ p: CGPoint, _ label: String, _ color: Color) {
         context.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(color))
         context.stroke(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(.white), lineWidth: 1.5)
@@ -759,10 +858,31 @@ struct FrontReplayOverlay: View {
     }
 }
 
+/// The first sentence of an engine reason, for a one-line note ("not measured." when there is none).
+func shortReason(_ reason: String?) -> String {
+    guard let reason, !reason.isEmpty else { return "not measured." }
+    if let end = reason.firstIndex(of: ".") { return String(reason[...end]) }
+    return reason
+}
+
 /// The front clip and its analysis, handed to the replay.
 struct FrontReplaySource: Equatable {
     var url: URL
     var document: TwoViewDocument
+    /// Front frames where the bag was found on the 3D path (flight3d.json → detections); nil when not saved.
+    var seenFrames: Set<Int>? = nil
+}
+
+/// flight3d.json read for what two_view.json leaves out: the front frames where the bag was found on the 3D path.
+enum Flight3DFile {
+    static func seenFrames(_ analysisURL: URL?) -> Set<Int>? {
+        struct Detection: Decodable { var frame: Int }
+        struct File: Decodable { var status: String?; var detections: [Detection]? }
+        guard let analysisURL, let data = try? Data(contentsOf: analysisURL.appendingPathComponent("flight3d.json")),
+              let file = try? JSONDecoder().decode(File.self, from: data),
+              file.status == "measured" || file.status == "estimated", let detections = file.detections else { return nil }
+        return Set(detections.map(\.frame))
+    }
 }
 
 // MARK: - Athlete: left/right and distance

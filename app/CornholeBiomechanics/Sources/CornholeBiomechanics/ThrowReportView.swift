@@ -69,6 +69,10 @@ struct ThrowReportData {
     /// Two-camera takes: the front camera's analysis (two_view.json) and its clip.
     var twoView: TwoViewDocument?
     var frontVideoURL: URL?
+    /// Front frames where the bag was found on the 3D path (flight3d.json), for the front-video overlay.
+    var seenFrames: Set<Int>?
+    /// This athlete's two-camera throws (launch direction, slide, rest) for the strips and the board ghost.
+    var twoViewHistory: [TwoViewHistoryEntry] = []
 
     // Derived once per load by `derive()`, never per replay frame.
     var timeline = EventTimeline(fps: 30, frames: [:])
@@ -359,6 +363,10 @@ struct ThrowReportView: View {
         if !Task.isCancelled { history = values; report.history = historyByMetric() }
         let releases = await MeasuredRelease.load(athleteID: trial.athleteID, store: store)
         if !Task.isCancelled { report.athleteReleases = releases }
+        if trial.isTwoCamera {
+            let entries = await AthleteTwoViewHistory.entries(athleteID: trial.athleteID, store: store)
+            if !Task.isCancelled { report.twoViewHistory = entries }
+        }
     }
 
     /// Show the saved results at once; re-run the insights step (moved from the old Results page) only when
@@ -432,6 +440,8 @@ struct ThrowReportView: View {
         next.staleReason = Self.staleReason(url.appendingPathComponent("needs_reanalysis.json"))
         next.boardPhase = BoardPhase.load(results: resultsURL)
         next.twoView = TwoViewDocument.load(url)
+        next.seenFrames = Flight3DFile.seenFrames(url)
+        next.twoViewHistory = report.twoViewHistory
         if let front = trial.frontVideoRelativePath.flatMap(store.url(for:)), FileManager.default.fileExists(atPath: front.path) {
             next.frontVideoURL = front
         }
@@ -475,7 +485,7 @@ struct ThrowReportContent: View {
     @Binding var currentFrame: Int
     @Binding var seekRequest: Int?
     var actions = ThrowReportActions()
-    /// Scientific details start closed (spec §3.6); visual review opens them.
+    /// Details start closed (council §1); visual review opens them.
     @State var showsDetails = false
 
     /// The eight headline numbers (spec §1.3): three release, five body.
@@ -509,28 +519,16 @@ struct ThrowReportContent: View {
                     staleBanner(reason)
                     replayCard
                 } else {
-                    VerdictCard(verdict: data.insight?.verdict,
-                                frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
-                                refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
-                                canRefresh: actions.canEdit && !loading)
-                    if let twoView = data.twoView {
-                        TwoViewCard(document: twoView, phase: data.boardPhase, recorded: trial.outcome?.scoreCategory,
-                                    releaseToBoardM: (data.results?.summaries["release_to_board_front_m"] ?? nil),
-                                    currentFrame: currentFrame, canEdit: actions.canEdit,
-                                    accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+                    // Council §1: result and sentence → board from above → miss breakdown → release vs usual →
+                    // replay; everything else under Details (collapsed).
+                    summaryBlock
+                    boardBlock
+                    if let attribution = data.twoView?.attribution, data.twoView?.isMeasured == true, !attribution.isHole {
+                        MissBreakdownCard(attribution: attribution)
                     }
+                    releaseBlock
                     replayCard
-                    if let phase = data.boardPhase {
-                        WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
-                                         accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
-                    }
-                    keyNumbers
-                    ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
-                    if let zone = data.personalZone {
-                        PersonalZoneCard(zone: zone, releases: data.athleteReleases, highlight: trial.id,
-                                         distanceNote: data.distanceNote, lateralNote: data.lateralNote)
-                    }
-                    scientificDetails
+                    detailsSection
                 }
             }
         }
@@ -639,14 +637,109 @@ struct ThrowReportContent: View {
         }
     }
 
+    // MARK: Blocks 1–4
+
+    /// The side camera's verdict (the summary for side-only throws; under Details for two-camera throws).
+    private var verdictCard: some View {
+        VerdictCard(verdict: data.insight?.verdict,
+                    frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
+                    refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
+                    canRefresh: actions.canEdit && !loading)
+    }
+
+    /// 1. The result chip and one sentence.
+    @ViewBuilder private var summaryBlock: some View {
+        if let twoView = data.twoView {
+            ThrowSummaryCard(document: twoView, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
+                             accept: { actions.setScore($0) })
+        } else {
+            verdictCard
+        }
+    }
+
+    /// The throw from above (two-camera throws with a measured landing), shared by the board hero and the replay.
+    private var planScene: TopDownScene? {
+        guard let twoView = data.twoView else { return nil }
+        let others = data.twoViewHistory.filter { $0.id != trial.id }.compactMap(\.rest)
+        return TopDownScene(document: twoView, phase: data.boardPhase,
+                            releaseToBoardM: data.results?.summaries["release_to_board_front_m"] ?? nil,
+                            releaseFrame: data.replay?.events["release"]?.frame, others: others)
+    }
+
+    /// 2. The board from above as the hero; the side camera's board view for side-only throws.
+    @ViewBuilder private var boardBlock: some View {
+        if let plan = planScene {
+            BoardHeroCard(scene: plan, figureName: "\(trial.displayName) board")
+        } else if let phase = data.boardPhase {
+            WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
+                             accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+        } else if data.twoView?.isMeasured == true {
+            Card("Where it ended", symbol: "flag.checkered") {
+                Label("Where the bag landed and stopped was not measured on this throw.", systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// 4. Release vs the athlete's usual: speed, angle, launch direction and slide on personal range strips
+    /// (two-camera throws); the release tiles against the athlete's history for side-only throws.
+    @ViewBuilder private var releaseBlock: some View {
+        if let twoView = data.twoView, twoView.isMeasured {
+            ReleaseVsUsualCard(rows: ReleaseVsUsualCard.rows(attribution: twoView.attribution, document: twoView,
+                                                             speedHistory: data.history["bag_release_speed_m_s"] ?? [],
+                                                             angleHistory: data.history["bag_release_angle_deg"] ?? [],
+                                                             others: data.twoViewHistory.filter { $0.id != trial.id },
+                                                             speed: data.value("bag_release_speed_m_s"),
+                                                             angle: data.value("bag_release_angle_deg")),
+                               usualThrows: twoView.attribution?.usual?.throwCount)
+        } else {
+            Card("Release vs your usual", symbol: "arrow.up.right", subtitle: "How the bag left the hand, among this athlete's other throws.") {
+                tiles(Array(Self.releaseKeys.prefix(2)), group: "Release")
+                Text(releaseCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: Details
+
+    /// Everything that supports the five blocks, collapsed by default (council §1 "Details").
+    private var detailsSection: some View {
+        DisclosureGroup(isExpanded: $showsDetails) {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                if let twoView = data.twoView {
+                    verdictCard
+                    TwoViewDetailsCard(document: twoView)
+                }
+                keyNumbers
+                if let slide = data.boardPhase?.slide, slide.distance_in != nil || slide.entry_speed_m_s != nil {
+                    Card { SlideDetails(slide: slide) }
+                }
+                ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
+                if let zone = data.personalZone {
+                    PersonalZoneCard(zone: zone, releases: data.athleteReleases, highlight: trial.id,
+                                     distanceNote: data.distanceNote, lateralNote: data.lateralNote)
+                }
+                scientificDetails
+            }
+            .padding(.top, Space.m)
+        } label: {
+            Label("Details", systemImage: "list.bullet.rectangle").font(.title2.weight(.semibold))
+        }
+    }
+
     // MARK: Replay
 
     private var replayCard: some View {
         Card("Replay", symbol: "play.rectangle") {
             if let replay = data.replay {
+                let plan = planScene
                 ThrowReplayView(videoURL: videoAvailable ? videoURL : nil, replay: replay, pose: data.pose, throwingSide: trial.throwingSide,
                                 currentFrame: $currentFrame, seekRequest: $seekRequest,
-                                front: frontSource, stage: replayStage)
+                                front: frontSource, stage: replayStage, plan: plan,
+                                story: ReplayStory.make(replay: replay, phase: data.boardPhase,
+                                                        document: data.twoView?.isMeasured == true ? data.twoView : nil, plan: plan,
+                                                        speed: data.value("bag_release_speed_m_s"), angle: data.value("bag_release_angle_deg")),
+                                figureName: "\(trial.displayName) replay")
                     .id(trial.id)
                 if let note = replay.model_note {
                     Text("Dashed line: drag-free model fitted to the measured flight, shown as a reference only. \(note)")
@@ -671,7 +764,7 @@ struct ThrowReportContent: View {
     /// The front clip for the replay, when this throw came from a synchronised two-camera take.
     private var frontSource: FrontReplaySource? {
         guard let url = data.frontVideoURL, let document = data.twoView, document.side_to_front_frames?.isEmpty == false else { return nil }
-        return FrontReplaySource(url: url, document: document)
+        return FrontReplaySource(url: url, document: document, seenFrames: data.seenFrames)
     }
 
     // MARK: Key numbers
@@ -732,27 +825,23 @@ struct ThrowReportContent: View {
     // MARK: Scientific details
 
     private var scientificDetails: some View {
-        Card {
-            DisclosureGroup(isExpanded: $showsDetails) {
-                VStack(alignment: .leading, spacing: Space.xl) {
-                    metricsTable
-                    qualitySection
-                    launchSection
-                    warningsSection
-                    provenanceSection
-                    HStack {
-                        Button("Export Package…", systemImage: "square.and.arrow.up", action: actions.export).disabled(!actions.canEdit)
-                        Button("Open Local Report", action: actions.openReport)
-                        if let url = data.analysisURL {
-                            Button("Inspect Saved Settings") { NSWorkspace.shared.open(url.appendingPathComponent("manifest.json")) }
-                        }
-                        Spacer()
-                        Text("Projected 2D measurements from one side-view camera.").font(.caption).foregroundStyle(.secondary)
+        Card("Scientific details", symbol: "flask") {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                metricsTable
+                qualitySection
+                launchSection
+                warningsSection
+                provenanceSection
+                HStack {
+                    Button("Export Package…", systemImage: "square.and.arrow.up", action: actions.export).disabled(!actions.canEdit)
+                    Button("Open Local Report", action: actions.openReport)
+                    if let url = data.analysisURL {
+                        Button("Inspect Saved Settings") { NSWorkspace.shared.open(url.appendingPathComponent("manifest.json")) }
                     }
+                    Spacer()
+                    Text(trial.isTwoCamera ? "Release and body: projected 2D from the side camera; left/right from the front camera."
+                         : "Projected 2D measurements from one side-view camera.").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.top, Space.m)
-            } label: {
-                Label("Scientific details", systemImage: "flask").font(.title2.weight(.semibold))
             }
         }
     }

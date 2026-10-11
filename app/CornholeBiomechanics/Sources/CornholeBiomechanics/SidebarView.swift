@@ -4,12 +4,14 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case athlete(UUID)
     case launchLab
+    case reviewInbox
 }
 
 /// Leading column: the athletes in the library, then the tools.
 struct SidebarView: View {
     @EnvironmentObject private var store: ProjectStore
     @EnvironmentObject private var analysis: AnalysisService
+    @EnvironmentObject private var glances: ThrowGlanceStore
     @Binding var selection: SidebarItem?
     let addAthlete: () -> Void
     @State private var editing: Athlete?
@@ -17,6 +19,13 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
+            Section("Review") {
+                Label("Needs Your Eye", systemImage: needsEyeCount > 0 ? "eye.fill" : "eye")
+                    .badge(needsEyeCount)
+                    .tag(SidebarItem.reviewInbox)
+                    .help("Throws where the cameras could not tell the result")
+                    .accessibilityLabel("Needs your eye, \(needsEyeCount) throw\(needsEyeCount == 1 ? "" : "s")")
+            }
             Section {
                 ForEach(store.project?.athletes ?? []) { athlete in
                     Label(athlete.displayName, systemImage: "person")
@@ -58,6 +67,8 @@ struct SidebarView: View {
             Text("\(count) \(count == 1 ? "throw" : "throws"), their videos and analyses move to the Trash.")
         }
     }
+
+    private var needsEyeCount: Int { glances.needsEye(store.project?.trials ?? []).count }
 
     private func throwCount(_ athleteID: UUID) -> Int {
         store.project?.trials.filter { $0.athleteID == athleteID }.count ?? 0
