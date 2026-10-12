@@ -56,15 +56,22 @@ def lowpass_zero_phase(
     return result, effective_cutoff, sorted(set(warnings))
 
 
-def derivative(values: np.ndarray, fps: float) -> np.ndarray:
-    """Differentiate only contiguous finite runs using time-aware gradients."""
+# Shortest finite run that the 4th-order zero-phase filter actually smooths (sosfiltfilt needs more samples than its
+# 15-sample pad); shorter runs stay raw, and differentiating raw 4 px landmark noise gives ~4× the true speed.
+FILTERED_MIN_RUN = 16
+
+
+def derivative(values: np.ndarray, fps: float, min_run: int = 3) -> np.ndarray:
+    """Differentiate only contiguous finite runs of at least ``min_run`` samples using time-aware gradients.
+    Pass ``min_run=FILTERED_MIN_RUN`` for series from ``lowpass_zero_phase`` so its unfiltered short runs stay
+    missing instead of turning noise into peak velocities."""
     result = np.full_like(np.asarray(values, float), np.nan)
     source = np.asarray(values, float)
     flat_source = source.reshape(source.shape[0], -1)
     flat_result = result.reshape(result.shape[0], -1)
     for column in range(flat_source.shape[1]):
         for start, end in _finite_runs(np.isfinite(flat_source[:, column])):
-            if end - start >= 3:
+            if end - start >= max(3, min_run):
                 flat_result[start:end, column] = np.gradient(
                     flat_source[start:end, column], 1.0 / fps, edge_order=2
                 )

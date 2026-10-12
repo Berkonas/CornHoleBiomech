@@ -29,7 +29,7 @@ Test A1 uses a rigid arm with a 150° elbow on a trunk leaning 12°. Three varia
 
 **A3. Shoulder angle (`arm_to_trunk_deg`, chain "shoulder angle"). Fixed.** It was defined as the unsigned angle between the upper arm (E − S) and the hip→shoulder line. That angle is 180° when the arm hangs along the trunk and cannot tell a forward arm from a backward one, so it folds at 180° every time the swing passes the trunk line. The new definition is
 
-ψ = atan2(D_x A_y − D_y A_x, D·A), with D = M_H − M_S and A = E − S, wrapped into (−125°, 235°].
+ψ = atan2(D_x A_y − D_y A_x, D·A), with D = M_H − M_S and A = E − S, wrapped into [−125°, 235°). Follow-up (2026-10-12): frames with the upper arm foreshortened below 0.35 of its length are missing, and runs are made continuous, so the cut can no longer add 360° of ROM.
 
 The reported angle is 180° − ψ. It equals the old value whenever the arm is in front of the trunk, which includes every release, and it is continuous through the backswing.
 

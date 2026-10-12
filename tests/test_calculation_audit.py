@@ -150,8 +150,9 @@ def test_a4_pendulum_drive_ratio_of_a_passive_rod_is_one():
 
 
 def test_a5_orientation_velocity_is_unwrapped_through_180_degrees():
-    # Forearm rotating at 400°/s from 150° to 210° (through ±180°) about a fixed elbow.
-    t = np.arange(0, 0.15, 1 / FPS)
+    # Forearm rotating at 400°/s from 150° to 270° (through ±180°) about a fixed elbow; ≥ 16 frames, the
+    # shortest run the zero-phase filter smooths (shorter runs give no velocity).
+    t = np.arange(0, 0.3, 1 / FPS)
     orient = np.radians(150 + 400 * t)
     coords = _pose(np.zeros(len(t)))
     elbow = coords[:, LANDMARKS.index("right_elbow")]
@@ -455,3 +456,31 @@ def test_g2_critical_delta_false_positive_rate_at_the_smallest_groups():
     hits = sum(abs(cliffs_delta(values[list(c)], np.delete(values, list(c)))) >= crit
                for c in itertools.combinations(range(10), 5))
     assert hits == 14
+
+
+def test_a3_foreshortened_upper_arm_across_the_cut_gives_no_spurious_rom_or_velocity():
+    """Flexion −120° → −130° (across the −125° cut) with the upper arm pointing almost at the camera (6 px of a
+    60 px segment): its 2D direction is noise, so those frames are missing instead of a 360° ROM."""
+    n = 80
+    flexion = np.linspace(-120.0, -130.0, n)
+    coords = _pose(flexion)
+    shoulder = coords[:, LANDMARKS.index("right_shoulder")]
+    elbow = coords[:, LANDMARKS.index("right_elbow")]
+    wrist = coords[:, LANDMARKS.index("right_wrist")]
+    short = slice(36, 44)
+    coords[short, LANDMARKS.index("right_elbow")] = shoulder[short] + 0.1 * (elbow[short] - shoulder[short])
+    coords[short, LANDMARKS.index("right_wrist")] = coords[short, LANDMARKS.index("right_elbow")] + (wrist[short] - elbow[short])
+    k = calculate_kinematics(coords, LANDMARKS, FPS, "right", "left_to_right")
+    angle = k.values["arm_to_trunk_deg"]
+    assert np.isnan(angle[short]).all()
+    assert np.nanmax(angle) - np.nanmin(angle) < 15.0
+    assert np.nanmax(np.abs(k.values["arm_to_trunk_velocity_deg_s"])) < 100.0
+
+
+def test_short_unfiltered_runs_give_no_velocity():
+    from cornhole_biomech.filtering import FILTERED_MIN_RUN, derivative
+    series = np.full(60, np.nan)
+    series[5:5 + FILTERED_MIN_RUN - 1] = np.arange(FILTERED_MIN_RUN - 1)       # 15 samples: left raw by the filter
+    series[30:50] = np.arange(20)
+    v = derivative(series, 60.0, FILTERED_MIN_RUN)
+    assert np.isnan(v[5:20]).all() and np.allclose(v[30:50], 60.0)
