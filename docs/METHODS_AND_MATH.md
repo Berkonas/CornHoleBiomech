@@ -18,7 +18,7 @@ This document collects, in one place, the methods and every equation the system 
 | Board phase (touchdown, slide, end) | `board_phase_v4_settled_slide_fit` | `board_phase.py` |
 | Two-camera combination | `two_view_v6_attribution` | `two_view.py`, `front_view.py`, `front_track.py` |
 | Miss attribution and coach sentence (two-camera) | `attribution_v1`, `sentence_v2` | `attribution.py` (§5.5) |
-| 3D bag flight (side + front) | `flight3d_v1` | `flight3d.py` (§5.4) |
+| 3D bag flight (side + front) | `flight3d_v2` | `flight3d.py` (§5.4) |
 
 **Validation status in one line.** Software behaviour is unit-tested; the measurement accuracy of body landmarks, bag centroids and metric scale has **not** been validated against a criterion (motion capture or manual digitisation) for this task. Evidence so far is a light engineering validation on 26 hand-held pilot clips from 3 athletes (17 Sep 2026; [LIGHT_VALIDATION.md](LIGHT_VALIDATION.md), [SCENE_REGRESSION.md](SCENE_REGRESSION.md)). Every noise floor for body metrics is **provisional**.
 
@@ -1013,7 +1013,7 @@ heard the same events; it is checked per throw but not against an external clock
 ### 5.4 3D flight from two views
 
 `flight3d.py` (`reconstruct_flight`, called from `two_view.analyze_two_view` after the landing and the heading;
-output `flight_3d` in two_view.json and `flight3d.json`). Method version `flight3d_v1`.
+output `flight_3d` in two_view.json and `flight3d.json`). Method version `flight3d_v2` (v2: the side camera's contact time is not shifted by the fitted timing offset δ, which maps front-frame times only; a fit whose δ or field of view sits within 5 % of its bound is reported as `estimated` with `fit.at_bound`).
 
 **Why.** Each camera sees the flight badly in one direction. The side camera measures the throw plane well (along
 the throw and height, metric through the board and the gravity-calibrated field of view, §1.7–§1.8) but not

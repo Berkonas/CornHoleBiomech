@@ -40,7 +40,8 @@ import numpy as np
 
 from .regulation import BAG_SIDE_M, INCH_M, Board
 
-FLIGHT3D_VERSION = "flight3d_v1"
+FLIGHT3D_VERSION = "flight3d_v2"   # v2: no double timing offset at contact; fits pinned at a bound are estimated
+BOUND_SHARE = 0.95                 # a fitted δ or field of view within 5 % of its bound counts as pinned
 FLIGHT3D_FILENAME = "flight3d.json"
 
 # --- Front-camera candidates (front_track's colour + motion test, half resolution) -------------------------
@@ -412,7 +413,7 @@ def fit_lateral(side: dict[str, Any], make_projector, hfov0: float, candidates: 
             pts = model_points(side_model, p[0], p[1], tau_k[idx] + p[2] * frame_dt)
             res = (proj.project(pts, frames_sel) - obs).ravel()
             if with_contact:
-                x_c = p[0] + p[1] * (contact["tau"] + p[2] * frame_dt)
+                x_c = p[0] + p[1] * contact["tau"]   # contact τ is on the side clock already: δ maps front times only
                 res = np.append(res, (x_c - contact["x_m"]) / (CONTACT_SIGMA_IN * INCH_M) * PIXEL_SIGMA_PX)
             return res
         sol = least_squares(residuals, np.clip(params, lo, hi), bounds=(lo, hi), loss="soft_l1", f_scale=PIXEL_SIGMA_PX,
@@ -439,7 +440,7 @@ def fit_lateral(side: dict[str, Any], make_projector, hfov0: float, candidates: 
            "frames": ks, "tau": tau_k, "contact_used": False}
     final, model, chosen = free, free_model, free_chosen
     if contact is not None and contact.get("x_m") is not None:
-        x_c = free[0] + free[1] * (contact["tau"] + free[2] * frame_dt)
+        x_c = free[0] + free[1] * contact["tau"]
         out["free"]["contact_x_m"] = float(x_c)
         if abs(x_c - contact["x_m"]) <= CONTACT_AGREE_IN * INCH_M:
             final, model, chosen = run(True, free)
@@ -637,8 +638,20 @@ def reconstruct_flight(*, frames: Sequence[np.ndarray], results: dict[str, Any],
             out["rejected_fit"] = rejected
         return unavailable(" ".join(reasons))
     status = "measured" if side["status"] == "measured" and camera_status == "measured" else "estimated"
-    out.update(status=status, reason=None if status == "measured" else
-               "The side camera's scale or the front camera's field of view is estimated on this throw.")
+    reason = None if status == "measured" else \
+        "The side camera's scale or the front camera's field of view is estimated on this throw."
+    # A nuisance parameter pinned at its bound means the model could not explain the frames freely (a sync
+    # fault or a wrong camera): the numbers are kept but not called measured.
+    at_bound = {"timing_offset": abs(delta) >= BOUND_SHARE * TIMING_LIMIT_FRAMES / front_fps,
+                "front_hfov": FRONT_HFOV_BAND_DEG > 0
+                and abs(fit["hfov_deg"] - front_hfov_deg) >= BOUND_SHARE * FRONT_HFOV_BAND_DEG}
+    out["fit"]["at_bound"] = at_bound
+    if any(at_bound.values()):
+        status = "estimated"
+        reason = ("The fit needed the largest allowed " + " and ".join(
+            {"timing_offset": "timing offset between the cameras", "front_hfov": "change of the front camera's field of view"}[k]
+            for k, v in at_bound.items() if v) + ", so the flight is an estimate.")
+    out.update(status=status, reason=reason)
     return out
 
 

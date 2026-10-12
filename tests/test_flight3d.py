@@ -241,3 +241,22 @@ def test_projected_path_keeps_the_front_path_contract():
     out = _run(scene)
     record = {"status": "measured", "front_path": out["front_path"], "flight_3d": out, "front_path_source": "flight_3d"}
     assert problems("TwoViewDocument", record) == []
+
+
+def test_flight_only_landing_does_not_add_the_timing_offset_to_the_side_contact_time():
+    """δ maps front-frame times onto the side clock; the side camera's contact time is on that clock already, so the
+    flight-only landing X0 + Vx·τ_contact must not move with δ (audit: it was added twice)."""
+    scene, true_land = _scene(p={**TRUE, "x0": 0.35, "vx": -0.6}, timing_shift_s=2.0 / FRONT_FPS)
+    out = _run(scene, front_contact={"x_in": true_land / INCH_M + 12.0})
+    assert out["status"] == "measured", out.get("reason")
+    assert out["landing"]["flight_only_difference_in"] == pytest.approx(0.0, abs=0.6)
+
+
+def test_a_fit_pinned_at_the_timing_bound_is_not_called_measured(monkeypatch):
+    scene, _ = _scene(timing_shift_s=1.0 / FRONT_FPS)
+    free = _run(scene)
+    assert free["status"] == "measured" and not any(free["fit"]["at_bound"].values())
+    monkeypatch.setattr(f3, "TIMING_LIMIT_FRAMES", 1.0)          # the one-frame offset now sits on the bound
+    pinned = _run(scene)
+    assert pinned["fit"]["at_bound"]["timing_offset"] and pinned["status"] == "estimated"
+    assert "timing offset" in pinned["reason"]
