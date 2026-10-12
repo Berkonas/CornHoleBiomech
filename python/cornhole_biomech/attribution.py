@@ -51,7 +51,7 @@ import numpy as np
 
 from .regulation import INCH_M, Board
 
-ATTRIBUTION_VERSION = "attribution_v1"
+ATTRIBUTION_VERSION = "attribution_v2"   # v2: four-part explanation, front-view body evidence
 SENTENCE_VERSION = "sentence_v2"
 HOLE_X_IN, HOLE_Y_IN, HOLE_R_IN = 12.0, 39.0, 3.0      # hole centre and radius, board inches (front_view)
 
@@ -68,6 +68,9 @@ CARRY_NOISE_IN = 2.0              # first contact along the deck from the side b
 SLIDE_NOISE_IN = 2.0              # contact → rest along the deck, same board phase
 RELEASE_SPEED_NOISE_M_S = 0.15    # bag_release_speed_m_s noise floor (reliability.py / performance.py)
 RELEASE_ANGLE_NOISE_DEG = 3.0     # bag_release_angle_deg noise floor (reliability.py / performance.py)
+# Front-camera body measures at release (front_view.frontal_metrics; noise floors METRICS.md front-camera table).
+BODY_EVIDENCE = (("arm_across_body_sw", "Hand across the body at release", 0.15, "shoulder widths"),
+                 ("trunk_side_lean_deg", "Trunk side lean at release", 6.0, "°"))
 
 # --- Naming rule ---------------------------------------------------------------------------------------------
 NAME_MIN_NOISE_RATIO = 2.0        # ≥ 2× its own noise
@@ -216,6 +219,10 @@ def throw_measures(record: dict[str, Any], results: dict[str, Any],
     angle, angle_status = _release_value(results, "bag_release_angle_deg")
     height, _ = _release_value(results, "bag_release_height_m")
     distance = run0 if run0 is not None else _num((results.get("summaries") or {}).get("release_to_board_front_m"))
+    frontal = record.get("frontal") if isinstance(record.get("frontal"), dict) else {}
+    for key, *_ in BODY_EVIDENCE:
+        item = frontal.get(key) if isinstance(frontal.get(key), dict) else {}
+        m[f"body_{key}"] = _num(item.get("value")) if item.get("status") in ("measured", "estimated") else None
     m.update(x0_m=x0, psi_deg=psi, run_m=run, direction_source=source, direction_status=status,
              speed=speed, speed_status=speed_status, angle=angle, angle_status=angle_status,
              sensitivity=carry_sensitivity(speed, angle, height, distance))
@@ -280,8 +287,8 @@ def usual_from_siblings(rows: list[dict[str, Any]], direction_source: str | None
              "spread_lateral_in": sx, "spread_depth_in": sy}
     usual["x0_m"] = _median_sd(r["x0_m"] for r in same)[0]
     usual["psi_deg"] = _median_sd(r["psi_deg"] for r in same)[0]
-    for key in ("slide_drift_in", "carry_in", "slide_in", "speed", "angle"):
-        usual[key] = _median_sd(r[key] for r in rows)[0]
+    for key in ("slide_drift_in", "carry_in", "slide_in", "speed", "angle") + tuple(f"body_{k}" for k, *_ in BODY_EVIDENCE):
+        usual[key] = _median_sd(r.get(key) for r in rows)[0]
     return usual
 
 
@@ -426,6 +433,7 @@ def attribute(record: dict[str, Any], results: dict[str, Any], *,
     for _, axis, c, value, miss in sorted(candidates, key=lambda t: -t[0])[:MAX_NAMED]:
         c.update(named=True, share=_r(value / miss))
     out["drivers"] = _drivers(me, usual, lateral, depth, within=bool(within))
+    out["body_evidence"] = _body_evidence(me, usual)
 
     # Status and tier.
     speed_named = any(d["key"] == "release_speed" and d["named"] for d in out["drivers"])
@@ -436,6 +444,20 @@ def attribute(record: dict[str, Any], results: dict[str, Any], *,
         out["status"] = "estimated"
     out["reason"] = " ".join(reasons) or None
     return _finish(out)
+
+
+def _body_evidence(me: dict[str, Any], usual: dict[str, Any]) -> list[dict[str, Any]]:
+    """Front-camera body measures at release against the athlete's usual (median of the same-method siblings):
+    reported as evidence only, never as a named part (no per-throw model links them to where the bag went).
+    ``beyond_noise``: the difference is at least twice the measure's noise floor."""
+    out = []
+    for key, label, noise, unit in BODY_EVIDENCE:
+        value, typical = me.get(f"body_{key}"), usual.get(f"body_{key}")
+        delta = _sub(value, typical)
+        out.append({"key": key, "label": label, "value": _r(value, 3), "usual": _r(typical, 3), "delta": _r(delta, 3),
+                    "noise": noise, "unit": unit,
+                    "beyond_noise": None if delta is None else bool(abs(delta) >= NAME_MIN_NOISE_RATIO * noise)})
+    return out
 
 
 def _drivers(me: dict[str, Any], usual: dict[str, Any], lateral: list[dict[str, Any]] | None,
@@ -657,12 +679,134 @@ def explanation_from_attribution(att: dict[str, Any]) -> dict[str, Any]:
     else:
         kind = "miss"
     return {"sentence": att.get("sentence"), "kind": kind, "parts": parts, "cue": att.get("cue"),
-            "tier": att.get("tier"), "version": SENTENCE_VERSION}
+            "tier": att.get("tier"), "version": SENTENCE_VERSION, "four_part": att.get("explanation")}
+
+
+FLIGHT_PARTS = ("release_position", "aim", "carry")
+AFTER_LANDING_PARTS = ("slide", "slide_drift")
+
+
+def explanation_parts(att: dict[str, Any]) -> dict[str, Any]:
+    """The coach explanation in four separate statements (METHODS_AND_MATH §5.5, "Explanation in four parts"):
+
+    * ``observed`` — what the bag did: where it stopped, first contact and the slide (measurements).
+    * ``evidence`` — what differed from this athlete's usual throws beyond its noise: the named parts, the release
+      values and the front-camera body measures (measurements and their differences).
+    * ``possible_explanation`` — a physically plausible mechanism, only where the geometry or the drag-free flight
+      ties a measured difference to the miss; otherwise it says that nothing measured explains it.
+    * ``suggestion`` — what the coach could look at, tied to the evidence (never a generic "be more consistent").
+
+    ``phase`` separates a miss made in the flight (release position, aim, carry) from one made after landing (the
+    slide), which have different coaching implications. Nothing here claims a cause: one throw is an observation."""
+    out: dict[str, Any] = {"observed": None, "phase": None, "evidence": [], "possible_explanation": None,
+                           "suggestion": None, "basis": None}
+    result = att.get("result")
+    if result is None or att.get("status") == "unavailable":
+        out["observed"] = str(att.get("reason") or "There is no result for this throw yet.")
+        out["possible_explanation"] = "Not enough was measured on this throw to explain it."
+        return out
+    if result == "throughHole":
+        out["observed"] = "In the hole."
+        return out
+    lateral, depth = att.get("lateral") or {}, att.get("depth") or {}
+    mx, my = lateral.get("miss_in"), depth.get("miss_in")
+    lead = {"onBoard": "Stopped on the board", "offBoard": "Ended off the board"}.get(result, "Ended")
+    observed = lead + (f", {_depth_text(my)} and {_lateral_text(mx)} of the hole" if mx is not None and my is not None
+                       else "")
+    comps = {c["key"]: c for c in (depth.get("components") or []) + (lateral.get("components") or [])}
+    carry, slide = comps.get("carry") or {}, comps.get("slide") or {}
+    if carry.get("in") is not None and depth.get("reference") == "usual":
+        observed += f". First contact {_inches(carry['in'])} in {'past' if carry['in'] > 0 else 'short of'} the usual spot"
+    elif carry.get("in") is not None:
+        observed += f". First contact {_inches(carry['in'])} in {'past' if carry['in'] > 0 else 'short of'} the hole"
+    if slide.get("in") is not None and depth.get("reference") == "hole":
+        observed += f", then it slid {_inches(slide['in'])} in"
+    out["observed"] = observed + "."
+    usual = att.get("usual") or {}
+    out["basis"] = (f"Compared with this athlete's {usual.get('throws')} other analysed throws (same method version)."
+                    if usual.get("spread_lateral_in") is not None else
+                    "No usual group yet (fewer than 8 located throws): compared with the hole only.")
+    drivers = {d["key"]: d for d in att.get("drivers") or []}
+    named = [(axis, c) for axis in ("lateral", "depth") for c in ((att.get(axis) or {}).get("components") or [])
+             if c.get("named")]
+    def amount(value: float, unit: str) -> str:
+        digits = {"m/s": 2, "°": 1, "shoulder widths": 2}.get(unit, 2)
+        return f"{value:+.{digits}f}{'' if unit == '°' else ' '}{unit}"
+
+    evidence = []
+    for _, c in named:
+        phrase = _part_phrase(c, drivers)
+        evidence.append(phrase[0].upper() + phrase[1:] + ".")
+    for d in drivers.values():
+        # Named drivers are already in their part's phrase; others are listed when they exceed their noise floor.
+        if d.get("named") or d.get("delta") is None or not d.get("noise") or abs(d["delta"]) < d["noise"]:
+            continue
+        text = f"{d['label']} {amount(d['delta'], d['unit'])} against usual (noise {d['noise']}{'' if d['unit'] == '°' else ' '}{d['unit']})"
+        if d.get("implied_in") is not None and d["key"] != "launch_direction":
+            text += (f"; on its own, in a drag-free flight, about {_inches(d['implied_in'])} in "
+                     f"{'more' if d['implied_in'] > 0 else 'less'} carry")
+        evidence.append(text + ".")
+    body = [b for b in att.get("body_evidence") or [] if b.get("beyond_noise")]
+    for b in body:
+        evidence.append(f"Front view: {b['label'].lower()} {amount(b['delta'], b['unit'])} against usual "
+                        f"(noise {b['noise']} {b['unit']}).")
+    out["evidence"] = [_clean(e, e.split(":")[0] + ".") for e in evidence]
+    phases = {("flight" if c["key"] in FLIGHT_PARTS else "after_landing") for _, c in named
+              if c["key"] in FLIGHT_PARTS + AFTER_LANDING_PARTS}
+    out["phase"] = None if not phases else phases.pop() if len(phases) == 1 else "both"
+    if att.get("within_usual_spread"):
+        out["possible_explanation"] = ("Inside this athlete's normal spread on both axes: expected throw-to-throw "
+                                       "variation, so no explanation is drawn from one throw.")
+        return out
+    picked = _lead_part(att)
+    if picked is None:
+        out["possible_explanation"] = "No single measured part stands out above its noise, so the miss is not explained."
+        return out
+    _, part = picked
+    key, test = part["key"], part["test_in"]
+    arm = next((b for b in body if b["key"] == "arm_across_body_sw"), None)
+    if key == "aim":
+        direction = drivers.get("launch_direction") or {}
+        angle = f"{_degrees(direction['delta'])} " if direction.get("delta") is not None else ""
+        out["possible_explanation"] = (f"The bag left the hand on a line {angle}{_side(test)} of the usual one; over this "
+                                       f"flight distance that line alone moves first contact about {_inches(test)} in "
+                                       f"{_side(test)} (geometry, not a model).")
+        out["suggestion"] = "Review release alignment: compare the hand path in the front view with scored throws."
+        if arm is not None:
+            out["suggestion"] += (f" The hand was {'further across' if arm['delta'] > 0 else 'less across'} the body "
+                                  f"than usual ({arm['delta']:+.2f} shoulder widths).")
+    elif key == "release_position":
+        out["possible_explanation"] = (f"The bag was released {_inches(test)} in further {_side(test)} than usual; a "
+                                       "parallel shift of the release moves the landing by about the same amount.")
+        out["suggestion"] = "Check the stance and release spot against usual in the front view."
+    elif key == "carry":
+        speed = drivers.get("release_speed") or {}
+        if speed.get("named") and speed.get("implied_in") is not None:
+            out["possible_explanation"] = (f"Release speed was {abs(speed['delta']):.2f} m/s "
+                                           f"{'higher' if speed['delta'] > 0 else 'lower'} than usual; in a drag-free "
+                                           f"flight from this release that alone moves first contact about "
+                                           f"{_inches(speed['implied_in'])} in.")
+            out["suggestion"] = "Compare swing length and tempo with scored throws (release speed, side view)."
+        else:
+            out["possible_explanation"] = (f"The bag landed {_inches(test)} in {'longer' if test > 0 else 'shorter'} "
+                                           "than usual, but release speed and angle did not differ beyond their noise, "
+                                           "so the measured release does not account for it.")
+            out["suggestion"] = "Check the release frame and bag flight in the side view before drawing a conclusion."
+    elif key in AFTER_LANDING_PARTS:
+        out["possible_explanation"] = ("The difference arose after landing (the slide), not in the flight; no release "
+                                       "measure accounts for a single throw's slide.")
+        out["suggestion"] = ("Watch the landing in the side view (bag flat or on edge, spin) and compare with throws "
+                             "that stayed.")
+    for k in ("possible_explanation", "suggestion"):
+        if out[k] is not None:
+            out[k] = _clean(out[k], "See the measured evidence.")
+    return out
 
 
 def _finish(att: dict[str, Any]) -> dict[str, Any]:
     att["tier"] = tier_of(att)
     att["sentence"], att["cue"] = build_sentence(att)
+    att["explanation"] = explanation_parts(att)
     return att
 
 

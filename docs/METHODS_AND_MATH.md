@@ -17,7 +17,7 @@ This document collects, in one place, the methods and every equation the system 
 | Bag flight filter | `ca_kalman_rts_v1` | `bag_filter.py` |
 | Board phase (touchdown, slide, end) | `board_phase_v4_settled_slide_fit` | `board_phase.py` |
 | Two-camera combination | `two_view_v6_attribution` | `two_view.py`, `front_view.py`, `front_track.py` |
-| Miss attribution and coach sentence (two-camera) | `attribution_v1`, `sentence_v2` | `attribution.py` (§5.5) |
+| Miss attribution and coach sentence (two-camera) | `attribution_v2`, `sentence_v2` | `attribution.py` (§5.5) |
 | 3D bag flight (side + front) | `flight3d_v2` | `flight3d.py` (§5.4) |
 
 **Validation status in one line.** Software behaviour is unit-tested; the measurement accuracy of body landmarks, bag centroids and metric scale has **not** been validated against a criterion (motion capture or manual digitisation) for this task. Evidence so far is a light engineering validation on 26 hand-held pilot clips from 3 athletes (17 Sep 2026; [LIGHT_VALIDATION.md](LIGHT_VALIDATION.md), [SCENE_REGRESSION.md](SCENE_REGRESSION.md)). Every noise floor for body metrics is **provisional**.
@@ -1185,6 +1185,18 @@ central differences of `zones.landing`). At the pilot median release (5.68 m, 1.
 ±2 cm, but at flatter releases (24–32°) it is 5–7 cm per degree, so its implied carry is shown from the same per-throw
 sensitivity. The usual excludes throws analysed with another method version (manifest `method_version`). Launch direction is named only next to a named aim, at
 $|\Delta\psi| \ge 0.5°$ with its sign.
+
+**Explanation in four parts (attribution_v2).** Besides the one sentence, each throw gets four separate statements
+(`attribution.explanation`): *observed* (where it stopped, first contact against the usual spot or the hole, the slide),
+*measured evidence* (named parts; release speed, angle and launch direction that differ from the usual by more than
+their noise floor, with the drag-free carry each implies on its own; front-camera body measures at release that differ
+by ≥ 2× their noise: hand across the body 0.15 shoulder widths, trunk side lean 6°), *possible explanation* (only
+where geometry or the drag-free flight ties a measured difference to the miss: a launch line → lateral contact; a
+release-speed change → carry; otherwise it says the measured release does not account for it) and *to review* (what
+to look at, tied to that evidence). `phase` separates a miss made in the flight (release position, aim, carry) from
+one made after landing (the slide). Front-view body differences are evidence only, never a named part: no per-throw
+model links them to where the bag went. The comparison baseline is the athlete's other throws of the same method
+version; without a usual group the statement says so.
 
 **Bandwidth gate.** The athlete's usual centre and spread are the median and the robust SD ($1.4826 \times$ MAD) of where
 their other throws stopped (holes at 0, 0; ≥ 8 located throws). A miss within 1 SD of the centre on both axes names

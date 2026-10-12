@@ -437,3 +437,38 @@ def test_carry_sensitivity_is_the_deck_contact_derivative_not_the_flat_ground_on
     flat = at.carry_sensitivity(7.0, 28.0, 1.0, 5.0)["m_per_deg"]           # flatter release: angle matters more
     assert flat is not None and abs(flat) > 3 * abs(s["m_per_deg"])
     assert at.carry_sensitivity(None, 40.0, 1.0, 5.68) == {"m_per_m_s": None, "m_per_deg": None}
+
+
+def test_four_part_explanation_separates_flight_from_after_landing():
+    record = _record(contact=(12.0, 18.0), rest=(12.0, 27.0))
+    slower = at.attribute(record, _results(speed=8.7), siblings=_siblings(), release_distance_m=RELEASE_M)["explanation"]
+    assert slower["phase"] == "flight" and slower["observed"].startswith("Stopped on the board, 12 in short")
+    assert "m/s lower than usual" in slower["possible_explanation"]
+    assert "swing length and tempo" in slower["suggestion"]
+    slide = at.attribute(_record(contact=(12.0, 30.0), rest=(12.0, 55.0)), _results(), siblings=_siblings(),
+                         release_distance_m=RELEASE_M)["explanation"]
+    assert slide["phase"] == "after_landing" and "after landing" in slide["possible_explanation"]
+    # A carry with no release difference beyond noise is not given a release explanation.
+    unexplained = at.attribute(record, _results(speed=9.0), siblings=_siblings(), release_distance_m=RELEASE_M)
+    assert "does not account for it" in unexplained["explanation"]["possible_explanation"]
+    made = at.attribute(_record(category="throughHole", contact=(12, 36), rest=(12, 39)), _results(),
+                        siblings=_siblings(), release_distance_m=RELEASE_M)["explanation"]
+    assert made["observed"] == "In the hole." and made["possible_explanation"] is None
+
+
+def test_front_view_body_difference_is_evidence_not_a_named_part():
+    psi = 2.0
+    x = _line_x(psi, 0.0, 30.0)
+    siblings = _siblings()
+    for record, _ in siblings:
+        record["frontal"] = {"arm_across_body_sw": {"value": 0.10, "status": "measured"}}
+    me = _record(contact=(x, 30.0), rest=(x, 39.0), psi=psi)
+    me["frontal"] = {"arm_across_body_sw": {"value": 0.50, "status": "measured"}}
+    att = at.attribute(me, _results(), siblings=siblings, release_distance_m=RELEASE_M)
+    arm = next(b for b in att["body_evidence"] if b["key"] == "arm_across_body_sw")
+    assert arm["delta"] == 0.4 and arm["beyond_noise"] is True
+    assert any(e.startswith("Front view: hand across the body") for e in att["explanation"]["evidence"])
+    assert "further across the body than usual (+0.40 shoulder widths)" in att["explanation"]["suggestion"]
+    unmeasured = next(b for b in at.attribute(_record(), _results(), siblings=siblings)["body_evidence"]
+                      if b["key"] == "arm_across_body_sw")
+    assert unmeasured["value"] is None and unmeasured["beyond_noise"] is None       # missing stays missing

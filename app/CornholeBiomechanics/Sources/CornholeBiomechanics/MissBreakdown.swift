@@ -87,6 +87,18 @@ struct ThrowAttribution: Decodable, Equatable {
     var cue: String?
     /// "geometry", "physics" or "within_spread".
     var tier: String?
+    /// The explanation in four separate statements (attribution_v2; nil in older analyses).
+    var explanation: FourPart?
+
+    struct FourPart: Decodable, Equatable {
+        var observed: String?
+        /// "flight", "after_landing", "both" or nil.
+        var phase: String?
+        var evidence: [String]?
+        var possible_explanation: String?
+        var suggestion: String?
+        var basis: String?
+    }
 
     func lateralComponent(_ key: String) -> Component? { lateral?.components?.first { $0.key == key } }
     func depthComponent(_ key: String) -> Component? { depth?.components?.first { $0.key == key } }
@@ -128,6 +140,9 @@ struct ThrowSummaryCard: View {
                 .textSelection(.enabled)
             if let reason = document.attribution?.reason, !reason.isEmpty {
                 Text(reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if document.isMeasured, let parts = document.attribution?.explanation, parts.observed != nil {
+                FourPartExplanation(parts: parts)
             }
             suggestion
         }
@@ -173,6 +188,46 @@ struct ThrowSummaryCard: View {
                     .disabled(!canEdit)
             }
             .font(.callout)
+        }
+    }
+}
+
+/// Observed result, measured evidence, possible explanation and what to review, kept apart so a measurement is never
+/// read as a cause (METHODS_AND_MATH §5.5).
+struct FourPartExplanation: View {
+    let parts: ThrowAttribution.FourPart
+
+    var body: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
+            row("Observed", parts.observed.map { [$0] } ?? [], phase: phaseText)
+            if let evidence = parts.evidence, !evidence.isEmpty { row("Measured", evidence) }
+            if let text = parts.possible_explanation { row("Possible reason", [text]) }
+            if let text = parts.suggestion { row("To review", [text]) }
+        }
+        .font(.callout)
+        if let basis = parts.basis {
+            Text(basis).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var phaseText: String? {
+        switch parts.phase {
+        case "flight": "in the flight"
+        case "after_landing": "after landing"
+        case "both": "in the flight and after landing"
+        default: nil
+        }
+    }
+
+    private func row(_ title: String, _ lines: [String], phase: String? = nil) -> some View {
+        GridRow {
+            Text(title).font(.callout.weight(.semibold)).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                }
+                if let phase { Text("Miss made \(phase)").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+            }
         }
     }
 }
