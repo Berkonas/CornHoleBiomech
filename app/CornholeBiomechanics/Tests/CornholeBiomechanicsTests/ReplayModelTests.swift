@@ -85,3 +85,16 @@ final class FrontContactTimingTests: XCTestCase {
         XCTAssertEqual(FrontReplayOverlay.splitAtContact(untagged, contactFrame: nil).deck.count, untagged.count)
     }
 }
+
+final class InboxClipWindowTests: XCTestCase {
+    func testClipCoversTheWholeThrowFromBeforeReleaseToAfterRest() {
+        // Release at frame 85, contact 120, rest 140 of 175 at 30 fps (a typical library throw).
+        let w = ReviewInboxView.clipWindow(fps: 30, frameCount: 175, release: 85, contact: 120, rest: 140)
+        XCTAssertEqual(w.start!, 85.0 / 30 - 0.5, accuracy: 1e-9)          // the swing and release are in the clip
+        XCTAssertEqual(w.end!, 175.0 / 30, accuracy: 1e-9)                 // runs to the clip's end after the rest
+        XCTAssertEqual(w.still!, 140.0 / 30, accuracy: 1e-9)
+        let noRelease = ReviewInboxView.clipWindow(fps: 30, frameCount: 175, release: nil, contact: 120, rest: nil)
+        XCTAssertEqual(noRelease.start!, 4.0 - 1.2, accuracy: 1e-9)
+        XCTAssertNil(ReviewInboxView.clipWindow(fps: 30, frameCount: 175, release: nil, contact: nil, rest: nil).start)
+    }
+}

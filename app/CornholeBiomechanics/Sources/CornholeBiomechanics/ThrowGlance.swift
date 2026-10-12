@@ -47,6 +47,7 @@ struct ThrowGlance: Equatable, Sendable {
     var releaseSide: Int?
     var contactSide: Int?
     var contactFront: Int?
+    var releaseFront: Int?
     var frontFrameCount: Int?
     /// Side-clip frame where the bag stopped (board phase).
     var endSide: Int?
@@ -131,6 +132,7 @@ struct ThrowGlance: Equatable, Sendable {
         releaseSide = frames?.release_side
         contactSide = frames?.contact_side
         contactFront = frames?.contact_front
+        releaseFront = frames?.release_front
         frontFrameCount = frames?.front_frame_count
         endSide = file.board_phase?.end?.frame
         let sfps = frames?.side_fps ?? 0, ffps = frames?.front_fps ?? 0

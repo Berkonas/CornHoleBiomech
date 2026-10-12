@@ -291,18 +291,48 @@ extension TopDownScene {
         }
         let tl = map.point(front, -12), br = map.point(front + Self.footprint, 12)
         let deck = CGRect(x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y)
-        context.fill(Path(roundedRect: deck, cornerRadius: 2), with: .color(Color.red.opacity(dark ? 0.30 : 0.16)))
-        context.stroke(Path(roundedRect: deck, cornerRadius: 2), with: .color(.primary.opacity(0.5)), lineWidth: 1.2)
+        // The deck: a neutral board finish (not a colour that reads as a result), a frame and a soft shadow, so the
+        // markers on it carry the colour. A 6-in grid gives the scale where the board is large enough to read it.
+        let deckPath = Path(roundedRect: deck, cornerRadius: 3)
+        var shadowed = context
+        shadowed.addFilter(.shadow(color: .black.opacity(dark ? 0.5 : 0.18), radius: 4, x: 0, y: 2))
+        shadowed.fill(deckPath, with: .linearGradient(
+            Gradient(colors: dark ? [Color(red: 0.36, green: 0.31, blue: 0.24), Color(red: 0.30, green: 0.26, blue: 0.20)]
+                                  : [Color(red: 0.95, green: 0.90, blue: 0.80), Color(red: 0.90, green: 0.84, blue: 0.72)]),
+            startPoint: CGPoint(x: deck.minX, y: deck.minY), endPoint: CGPoint(x: deck.maxX, y: deck.maxY)))
+        if boardLabels && map.scale * 6 >= 10 {
+            var grid = Path()
+            for v in stride(from: 6.0, to: 48.0, by: 6.0) {
+                let a = front + ThrowFromAbove.Geometry.ground(v)
+                grid.move(to: map.point(a, -12)); grid.addLine(to: map.point(a, 12))
+            }
+            for r in stride(from: -6.0, through: 6.0, by: 6.0) {
+                grid.move(to: map.point(front, r)); grid.addLine(to: map.point(front + Self.footprint, r))
+            }
+            context.stroke(grid, with: .color(.primary.opacity(dark ? 0.10 : 0.07)), lineWidth: 0.8)
+        }
+        context.stroke(deckPath, with: .color(.primary.opacity(0.55)), lineWidth: 1.4)
         var edge = Path()
         edge.move(to: CGPoint(x: deck.minX, y: deck.minY)); edge.addLine(to: CGPoint(x: deck.minX, y: deck.maxY))
-        context.stroke(edge, with: .color(.primary.opacity(0.8)), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+        context.stroke(edge, with: .color(.primary.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
         let holePoint = map.point(hole.a, hole.r)
         let holeRadius = CGFloat(max(1.5, 3 * map.scale))
-        context.fill(Path(ellipseIn: CGRect(x: holePoint.x - holeRadius, y: holePoint.y - holeRadius, width: 2 * holeRadius, height: 2 * holeRadius)),
-                     with: .color(.primary.opacity(0.85)))
+        let holeRect = CGRect(x: holePoint.x - holeRadius, y: holePoint.y - holeRadius, width: 2 * holeRadius, height: 2 * holeRadius)
+        context.fill(Path(ellipseIn: holeRect), with: .radialGradient(
+            Gradient(colors: [Color.black.opacity(0.92), Color.black.opacity(0.70)]), center: holePoint,
+            startRadius: 0, endRadius: holeRadius))
+        context.stroke(Path(ellipseIn: holeRect), with: .color(.primary.opacity(0.35)), lineWidth: 1)
         if boardLabels {
             context.draw(caption("Front edge"), at: CGPoint(x: deck.minX, y: deck.maxY + 3), anchor: .topLeading)
             context.draw(caption("Back"), at: CGPoint(x: deck.maxX, y: deck.maxY + 3), anchor: .topTrailing)
+            if map.scale * 12 >= 24 {
+                // Distance up the deck along the bottom edge, as on a measuring board.
+                for v in stride(from: 12.0, through: 36.0, by: 12.0) {
+                    let a = front + ThrowFromAbove.Geometry.ground(v)
+                    context.draw(Text("\(Int(v)) in").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary),
+                                 at: planShift(map.point(a, 12), 0, 3), anchor: .top)
+                }
+            }
         }
 
         // Ghost of the usual: the other throws' rests, the usual group and the usual first contact.
@@ -315,8 +345,8 @@ extension TopDownScene {
                 let g = ground(group.centre), c = map.point(g.a, g.r)
                 let w = CGFloat(2 * group.spreadAlong * ThrowFromAbove.Geometry.slopeCos * map.scale), h = CGFloat(2 * group.spreadAcross * map.scale)
                 let ellipse = Path(ellipseIn: CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h))
-                context.fill(ellipse, with: .color(.secondary.opacity(0.07)))
-                context.stroke(ellipse, with: .color(.secondary.opacity(0.7)), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                context.fill(ellipse, with: .color(.secondary.opacity(dark ? 0.16 : 0.10)))
+                context.stroke(ellipse, with: .color(.secondary.opacity(0.65)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 if boardLabels {
                     context.draw(caption("your usual group"), at: CGPoint(x: c.x + w / 2 * 0.72, y: c.y - h / 2 * 0.72 - 2), anchor: .bottomLeading)
                 }
@@ -331,7 +361,18 @@ extension TopDownScene {
 
         // Launch: the line from the release point to the hole (reference, dashed), the measured launch line (solid) and
         // the wedge between them, all to scale.
-        if hasLaunchLine, let r0 = releaseRight, let deg = launchDeg {
+        // On the enlarged board (the report's static figure) the release is far off to the left, so the wedge and the
+        // reference line only show as stray bands at the edge: there the launch shows as a short incoming line instead.
+        let boardFigure = frame == nil && detail > 0.5
+        if boardFigure, hasLaunchLine, let r0 = releaseRight, let deg = launchDeg {
+            let slope = tan(deg * .pi / 180)
+            let endA = contact.map { ground($0).a } ?? hole.a
+            let startA = front - 8
+            var incoming = Path()
+            incoming.move(to: map.point(startA, r0 + slope * startA)); incoming.addLine(to: map.point(endA, r0 + slope * endA))
+            context.stroke(incoming, with: .color(measuredInk.opacity(0.8)),
+                           style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: launchEstimated ? [6, 4] : [2, 3]))
+        } else if hasLaunchLine, let r0 = releaseRight, let deg = launchDeg {
             let release = map.point(0, r0)
             let slope = tan(deg * .pi / 180)
             let endA = contact.map { ground($0).a } ?? hole.a
@@ -386,12 +427,14 @@ extension TopDownScene {
             }
             let radius = bagSide / 2
             let ring = Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius))
-            context.fill(ring, with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.85)))
-            context.stroke(ring, with: .color(Color.accentColor.opacity(reachedContact ? 1 : 0.45)), lineWidth: 2)
+            context.fill(ring, with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.55)))
+            context.stroke(ring, with: .color(.white.opacity(0.9)), lineWidth: 4)
+            context.stroke(ring, with: .color(eventColor("first_contact").opacity(reachedContact ? 1 : 0.45)), lineWidth: 2)
             if boardLabels {
-                let restIsRight = rest.map { ground($0).a >= g.a } ?? true
-                context.draw(Text("first contact").font(.caption2.weight(.semibold)),
-                             at: planShift(c, Double(restIsRight ? -radius - 4 : radius + 4), 0), anchor: restIsRight ? .trailing : .leading)
+                // Under the ring, clear of the incoming launch line and the slide arrow.
+                let restBelow = rest.map { ground($0).r > g.r + 3 } ?? false
+                context.draw(Text("first contact").font(.caption2.weight(.semibold)).foregroundStyle(eventColor("first_contact")),
+                             at: planShift(c, 0, Double(restBelow ? -radius - 3 : radius + 3)), anchor: restBelow ? .bottom : .top)
             }
         }
         if inHole {
@@ -417,14 +460,20 @@ extension TopDownScene {
             if shown.moved {
                 drawHead(context, at: shown.point, from: holePoint, size: 12, color: Color.accentColor.opacity(opacity))
             } else {
-                let bag = Path(roundedRect: CGRect(x: raw.x - bagSide / 2, y: raw.y - bagSide / 2, width: bagSide, height: bagSide),
-                               cornerRadius: bagSide * 0.18)
-                context.fill(bag, with: .color(Color.accentColor.opacity(0.9 * opacity)))
-                context.stroke(bag, with: .color(.white.opacity(0.9)), lineWidth: 1.2)
-                // Measurement precision of the rest point: ±across (front camera) × ±along (side camera).
+                // Measurement precision of the rest point: ±across (front camera) × ±along (side camera), as a soft halo.
                 let w = CGFloat(2 * precisionAlong * map.scale), h = CGFloat(2 * precisionAcross * map.scale)
-                context.stroke(Path(ellipseIn: CGRect(x: raw.x - w / 2, y: raw.y - h / 2, width: w, height: h)),
-                               with: .color(.primary.opacity(0.85 * opacity)), lineWidth: 1)
+                let halo = Path(ellipseIn: CGRect(x: raw.x - w / 2, y: raw.y - h / 2, width: w, height: h))
+                context.fill(halo, with: .color(eventColor("final_rest").opacity(0.14 * opacity)))
+                context.stroke(halo, with: .color(eventColor("final_rest").opacity(0.5 * opacity)),
+                               style: StrokeStyle(lineWidth: 0.8, dash: [2, 2]))
+                // The bag itself (6 × 6 in, to scale), slightly rotated like a bag at rest, with a soft shadow.
+                let bag = Path(roundedRect: CGRect(x: -bagSide / 2, y: -bagSide / 2, width: bagSide, height: bagSide),
+                               cornerRadius: bagSide * 0.22)
+                    .applying(CGAffineTransform(rotationAngle: 0.12).concatenating(CGAffineTransform(translationX: raw.x, y: raw.y)))
+                var lifted = context
+                lifted.addFilter(.shadow(color: .black.opacity(0.3 * opacity), radius: 2, x: 0, y: 1))
+                lifted.fill(bag, with: .color(eventColor("final_rest").opacity(0.95 * opacity)))
+                context.stroke(bag, with: .color(.white.opacity(0.95)), lineWidth: 1.4)
             }
             if (boardLabels || frame == nil), let missText {
                 drawMissLabel(context, (offBoard ? "Off the board: " : "") + missText, at: shown.point, from: holePoint,
@@ -467,9 +516,12 @@ extension TopDownScene {
         let ux = dx / length, uy = dy / length
         let tip = CGPoint(x: Double(b.x) - ux * stopShort, y: Double(b.y) - uy * stopShort)
         var line = Path(); line.move(to: a); line.addLine(to: tip)
-        context.stroke(line, with: .color(.primary.opacity(0.25 * opacity)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
-        context.stroke(line, with: .color(slideInk.opacity(opacity)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
-        if length - stopShort > 8 { drawHead(context, at: tip, from: a, size: 8, color: slideInk.opacity(opacity)) }
+        context.stroke(line, with: .color(.black.opacity(0.45 * opacity)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+        context.stroke(line, with: .color(slideInk.opacity(opacity)), style: StrokeStyle(lineWidth: 2.8, lineCap: .round))
+        if length - stopShort > 8 {
+            drawHead(context, at: tip, from: a, size: 10, color: .black.opacity(0.45 * opacity))
+            drawHead(context, at: tip, from: a, size: 8, color: slideInk.opacity(opacity))
+        }
     }
 
     /// A filled arrowhead at `tip` pointing away from `from`.
@@ -563,7 +615,7 @@ struct BoardHeroCard: View {
 
     var body: some View {
         Card(title, symbol: "flag.checkered", subtitle: "From above and to scale: the 2 × 4 ft board with its front edge at the left, the thrower's left at the top.") {
-            PlanCanvas(scene: scene).frame(height: 300)
+            PlanCanvas(scene: scene).frame(height: 340)
             legend
             ForEach(scene.notes, id: \.self) { note in
                 Label(note, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
@@ -584,13 +636,13 @@ struct BoardHeroCard: View {
     private var legend: some View {
         HStack(spacing: Space.l) {
             if scene.contact != nil {
-                item(Circle().strokeBorder(Color.accentColor, lineWidth: 2).frame(width: 11, height: 11), "first contact")
+                item(Circle().strokeBorder(eventColor("first_contact"), lineWidth: 2).frame(width: 11, height: 11), "first contact")
             }
             if scene.contact != nil && scene.rest != nil && !scene.inHole {
                 item(Capsule().fill(slideInk).frame(width: 18, height: 4), "slide")
             }
             if !scene.inHole && scene.rest != nil {
-                item(RoundedRectangle(cornerRadius: 2).fill(Color.accentColor).frame(width: 11, height: 11),
+                item(RoundedRectangle(cornerRadius: 2.5).fill(eventColor("final_rest")).frame(width: 11, height: 11),
                      "where it stopped (±\(number(scene.precisionAcross, digits: 1)) × ±\(number(scene.precisionAlong, digits: 0)) in)")
             }
             if let group = scene.usualGroup {
