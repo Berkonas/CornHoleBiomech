@@ -27,11 +27,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 from cornhole_biomech.cli import analysis_slot  # noqa: E402
+from cornhole_biomech.attribution import attribution_for_analysis  # noqa: E402
 from cornhole_biomech.insights import generate_insights  # noqa: E402
+from cornhole_biomech.serialization import json_ready, write_json  # noqa: E402
 from cornhole_biomech.models import TrialContext  # noqa: E402
 from cornhole_biomech.pipeline import analyze_trial, pool_session_camera_files  # noqa: E402
 from cornhole_biomech.two_view import (TAKE_LINK_FILENAME, TWO_VIEW_VERSION, analyze_two_view, ensure_side_board_corners,  # noqa: E402
-                                       load_take_link, outcome_from_two_view, pool_front_lag, share_side_board,
+                                       explain, load_take_link, outcome_from_two_view, pool_front_lag, share_side_board,
                                        side_camera_setups)
 
 
@@ -51,9 +53,12 @@ def save_statuses(root: Path, statuses: dict[str, str], outcomes: dict[str, dict
             trial["analysisStatus"] = statuses[trial["id"]]
         automatic = (outcomes or {}).get(trial["id"])
         previous = trial.get("outcome") or {}
-        was_automatic = (previous.get("notes") or "").startswith("Recorded automatically")
-        if automatic and (not previous or was_automatic):
-            trial["outcome"] = automatic
+        # `source` decides (app ≥ 2026-10-11); older entries fall back to the notes prefix. A person's result
+        # (source "person" / "confirmed_by_eye") is never replaced.
+        source = previous.get("source")
+        was_automatic = source == "automatic" if source else (previous.get("notes") or "").startswith("Recorded automatically")
+        if automatic and (not previous or previous.get("score_category") is None or was_automatic):
+            trial["outcome"] = {**automatic, "source": "automatic"}
         elif not automatic and was_automatic and trial["id"] in (refreshed or set()):
             trial.pop("outcome", None)
     temporary = path.with_suffix(".json.tmp")
@@ -233,6 +238,23 @@ def main() -> None:
         log(f"   front picture lag FAILED: {error}")
         traceback.print_exc()
     save_statuses(root, statuses, outcomes, refreshed)
+    # Miss attribution once more for every two-camera throw: each was computed against its siblings as they were at
+    # that moment (some still from the previous engine); now every sibling has its final two_view.json.
+    for trial in [t for t in project["trials"] if t.get("analysisRelativePath")]:
+        folder = root / trial["analysisRelativePath"]
+        try:
+            record = json.loads((folder / "two_view.json").read_text())
+            results = json.loads((folder / "results.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if record.get("status") != "measured":
+            continue
+        try:
+            record["attribution"] = attribution_for_analysis(folder, record, results)
+            record["explanation"] = explain(record, results, record["attribution"])
+            write_json(folder / "two_view.json", json_ready(record))
+        except Exception as error:
+            failures.append(f"{trial.get('name')} (attribution refresh): {error}")
     for trial in trials + [t for t in rerun if t not in trials]:
         if statuses.get(trial["id"]) == "Analyzed":
             try:
