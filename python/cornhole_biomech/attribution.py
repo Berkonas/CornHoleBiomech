@@ -758,6 +758,9 @@ def explanation_parts(att: dict[str, Any]) -> dict[str, Any]:
         out["possible_explanation"] = ("Inside this athlete's normal spread on both axes: expected throw-to-throw "
                                        "variation, so no explanation is drawn from one throw.")
         return out
+    if mx is not None and my is not None and abs(mx) < AXIS_MIN_MISS_IN and abs(my) < AXIS_MIN_MISS_IN:
+        out["possible_explanation"] = "Within the hole's radius on both axes: a near miss, nothing to explain."
+        return out
     picked = _lead_part(att)
     if picked is None:
         out["possible_explanation"] = "No single measured part stands out above its noise, so the miss is not explained."

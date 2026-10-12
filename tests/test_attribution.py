@@ -472,3 +472,8 @@ def test_front_view_body_difference_is_evidence_not_a_named_part():
     unmeasured = next(b for b in at.attribute(_record(), _results(), siblings=siblings)["body_evidence"]
                       if b["key"] == "arm_across_body_sw")
     assert unmeasured["value"] is None and unmeasured["beyond_noise"] is None       # missing stays missing
+
+
+def test_near_miss_inside_the_hole_radius_is_not_explained():
+    att = at.attribute(_record(contact=(13.0, 20.0), rest=(14.0, 37.0)), _results(), release_distance_m=RELEASE_M)
+    assert "near miss" in att["explanation"]["possible_explanation"] and att["explanation"]["suggestion"] is None

@@ -41,6 +41,17 @@ def log(message: str) -> None:
     print(time.strftime("%H:%M:%S ") + message, flush=True)
 
 
+def trial_context(root: Path, trial: dict, folder: Path) -> TrialContext:
+    """The throw's analysis context with its video found in this library: manifests keep the absolute path of the
+    library they were written in (the libraries moved from ~/Documents into the repository), so the video is taken
+    from project.json's library-relative path when the stored one no longer exists."""
+    context = json.loads((folder / "manifest.json").read_text())["trial_context"]
+    relative = trial.get("preparedVideoRelativePath") or trial.get("sourceVideoRelativePath")
+    if relative and not Path(context.get("source_video", "")).exists() and (root / relative).exists():
+        context["source_video"] = str(root / relative)
+    return TrialContext.from_dict(context)
+
+
 def save_statuses(root: Path, statuses: dict[str, str], outcomes: dict[str, dict] | None = None,
                   refreshed: set[str] | None = None) -> None:
     """Write analysis statuses, and front-camera outcomes for throws that have no result recorded yet
@@ -115,13 +126,13 @@ def main() -> None:
         batch = trials if subset is None else subset
         for n, trial in enumerate(batch, 1):
             folder = root / trial["analysisRelativePath"]
-            context = json.loads((folder / "manifest.json").read_text())["trial_context"]
+            context = trial_context(root, trial, folder)
             ensure_side_board_corners(folder)
             log(f"[{label} {n}/{len(batch)}] {trial.get('name')}")
             started = time.time()
             try:
                 with analysis_slot(lambda s, f, m: log(f"   {m}")):
-                    analyze_trial(TrialContext.from_dict(context), folder, make_annotated_video=False, app_version="cli",
+                    analyze_trial(context, folder, make_annotated_video=False, app_version="cli",
                                   progress=lambda s, f, m: None)
                 statuses[trial["id"]] = "Analyzed"
                 log(f"   side camera done in {time.time() - started:.0f} s")
