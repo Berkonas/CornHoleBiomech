@@ -357,6 +357,9 @@ DECK_STEP_PX = 90.0               # full-res px per frame: the bag's last flight
 DECK_MIN_MOVING_SHARE = 0.15      # share of a blob's pixels that changed against two frames before/after
 DECK_MAX_GAP = 3                  # frames a track may skip (bag hidden behind the hole's rim, blur)
 DECK_SKIP_COST = 0.5              # per skipped frame, against a reward of 1 per tracked frame
+DECK_TURN_DEG = 45.0              # a slide keeps its heading; a sharper turn (headings over DECK_TURN_SPAN points) is flagged
+DECK_TURN_SPAN = 3                # points each side of a turn: one-frame centroid jitter must not read as a turn
+DECK_TURN_MIN_STEP_PX = 20.0      # displacement over the span below this (a bag settling) has no direction
 DECK_HOLE_INTERIOR_SHARE = 0.8    # a blob this much inside the hole's outline is the hole interior, not a bag
 
 
@@ -454,4 +457,23 @@ def track_on_deck(frames: Sequence[np.ndarray], anchors_px: np.ndarray, start: i
         i, j = at
         chain.append(nodes[i][j])
         at = best[i][j][1]
-    return chain[::-1]
+    chain = chain[::-1]
+    _mark_turns(chain)
+    return chain
+
+
+def _mark_turns(chain: list[dict[str, Any]]) -> None:
+    """Flag ``turn`` on a point where the chain's heading over the DECK_TURN_SPAN points before it and after it
+    differs by more than DECK_TURN_DEG (each displacement ≥ DECK_TURN_MIN_STEP_PX). A sliding bag keeps its
+    heading; a sharp turn is where the chain passed from the thrown bag to one it knocked (it stops, the other
+    moves off), linked because the stopped bag no longer moves. Flagged, not cut: the caller asks for
+    confirmation."""
+    span = DECK_TURN_SPAN
+    for k in range(span, len(chain) - span):
+        a = np.subtract(chain[k]["px"], chain[k - span]["px"])
+        b = np.subtract(chain[k + span]["px"], chain[k]["px"])
+        na, nb = float(np.linalg.norm(a)), float(np.linalg.norm(b))
+        if na < DECK_TURN_MIN_STEP_PX or nb < DECK_TURN_MIN_STEP_PX:
+            continue
+        if math.degrees(math.acos(max(-1.0, min(1.0, float(a @ b) / (na * nb))))) > DECK_TURN_DEG:
+            chain[k]["turn"] = True

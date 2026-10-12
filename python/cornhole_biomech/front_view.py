@@ -784,7 +784,7 @@ def track_bag_on_deck(frames: Sequence[np.ndarray], homographies: Sequence[np.nd
         f = point["frame"]
         deck = to_deck(homographies[f], np.array([point["bottom_px"]]))[0]
         path.append({"frame": f, "px": point["px"], "bottom_px": point["bottom_px"],
-                     "deck_in": [float(deck[0]), float(deck[1])]})
+                     "deck_in": [float(deck[0]), float(deck[1])], **({"turn": True} if point.get("turn") else {})})
     return path
 
 
@@ -1059,6 +1059,14 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
         else:
             in_under = []
         result["ambiguous"] = True
+    # Two new bags on the deck, or a tracked slide that turns sharply while another bag moved: the track may have
+    # passed from the thrown bag to the one it knocked (it stops, the other slides on), so the rest, an "off" or a
+    # "hole" read from it could describe the wrong bag. Flagged for a person rather than chosen silently.
+    turned = path_starts_at_contact and any(p.get("turn") for p in path)
+    if not result.get("ambiguous") and (len(on_deck) >= 2 or (turned and (removed or len(on_deck) + len(in_under) + len(elsewhere) >= 2))):
+        result["ambiguous"] = True
+        result["identity_unsure"] = "two_new_bags_on_deck" if len(on_deck) >= 2 else "tracked_slide_turned"
+        result.setdefault("notes", []).append("Another bag moved on the board; which one is the thrown bag needs your eye.")
     # With no bag seen under the board, the hole is still the answer when the bag was tracked from its first
     # contact on the deck into the hole and nothing new lies elsewhere.
     tracked_into_hole = path_starts_at_contact and result["contact"] is not None and \

@@ -890,6 +890,15 @@ the side the thrown and the knocked bag overlap: over the 92-throw library the s
 on 5 of 7 such throws; the other two (Player 1) slid into the hole while nudging an old bag and were read as
 "rest".
 
+A knock on the deck itself is also flagged (`identity_unsure`, needs confirmation). Once the thrown bag stops it
+no longer passes the motion test, so the deck track can carry on along the bag it knocked, and the rest, an "off"
+or a "hole" read from that track would describe the wrong bag (synthetic test
+`test_track_on_deck_flags_the_turn_where_it_passes_to_a_knocked_bag`). The track marks a `turn` where its heading
+over 3 points before and after changes by more than 45° (displacements ≥ 20 px; a slide keeps its heading). The
+throw is then `ambiguous` when two new bags appear on the deck, or when the tracked slide turned while another bag
+moved. These thresholds come from the synthetic case, not from labelled real knocks: the validation run should
+count how often real slides without a knock are flagged.
+
 **Bag path in the front camera** (`front_track.py`; the replay overlay `front_path` and the deck track
 below). *Candidates* in each frame (searched at half resolution) are pixels that are bag-red (hue ≤ 12 or
 ≥ 150, S ≥ 60, V ≥ 35), differ from the empty scene by > 30 (8-bit, largest channel; the scene is the
