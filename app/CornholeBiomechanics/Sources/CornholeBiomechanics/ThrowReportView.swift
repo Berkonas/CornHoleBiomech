@@ -212,6 +212,11 @@ struct ThrowReportActions {
     var locateVideo: () -> Void = {}
     var export: () -> Void = {}
     var openReport: () -> Void = {}
+    /// Two-camera throws: "Take 3 · Bag 2 of 4", back to the take, and the take's previous / next bag (nil = none).
+    var takeLabel: String? = nil
+    var openTake: (() -> Void)? = nil
+    var previousBag: (() -> Void)? = nil
+    var nextBag: (() -> Void)? = nil
 }
 
 // MARK: - Report (connected to the library)
@@ -332,7 +337,22 @@ struct ThrowReportView: View {
             trim: { if !analysis.isRunning { sheet = .trim } },
             locateVideo: { store.locateAndRelinkVideo(for: trial) },
             export: { store.exportAnalysis(for: trial) },
-            openReport: { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } })
+            openReport: { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } },
+            takeLabel: takeNeighbours.label,
+            openTake: trial.takeKey.map { key in { store.destination = .take(key) } },
+            previousBag: takeNeighbours.previous.map { id in { store.destination = .throwReport(id) } },
+            nextBag: takeNeighbours.next.map { id in { store.destination = .throwReport(id) } })
+    }
+
+    /// This bag's place in its take and the bags before and after it (same take record, ordered by place in the take).
+    private var takeNeighbours: (label: String?, previous: UUID?, next: UUID?) {
+        guard let key = trial.takeKey, let trials = store.project?.trials else { return (nil, nil, nil) }
+        let bags = trials.filter { $0.takeKey == key }
+            .sorted { ($0.throwInTake ?? Int.max, $0.createdAt) < ($1.throwInTake ?? Int.max, $1.createdAt) }
+        guard let index = bags.firstIndex(where: { $0.id == trial.id }) else { return (nil, nil, nil) }
+        let take = trial.takeNumber.map { "Take \($0) · " } ?? ""
+        return ("\(take)Bag \(index + 1) of \(bags.count)",
+                index > 0 ? bags[index - 1].id : nil, index + 1 < bags.count ? bags[index + 1].id : nil)
     }
 
     /// Metric key → values on this athlete's other throws.
@@ -594,6 +614,21 @@ struct ThrowReportContent: View {
     private var header: some View {
         HStack(alignment: .top, spacing: Space.l) {
             VStack(alignment: .leading, spacing: Space.xs) {
+                if let label = actions.takeLabel {
+                    HStack(spacing: Space.xs) {
+                        if let open = actions.openTake {
+                            Button(action: open) { Label("Take", systemImage: "chevron.backward") }
+                                .buttonStyle(.link).help("Back to this take's four bags")
+                        }
+                        Button { actions.previousBag?() } label: { Image(systemName: "chevron.left") }
+                            .buttonStyle(.borderless).disabled(actions.previousBag == nil)
+                            .help("Previous bag in this take").accessibilityLabel("Previous bag")
+                        Text(label).font(.callout.weight(.semibold)).foregroundStyle(.secondary).monospacedDigit()
+                        Button { actions.nextBag?() } label: { Image(systemName: "chevron.right") }
+                            .buttonStyle(.borderless).disabled(actions.nextBag == nil)
+                            .help("Next bag in this take").accessibilityLabel("Next bag")
+                    }
+                }
                 Text(trial.displayName).font(.largeTitle.weight(.bold)).lineLimit(1)
                 Text(subtitle).font(.title3).foregroundStyle(.secondary)
             }
