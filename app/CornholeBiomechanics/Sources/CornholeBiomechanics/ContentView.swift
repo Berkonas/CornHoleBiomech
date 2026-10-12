@@ -157,7 +157,8 @@ struct ContentView: View {
     }
 
     private func addAthlete() {
-        guard store.project != nil, !analysis.isRunning else { return }
+        // Allowed while the queue runs: a new athlete touches no queued job.
+        guard store.project != nil else { return }
         showsAthleteSheet = true
     }
 

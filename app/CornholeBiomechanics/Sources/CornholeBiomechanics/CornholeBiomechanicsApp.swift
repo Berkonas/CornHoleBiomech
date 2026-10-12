@@ -34,7 +34,6 @@ struct CornholeBiomechanicsApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("Add Athlete…") { post(.addAthlete) }
                     .keyboardShortcut("n", modifiers: .command)
-                    .disabled(analysis.isRunning)
                 Divider()
                 Button("New Separate Library…") { post(.createStudyProject) }.disabled(analysis.isRunning)
                 Button("Choose Athlete Library…") { post(.openStudyProject) }

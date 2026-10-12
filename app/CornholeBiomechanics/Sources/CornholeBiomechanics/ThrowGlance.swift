@@ -55,11 +55,14 @@ struct ThrowGlance: Equatable, Sendable {
     /// Front-clip frame at which the bag had come to rest.
     var restFront: Int?
     var notes: [String] = []
+    /// needs_reanalysis.json is present: the files are from a run that is out of date or was interrupted (a mix of
+    /// old and new files is possible), so they are not offered for In / On / Off.
+    var isStale = false
 
     /// The engine could not decide the result on its own: the front camera asked for confirmation, or it gave
     /// no category. Landing and rest are still measured automatically.
     var isUnsure: Bool {
-        hasTwoView && (resultStatus == "needs_confirmation" || category == nil)
+        !isStale && hasTwoView && (resultStatus == "needs_confirmation" || category == nil)
     }
 
     /// The first sentence of the engine's explanation ("Board: 5 in long, 6 in left.").
@@ -82,6 +85,7 @@ struct ThrowGlance: Equatable, Sendable {
 
     static func load(analysisURL: URL) -> ThrowGlance? {
         var glance = ThrowGlance()
+        glance.isStale = FileManager.default.fileExists(atPath: analysisURL.appendingPathComponent("needs_reanalysis.json").path)
         if let data = try? Data(contentsOf: analysisURL.appendingPathComponent("two_view.json")),
            let file = try? JSONDecoder().decode(GlanceTwoViewFile.self, from: data) {
             glance.apply(file)
@@ -311,10 +315,12 @@ struct GlanceStamp: Equatable, Sendable {
     var folder: String
     var twoView: Date?
     var results: Date?
+    var stale: Bool
 
     init(folder: URL) {
         self.folder = folder.path
         let manager = FileManager.default
+        stale = manager.fileExists(atPath: folder.appendingPathComponent("needs_reanalysis.json").path)
         twoView = (try? manager.attributesOfItem(atPath: folder.appendingPathComponent("two_view.json").path))?[.modificationDate] as? Date
         results = (try? manager.attributesOfItem(atPath: folder.appendingPathComponent("results.json").path))?[.modificationDate] as? Date
     }

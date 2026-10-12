@@ -200,6 +200,9 @@ struct LaunchFitSummary: Equatable {
 /// What the page can ask its host to do.
 struct ThrowReportActions {
     var canEdit = true
+    /// Recording In / On / Off only rewrites project.json and outcome.json, so it stays open while the queue runs
+    /// (the analysis re-reads the outcome when it finishes).
+    var canRecordResult = true
     var setScore: (ScoreCategory?) -> Void = { _ in }
     var reanalyze: () -> Void = {}
     /// Rebuild insights.json (verdict, consistency) from the saved results; no pose re-run.
@@ -319,8 +322,8 @@ struct ThrowReportView: View {
     private var actions: ThrowReportActions {
         ThrowReportActions(
             canEdit: !busy,
+            canRecordResult: true,
             setScore: { score in
-                guard !analysis.isRunning else { return }
                 do { try store.setScore(score, for: trial) } catch { store.errorMessage = error.localizedDescription }
             },
             reanalyze: reanalyze,
@@ -602,7 +605,7 @@ struct ThrowReportContent: View {
                     Text("None").tag(ScoreCategory?.none)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-                .disabled(!actions.canEdit)
+                .disabled(!actions.canRecordResult)
                 .help("Record where this bag ended up; one click saves")
             }
         }
@@ -650,7 +653,7 @@ struct ThrowReportContent: View {
     /// 1. The result chip and one sentence.
     @ViewBuilder private var summaryBlock: some View {
         if let twoView = data.twoView {
-            ThrowSummaryCard(document: twoView, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
+            ThrowSummaryCard(document: twoView, recorded: trial.outcome?.scoreCategory, canEdit: actions.canRecordResult,
                              accept: { actions.setScore($0) })
         } else {
             verdictCard
@@ -671,7 +674,7 @@ struct ThrowReportContent: View {
         if let plan = planScene {
             BoardHeroCard(scene: plan, figureName: "\(trial.displayName) board")
         } else if let phase = data.boardPhase {
-            WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
+            WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canRecordResult,
                              accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
         } else if data.twoView?.isMeasured == true {
             Card("Where it ended", symbol: "flag.checkered") {
