@@ -684,6 +684,25 @@ final class AnalysisService: ObservableObject {
         progress = 1; stage = "Dashboard ready"
     }
 
+    /// Write a printable PDF report of one athlete (Python `athlete-report-pdf`) into the athlete's folder as
+    /// `reports/<code>-<yyyy-MM-dd>.pdf` and return its location. It reads saved analyses only (no video), so like
+    /// `discoverTakes` it runs beside a queued analysis instead of waiting for the queue to be idle.
+    func generateAthleteReport(athleteID: UUID, store: ProjectStore) async throws -> URL {
+        guard let root = store.projectURL,
+              let athlete = store.project?.athletes.first(where: { $0.id == athleteID }),
+              let folder = store.athleteDirectory(for: athlete) else { throw ProjectStoreError.noOpenProject }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let code = athlete.displayName.unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? String($0) : "-" }.joined()
+        let output = folder.appendingPathComponent("reports", isDirectory: true)
+            .appendingPathComponent("\(code)-\(formatter.string(from: Date())).pdf")
+        let result = try await run(["athlete-report-pdf", "--library", root.path, "--athlete-id", athleteID.uuidString,
+                                    "--output", output.path], updateProgress: false, exclusive: false)
+        return (result["output"] as? String).map { URL(fileURLWithPath: $0) } ?? output
+    }
+
     // MARK: Two-camera takes
 
     /// Pair the Take_<n>_Front / Take_<n>_Side videos in a folder and check which camera recorded each file.

@@ -184,6 +184,34 @@ In **Compare → Trial vs trial**, choose two throws from the same athlete. You 
 - both bag flights overlaid from their release points, on equal axis scales;
 - synchronized body curves and video.
 
+## Print an athlete report (PDF)
+
+On an athlete's summary, click **Print Report (PDF)…** in the toolbar. The app writes a US Letter PDF into the
+athlete's folder (`Athletes/<athlete>/reports/<code>-<date>.pdf`) and opens it in Preview, where you print it. It
+uses only the saved analyses (no video is read), so it also works while the analysis queue is running. From the
+command line: `cornhole_biomech athlete-report-pdf --library <library folder> --athlete-id <uuid> --output <file.pdf>`.
+
+The report pools the same throws as the athlete summary and uses only the measures already in the app:
+
+1. **Cover**: athlete code, recording dates, throws and takes, Hole / Board / Miss counts, PPR and In / On / Off %,
+   the three-line summary, the method versions (with a warning when throws from different versions are mixed) and
+   any throws left out with the reason.
+2. **Where the bags landed**: the board to scale with first contact (small ring), the slide and where each bag
+   stopped, the usual group (median ± robust SD) once at least 8 throws are located, and the left/right and
+   short/long miss at rest by outcome.
+3. **Release conditions**: release speed, angle and height by outcome and throw by throw, with each variable's
+   noise floor as a grey band.
+4. **Movement consistency**: the per-throw and profile body measures (side camera) and the front-camera measures,
+   each with n, median, IQR, SD and SD relative to its noise floor.
+5. **Miss explanations**: one row per throw with the result, the miss at rest and the engine's saved explanation
+   (evidence, possible explanation and what to look at; older analyses show the one-sentence explanation).
+6. **Scored vs misses**: the scored-vs-missed comparison with how many throws per group a claim needs, and a
+   limitations box.
+
+Outcomes differ by colour and marker shape (▲ hole, ● board, ■ miss, ◆ no result), so the pages read in
+grayscale. Filled marks are measured, hollow marks estimated; values that were not measured are counted as
+unavailable, never drawn.
+
 ## Launch Explorer
 
 **Body swing** mode animates a stick figure. Change the arm angle at release, backswing, swing speed, step, knee bend or body height, and watch the pendulum swing, release and flight update. The panel shows how far each change moves the landing. **Release values** mode is the direct angle/speed/height model.

@@ -29,6 +29,8 @@ struct AthleteSummaryView: View {
     @State private var forceNextRebuild = false
     /// The throw whose video is showing in the watch sheet.
     @State private var watching: WatchedThrow?
+    /// The printable PDF report is being written (Print Report).
+    @State private var printingReport = false
 
     struct WatchedThrow: Identifiable { var id: UUID }
 
@@ -51,6 +53,15 @@ struct AthleteSummaryView: View {
                     .help("Analyze every throw of this athlete again with the current version, one at a time (never all at once)")
                     .disabled(analysis.isRunning || trials.isEmpty)
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    if printingReport {
+                        ProgressView().controlSize(.small).help("Writing the PDF report…")
+                    } else {
+                        Button("Print Report (PDF)…", systemImage: "printer") { printReport() }
+                            .help("Write a printable PDF report of this athlete's analysed throws into the athlete's reports folder and open it")
+                            .disabled(analysedTrials.isEmpty)
+                    }
+                }
             }
             .task(id: "\(reloadKey)#\(reloadToken)") { await load() }
             .sheet(item: $watching) { item in
@@ -64,6 +75,16 @@ struct AthleteSummaryView: View {
             .onChange(of: analysis.isRunning) { _, running in
                 if !running { reload() }
             }
+    }
+
+    /// Writes the PDF report (saved analyses only; runs beside a queued analysis) and opens it to print.
+    private func printReport() {
+        printingReport = true
+        Task {
+            defer { printingReport = false }
+            do { NSWorkspace.shared.open(try await analysis.generateAthleteReport(athleteID: athleteID, store: store)) }
+            catch { store.errorMessage = "The PDF report could not be written: \(error.localizedDescription)" }
+        }
     }
 
     /// Restarts the load task (cancelling one in flight).
