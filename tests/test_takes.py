@@ -203,3 +203,48 @@ def test_a_moving_camera_is_not_a_bag_flight():
     scan = {"blobs": blobs, "fps": fps, "frame_count": 1200, "width_px": 480, "times_s": (np.arange(1200) / fps).tolist()}
     flights = T.find_flights(scan, "left_to_right")
     assert [f["start_frame"] for f in flights] == [300]
+
+
+def test_sync_search_evaluates_every_lag_exactly():
+    """Every lag gets the same Pearson r as the one-lag routine (no decimated grid that can step over a
+    ~20 ms-wide impact peak)."""
+    from cornhole_biomech.takes import _all_lags, _single_lag
+    rng = np.random.default_rng(0)
+    a, b = rng.normal(size=3000), rng.normal(size=2500)
+    lags = np.arange(-600, 601)
+    r = _all_lags(a, b, lags, 400)
+    for i in rng.choice(len(lags), 25):
+        assert abs(r[i] - _single_lag(a, b, int(lags[i]), 400)) < 1e-9
+
+
+def test_sync_finds_sharp_impacts_a_coarse_grid_missed():
+    """3 ms impact decays (sharp, little reverb) with a random true offset: the old 25 ms grid rejected 2 of ~60
+    such pairs; the exact search recovers the offset."""
+    from cornhole_biomech.takes import loudness_envelope, sync_offset
+    rate, rng = 16000, np.random.default_rng(7)
+
+    def track(events, dur, offset):
+        n = int(dur * rate)
+        x = rng.normal(0, 0.002, n)
+        for t, amp in events:
+            i = int((t + offset) * rate)
+            if 0 <= i < n:
+                m = min(n - i, int(0.3 * rate))
+                x[i:i + m] += amp * rng.normal(0, 1, m) * np.exp(-np.arange(m) / (0.003 * rate))
+        return x
+
+    for _ in range(12):
+        events = [(1.0, 0.5)] + [(3 + i * 6 + rng.uniform(0, 2), rng.uniform(0.05, 0.3)) for i in range(4)]
+        true = rng.uniform(-3, 3)
+        out = sync_offset(loudness_envelope(track(events, 35, true)), loudness_envelope(track(events, 30, 0)))
+        assert out["status"] == "measured" and abs(out["offset_s"] - true) < 0.02
+
+
+def test_frame_rate_comes_from_the_frame_spacing_not_the_average_over_a_gap():
+    from cornhole_biomech.takes import frame_rate_from_times
+    times = np.arange(300) / 30.0
+    times[150:] += 0.3                              # one 0.3 s timestamp gap: the average rate reads ~29.7
+    assert 300 / (times[-1] + 1 / 30.0) < 29.75
+    assert frame_rate_from_times(times) == 30.0
+    assert frame_rate_from_times(np.arange(400) * 1001 / 60000) == 59.94
+    assert frame_rate_from_times([0.0]) is None

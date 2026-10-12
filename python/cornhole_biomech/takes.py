@@ -245,6 +245,17 @@ def nominal_fps(measured: float) -> float:
     return closest if abs(measured - closest) / closest < 0.0006 else measured
 
 
+def frame_rate_from_times(times: Sequence[float]) -> float | None:
+    """The clip's frame rate from its container timestamps: 1 / median frame interval, snapped like
+    ``nominal_fps``. A timestamp gap pulls the container's *average* rate down (Player 4 take 4's front clips
+    report 29.69 fps while every frame interval is 33.33 ms); the median interval is not moved by it."""
+    t = np.asarray(times, float)
+    if len(t) < 3:
+        return None
+    step = float(np.median(np.diff(t)))
+    return nominal_fps(1.0 / step) if step > 0 else None
+
+
 def assign_camera_roles(takes: list[TakeFiles], signatures: dict[str, CameraSignature]) -> dict[str, Any]:
     """Decide which camera is the front and which the side, and fix swapped file labels.
 
@@ -383,27 +394,15 @@ def sync_offset(front_envelope: np.ndarray, side_envelope: np.ndarray, hop_s: fl
     if coarse_guess_s is not None and abs(coarse_guess_s) < 60:
         centre = int(round(coarse_guess_s / hop_s))
     lags = np.arange(centre - max_lag, centre + max_lag + 1)
-    r = np.full(len(lags), -1.0)
-    # Evaluate on a decimated grid first (25 ms), then refine around the best few candidates.
+    # Every lag is evaluated (FFT + running sums): sharp impacts give a correlation peak only ~20 ms wide, which a
+    # decimated 25 ms grid could step over and then reject a good pair.
     min_overlap = int(round(MIN_SYNC_OVERLAP_S / hop_s))
-    coarse_step = 5
-    coarse_idx = np.arange(0, len(lags), coarse_step)
-    for i in coarse_idx:
-        r[i] = _single_lag(a, b, int(lags[i]), min_overlap)
-    for i in np.argsort(r)[::-1][:6]:
-        for j in range(max(0, i - coarse_step), min(len(lags), i + coarse_step + 1)):
-            if r[j] == -1.0:
-                r[j] = _single_lag(a, b, int(lags[j]), min_overlap)
+    r = _all_lags(a, b, lags, min_overlap)
     best = int(np.argmax(r))
     best_r = float(r[best])
     exclusion = int(round(SYNC_EXCLUSION_S / hop_s))
     others = r.copy()
     others[max(0, best - exclusion): best + exclusion + 1] = -1.0
-    # Competing peaks are only meaningful where they were evaluated; refine the strongest competitor.
-    second = int(np.argmax(others))
-    for j in range(max(0, second - coarse_step), min(len(lags), second + coarse_step + 1)):
-        if abs(j - best) > exclusion and others[j] == -1.0:
-            others[j] = _single_lag(a, b, int(lags[j]), min_overlap)
     second_r = float(others.max())
     # Parabolic interpolation around the peak for sub-hop precision.
     offset_hops = float(lags[best])
@@ -428,6 +427,30 @@ def sync_offset(front_envelope: np.ndarray, side_envelope: np.ndarray, hop_s: fl
         f"{MIN_SYNC_R} and margin ≥ {MIN_SYNC_MARGIN}). The views are analysed separately and combined per throw.",
         "method": "Cross-correlation of 300 Hz high-passed 5 ms loudness envelopes (clap and bag impacts).",
     }
+
+
+def _all_lags(a: np.ndarray, b: np.ndarray, lags: np.ndarray, min_overlap: int) -> np.ndarray:
+    """``_single_lag`` (Pearson r over the overlap) for every lag at once: Σxy from one FFT cross-correlation,
+    Σx, Σx², Σy, Σy² from running sums. −1 where the overlap is shorter than ``min_overlap``."""
+    from scipy import signal
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    na, nb = len(a), len(b)
+    xy = signal.correlate(a, b, mode="full", method="fft")         # index L + nb − 1 holds Σ a[i + L]·b[i]
+    ca, ca2 = np.concatenate([[0.0], np.cumsum(a)]), np.concatenate([[0.0], np.cumsum(a * a)])
+    cb, cb2 = np.concatenate([[0.0], np.cumsum(b)]), np.concatenate([[0.0], np.cumsum(b * b)])
+    out = np.full(len(lags), -1.0)
+    for i, lag in enumerate(int(v) for v in lags):
+        a0, b0 = (lag, 0) if lag >= 0 else (0, -lag)
+        n = min(na - a0, nb - b0)
+        if n < min_overlap or not -nb < lag < na:
+            continue
+        sx, sy = ca[a0 + n] - ca[a0], cb[b0 + n] - cb[b0]
+        vx = ca2[a0 + n] - ca2[a0] - sx * sx / n
+        vy = cb2[b0 + n] - cb2[b0] - sy * sy / n
+        if vx <= 0 or vy <= 0:
+            continue
+        out[i] = (xy[lag + nb - 1] - sx * sy / n) / math.sqrt(vx * vy)
+    return out
 
 
 def _single_lag(a: np.ndarray, b: np.ndarray, lag: int, min_overlap: int) -> float:
@@ -953,8 +976,11 @@ def prepare_take(front: str | Path | None, side: str | Path, output_dir: str | P
                 entry["side_clip"]["frame_times_s"] = (times[s0:s1] - times[s0]).round(5).tolist()
     if front and front_sig and record["sync"].get("status") == "measured":
         offset = float(record["sync"]["offset_s"])
-        f_fps = front_sig.fps
         front_times = np.asarray(clip_times(front), float)
+        f_fps = frame_rate_from_times(front_times) or front_sig.fps
+        if abs(f_fps - front_sig.fps) / f_fps > 0.005:
+            record["notes"].append(f"The front recording's average rate ({front_sig.fps:.2f} fps) differs from its frame "
+                                   f"spacing ({f_fps:.2f} fps): it has a timestamp gap. Clips use the frame spacing.")
         windows = []
         for entry, _, _ in plans:
             f_start = max(0, int(np.searchsorted(front_times, entry["side_clip_start_s"] + offset)) - 1)
