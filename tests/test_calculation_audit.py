@@ -484,3 +484,10 @@ def test_short_unfiltered_runs_give_no_velocity():
     series[30:50] = np.arange(20)
     v = derivative(series, 60.0, FILTERED_MIN_RUN)
     assert np.isnan(v[5:20]).all() and np.allclose(v[30:50], 60.0)
+
+
+def test_outcome_with_a_source_field_is_accepted():
+    """The app records who entered a result (`source`); the engine must read such outcomes (insights crashed)."""
+    from cornhole_biomech.models import TrialOutcome
+    outcome = TrialOutcome(intended_target="Hole center", score_category=1, throw_type="Standard", source="person")
+    assert outcome.source == "person"
