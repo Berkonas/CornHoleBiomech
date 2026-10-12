@@ -185,3 +185,37 @@ def test_the_flickering_hole_interior_is_not_tracked_as_a_bag():
     masked = ft.track_on_deck(frames, anchors, 31, 59, roi, min_area=300.0, max_area=4000.0,
                               hole_px=[hole] * len(frames))
     assert masked == []
+
+
+def test_track_on_deck_flags_the_turn_where_it_passes_to_a_knocked_bag():
+    """Thrown bag A comes down the picture and stops against resting bag B, which slides off to the side. Once A
+    stops it no longer moves, so the chain carries on along B; the sharp turn is flagged (front_view then asks
+    for confirmation instead of reading B's rest as the throw's)."""
+    import cv2
+    h, w, red = 360, 640, (30, 30, 170)
+
+    def frame(*bags):
+        im = np.full((h, w, 3), (90, 110, 120), np.uint8)
+        for p in bags:
+            cv2.rectangle(im, (int(p[0]) - 12, int(p[1]) - 12), (int(p[0]) + 12, int(p[1]) + 12), red, -1)
+        return im
+
+    b = np.array([320.0, 200.0])
+    frames = [frame(b) for _ in range(40)]
+    a = np.array([320.0, 60.0])
+    for _ in range(8):
+        a = a + [0, 17]
+        frames.append(frame(a, b))
+    for k in range(20):
+        if k < 12:
+            b = b + [25, 6]
+        frames.append(frame(a, b))
+    anchors = np.tile([[320.0, 180.0]], (len(frames), 1))
+    path = ft.track_on_deck(frames, anchors, 40, len(frames) - 1, np.ones((h, w), np.uint8), 200, 2000)
+    assert any(p.get("turn") for p in path)
+
+
+def test_mark_turns_leaves_a_straight_slide_alone():
+    chain = [{"px": [100.0 + 10 * k, 200.0 - 3 * k]} for k in range(8)]
+    ft._mark_turns(chain)
+    assert not any(p.get("turn") for p in chain)

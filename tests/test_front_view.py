@@ -347,3 +347,189 @@ def test_withheld_camera_gives_the_true_reason_for_missing_positions():
     m = fv.frontal_metrics([frame] * 40, 30, 30.0, "right", camera_record, 6.0)
     for key in ("release_point_offset_m", "stance_offset_m", "stance_width_m"):
         assert m[key]["value"] is None and m[key]["reason"] == "The board's corners look misplaced."
+
+
+def test_deck_track_points_before_first_contact_are_marked_in_the_air():
+    """The deck track starts ~0.15 s before the side camera's contact; the replay must not draw those points as
+    the slide (it did, 2–3 frames early on 76 of 86 library throws)."""
+    path = [{"frame": f} for f in range(120, 127)]
+    fv.tag_path_phases(path, 123)
+    assert [p["phase"] for p in path] == ["air"] * 3 + ["deck"] * 4
+    untagged = [{"frame": 1}]
+    fv.tag_path_phases(untagged, None)
+    assert "phase" not in untagged[0]
+
+
+# ------------------------------------------------------------------------------------------------
+# Frontal-plane time series around release (front_view.front_kinematics / swing_measures).
+
+FPS, RELEASE = 30.0, 60
+
+
+def _ramp(t, start, end, value):
+    """0 before ``start``, ``value`` after ``end``, a smooth cosine step in between (well inside 6 Hz)."""
+    if t <= start:
+        return 0.0
+    if t >= end:
+        return value
+    return value * 0.5 * (1 - math.cos(math.pi * (t - start) / (end - start)))
+
+
+def _swing_frames(sway_sw=0.2, lean_deg=8.0, wrist_sw=0.3, wrist_start_sw=None, n=80, width=80.0):
+    """A right-hander seen by the front camera (their right on the image's left), with a known hip sway towards the
+    throwing arm, trunk lean towards it and the wrist across the body at release; set-up is still before −1.0 s."""
+    frames = []
+    for f in range(n):
+        t = (f - RELEASE) / FPS
+        hip_x = 640.0 - _ramp(t, -1.0, -0.4, sway_sw) * width            # towards the throwing arm = image left
+        lean = _ramp(t, -1.0, -0.4, lean_deg)
+        sc_x = hip_x - 100.0 * math.tan(math.radians(lean))                 # trunk 100 px tall, top towards image left
+        rs, ls = (sc_x - width / 2, 300.0), (sc_x + width / 2, 300.0)
+        if wrist_start_sw is None:
+            across = _ramp(t, -1.0, -0.4, wrist_sw)
+        else:   # forward swing: from wrist_start_sw at −0.5 s to wrist_sw at −0.1 s
+            across = wrist_start_sw + _ramp(t, -0.5, -0.1, wrist_sw - wrist_start_sw)
+        frames.append(_pose_frame(right_shoulder=rs, left_shoulder=ls, right_hip=(hip_x - 30, 400.0),
+                                  left_hip=(hip_x + 30, 400.0), right_wrist=(rs[0] + across * width, 420.0),
+                                  left_wrist=(ls[0] + 10, 420.0)))
+    return frames
+
+
+def _mirror(frames):
+    """The same throw by a left-hander: image mirrored and the joint sides swapped."""
+    swap = {"left": "right", "right": "left"}
+    out = []
+    for frame in frames:
+        mirrored = {}
+        for name, (x, y, c) in frame.items():
+            side, joint = name.split("_", 1)
+            mirrored[f"{swap[side]}_{joint}"] = (None if x is None else 1280.0 - x, y, c)
+        out.append(mirrored)
+    return out
+
+
+def _at_release(kin, key):
+    return kin[key][kin["t_s"].index(0.0)]
+
+
+def test_front_kinematics_recovers_known_sway_lean_and_wrist_offset():
+    kin = fv.front_kinematics(_swing_frames(), RELEASE, FPS, "right")
+    assert kin["status"] == "measured" and kin["view"] == fv.FRONT_VIEW_LABEL
+    assert kin["t_s"][0] == pytest.approx(-1.4) and kin["t_s"][-1] == pytest.approx(0.4)
+    assert _at_release(kin, "hip_sway_sw") == pytest.approx(0.2, abs=0.005)
+    assert _at_release(kin, "trunk_lean_deg") == pytest.approx(8.0, abs=0.1)
+    assert _at_release(kin, "wrist_across_sw") == pytest.approx(0.3, abs=0.005)
+    assert kin["hip_sway_sw"][0] == pytest.approx(0.0, abs=0.005)        # set-up is the reference
+    assert kin["shoulder_width_px"] == pytest.approx(80.0, abs=0.1)
+    # The same convention as the release measures in `frontal`.
+    frontal = fv.frontal_metrics(_swing_frames(), RELEASE, FPS, "right", None, None)
+    assert frontal["arm_across_body_sw"]["value"] == pytest.approx(_at_release(kin, "wrist_across_sw"), abs=0.01)
+    assert frontal["trunk_side_lean_deg"]["value"] == pytest.approx(_at_release(kin, "trunk_lean_deg"), abs=0.1)
+    m = fv.swing_measures(kin)
+    assert m["trunk_lean_change_deg"]["value"] == pytest.approx(8.0, abs=0.15)
+    assert m["trunk_lean_change_deg"]["view"] == fv.FRONT_VIEW_LABEL
+
+
+def test_front_kinematics_hand_path_range_over_the_forward_swing():
+    frames = _swing_frames(wrist_start_sw=0.1, wrist_sw=-0.3)
+    kin = fv.front_kinematics(frames, RELEASE, FPS, "right", forward_swing_frame=RELEASE - 15)
+    m = fv.swing_measures(kin)["hand_path_range_sw"]
+    assert m["value"] == pytest.approx(0.4, abs=0.01) and m["status"] == "measured"
+    assert kin["forward_swing_start_s"] == pytest.approx(-0.5) and m["forward_swing_source"] == "side peak backswing"
+    fallback = fv.front_kinematics(frames, RELEASE, FPS, "right")
+    assert fallback["forward_swing_source"].startswith("fixed 0.5 s")
+    assert fv.swing_measures(fallback)["hand_path_range_sw"]["value"] == pytest.approx(0.4, abs=0.01)
+
+
+def test_front_kinematics_mirrored_throwing_side_gives_the_same_signed_values():
+    frames = _swing_frames(sway_sw=0.15, lean_deg=-5.0, wrist_sw=-0.25)
+    right = fv.front_kinematics(frames, RELEASE, FPS, "right", roll_deg=0.0)
+    left = fv.front_kinematics(_mirror(frames), RELEASE, FPS, "left", roll_deg=0.0)
+    for key in ("wrist_across_sw", "trunk_lean_deg", "hip_sway_sw"):
+        assert left[key] == pytest.approx(right[key], abs=1e-3)
+    assert _at_release(left, "hip_sway_sw") == pytest.approx(0.15, abs=0.005)
+    assert _at_release(left, "trunk_lean_deg") == pytest.approx(-5.0, abs=0.1)
+    assert _at_release(left, "wrist_across_sw") == pytest.approx(-0.25, abs=0.005)
+    assert fv.swing_measures(left)["trunk_lean_change_deg"]["value"] == pytest.approx(
+        fv.swing_measures(right)["trunk_lean_change_deg"]["value"], abs=1e-6)
+
+
+def test_front_kinematics_missing_joints_stay_null_and_gaps_are_not_filled():
+    frames = [dict(f) for f in _swing_frames()]
+    for f in range(RELEASE - 3, RELEASE + 2):            # wrist unclear around release (5 frames)
+        frames[f]["right_wrist"] = (frames[f]["right_wrist"][0], frames[f]["right_wrist"][1], 0.1)
+    for f in range(len(frames)):                          # hips never seen
+        frames[f].pop("left_hip"), frames[f].pop("right_hip")
+    kin = fv.front_kinematics(frames, RELEASE, FPS, "right")
+    i0 = kin["t_s"].index(0.0)
+    assert all(kin["wrist_across_sw"][i] is None for i in range(i0 - 3, i0 + 2))
+    assert kin["wrist_across_sw"][i0 - 5] is not None and kin["wrist_across_sw"][i0 + 3] is not None
+    assert all(v is None for v in kin["hip_sway_sw"]) and all(v is None for v in kin["trunk_lean_deg"])
+    m = fv.swing_measures(kin)
+    assert m["trunk_lean_change_deg"]["value"] is None and m["trunk_lean_change_deg"]["status"] == "unavailable"
+    assert m["trunk_lean_change_deg"]["reason"]
+    assert m["hand_path_range_sw"]["value"] is None and "forward-swing frames" in m["hand_path_range_sw"]["reason"]
+    # A window that runs off the start of the clip is null there, not zero.
+    early = fv.front_kinematics(_swing_frames()[20:], RELEASE - 20, FPS, "right")
+    assert early["wrist_across_sw"][0] is None and early["hip_sway_sw"][-1] is not None
+
+
+def test_front_kinematics_without_pose_or_release_is_unavailable():
+    kin = fv.front_kinematics([], None, FPS, "right")
+    assert kin["status"] == "unavailable" and kin["reason"]
+    m = fv.swing_measures(kin)
+    assert all(item["value"] is None and item["status"] == "unavailable" and item["reason"] for item in m.values())
+
+
+def test_a_hand_hidden_behind_the_body_makes_the_range_estimated():
+    frames = [dict(f) for f in _swing_frames(wrist_start_sw=0.1, wrist_sw=-0.3)]
+    for f in range(RELEASE - 15, RELEASE - 8):           # 7 of 16 forward-swing frames: seen but not clearly
+        x, y, _ = frames[f]["right_wrist"]
+        frames[f]["right_wrist"] = (x, y, 0.4)
+    m = fv.swing_measures(fv.front_kinematics(frames, RELEASE, FPS, "right", forward_swing_frame=RELEASE - 15))
+    assert m["hand_path_range_sw"]["status"] == "estimated" and "hidden" in m["hand_path_range_sw"]["reason"]
+
+
+def test_new_frontal_measures_reach_the_athlete_rows(tmp_path):
+    import json
+    from cornhole_biomech import pipeline
+    record = {"status": "measured", "frontal": {
+        "hand_path_range_sw": {"value": 0.42, "status": "estimated"},
+        "trunk_lean_change_deg": {"value": None, "status": "unavailable"}}}
+    (tmp_path / "two_view.json").write_text(json.dumps(record))
+    row = pipeline.two_view_row(tmp_path)
+    assert row["front_hand_path_range_sw"] == pytest.approx(0.42)
+    assert row["front_trunk_lean_change_deg"] is None
+
+
+def test_front_kinematics_removes_camera_roll():
+    roll = 4.0
+    r = math.radians(roll)
+
+    def rot(x, y):    # clockwise roll as displayed (y down), about the image centre
+        x, y = x - 640, y - 360
+        return (640 + x * math.cos(r) - y * math.sin(r), 360 + x * math.sin(r) + y * math.cos(r))
+
+    frames = _swing_frames()
+    rolled = [{k: (*rot(x, y), c) for k, (x, y, c) in f.items()} for f in frames]
+    level = fv.front_kinematics(frames, RELEASE, FPS, "right")
+    corrected = fv.front_kinematics(rolled, RELEASE, FPS, "right", roll_deg=roll)
+    for key in ("wrist_across_sw", "trunk_lean_deg", "hip_sway_sw"):
+        assert corrected[key] == pytest.approx(level[key], abs=2e-3 if key != "trunk_lean_deg" else 0.11)
+
+
+def test_landing_and_sliding_off_the_edge_is_not_a_knock_but_a_turn_on_the_deck_is():
+    def pt(frame, phase, on, turn=False):
+        p = {"frame": frame, "phase": phase, "deck_in": [12.0, 30.0] if on else [12.0, 80.0]}
+        if turn:
+            p["turn"] = True
+        return p
+    landing = [pt(1, "air", False), pt(2, "air", False), pt(3, "deck", True), pt(4, "deck", True, turn=True),
+               pt(5, "deck", True), pt(6, "deck", True), pt(7, "deck", True), pt(8, "deck", True)]
+    assert not fv.slide_turned_on_deck(landing)                     # window reaches back into the air
+    off_edge = [pt(f, "deck", True) for f in range(1, 5)] + [pt(5, "deck", True, turn=True)] + \
+        [pt(f, "deck", f < 7) for f in range(6, 10)]
+    assert not fv.slide_turned_on_deck(off_edge)                    # falls off the deck after the turn
+    knock = [pt(f, "deck", True) for f in range(1, 5)] + [pt(5, "deck", True, turn=True)] + \
+        [pt(f, "deck", True) for f in range(6, 10)]
+    assert fv.slide_turned_on_deck(knock)

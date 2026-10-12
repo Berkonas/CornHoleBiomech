@@ -168,30 +168,12 @@ struct WhereItEndedCard: View {
         }
     }
 
+    /// Main screen: the slide's length only. Entry speed, slow-down and effective μ are under Details
+    /// (`SlideDetails`): μ comes out negative, i.e. not physical, on some throws (council §7).
     @ViewBuilder private var slidePhysics: some View {
-        if let slide = phase.slide, slide.distance_in != nil {
-            Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.xs) {
-                GridRow {
-                    Text("Slide").foregroundStyle(.secondary)
-                    Text("\(number(slide.distance_in, digits: 0)) in in \(number(slide.duration_s, digits: 2)) s")
-                }
-                if let v0 = slide.entry_speed_m_s {
-                    GridRow { Text("Speed along the board at touchdown").foregroundStyle(.secondary); Text("\(number(v0, digits: 1)) m/s") }
-                }
-                if let a = slide.deceleration_m_s2 {
-                    GridRow { Text("Slow-down on the board").foregroundStyle(.secondary); Text("\(number(a, digits: 1)) m/s²") }
-                }
-                if let mu = slide.mu_effective {
-                    GridRow {
-                        Text("Board friction (effective μ)").foregroundStyle(.secondary)
-                        Text(number(mu, digits: 2)).help("From a = g (sin α + μ cos α) for a bag sliding up the 10.8° deck, fitted to the measured slide.")
-                    }
-                }
-            }
-            .font(.callout).monospacedDigit()
-            if slide.mu_effective == nil, let reason = slide.reason {
-                Text(reason).font(.caption).foregroundStyle(.secondary)
-            }
+        if let slide = phase.slide, let distance = slide.distance_in {
+            Text("Slide: \(number(abs(distance), digits: 0)) in" + (slide.duration_s.map { " in \(number($0, digits: 2)) s" } ?? ""))
+                .font(.callout).monospacedDigit()
         }
     }
 
@@ -219,6 +201,46 @@ struct WhereItEndedCard: View {
         case .throughHole: "Hole · 3"
         case .onBoard: "Board · 1"
         case .offBoard: "Miss · 0"
+        }
+    }
+}
+
+/// The slide's physics for the Details section: length and time, the speed along the board at touchdown, and the
+/// slow-down and effective friction with a warning that μ is not physical on some throws (so it is never used for
+/// coaching).
+struct SlideDetails: View {
+    let slide: BoardPhase.Slide
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("Slide on the board").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: Space.xl, verticalSpacing: Space.xs) {
+                if let distance = slide.distance_in {
+                    GridRow {
+                        Text("Slide").foregroundStyle(.secondary)
+                        Text("\(number(abs(distance), digits: 0)) in" + (slide.duration_s.map { " in \(number($0, digits: 2)) s" } ?? ""))
+                    }
+                }
+                if let v0 = slide.entry_speed_m_s {
+                    GridRow { Text("Speed along the board at touchdown").foregroundStyle(.secondary); Text("\(number(v0, digits: 1)) m/s") }
+                }
+                if let a = slide.deceleration_m_s2 {
+                    GridRow { Text("Slow-down on the board").foregroundStyle(.secondary); Text("\(number(a, digits: 1)) m/s²") }
+                }
+                if let mu = slide.mu_effective {
+                    GridRow {
+                        Text("Board friction (effective μ)").foregroundStyle(.secondary)
+                        Text(number(mu, digits: 2)).help("From a = g (sin α + μ cos α) for a bag sliding up the 10.8° deck, fitted to the measured slide.")
+                    }
+                }
+            }
+            .font(.callout).monospacedDigit()
+            if slide.mu_effective != nil || slide.deceleration_m_s2 != nil {
+                Text("Research only: the fitted slow-down gives a negative (not physical) μ on some throws, so neither is used for coaching.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if let reason = slide.reason {
+                Text(reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

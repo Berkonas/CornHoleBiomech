@@ -78,6 +78,39 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: revisionRoot.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path), "External original must remain")
     }
+    @MainActor
+    func testPersonResultIsNoLongerAutomaticAndOffClearsTheCameraRestPoint() throws {
+        let base = try temporaryDirectory("outcome-source")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let paths = LibraryPaths(applicationSupportURL: base.appendingPathComponent("Support"), defaultLibraryURL: base.appendingPathComponent("Data"), libraryRootWasOverridden: false)
+        let store = ProjectStore(paths: paths, trashHandler: { _ in })
+        try store.addAthlete(NewAthleteDraft(participantCode: "A", dominantHand: .right))
+        let athleteID = try XCTUnwrap(store.selectedAthleteID)
+        let source = base.appendingPathComponent("source.mov")
+        try Data("original".utf8).write(to: source)
+        let trial = try store.importVideo(ImportDraft(videoURL: source, athleteID: athleteID))
+        // An automatic result from an older library (notes prefix only, no source).
+        var automatic = TrialOutcome(scoreCategory: .onBoard, notes: "\(TrialOutcome.automaticNotePrefix) from the front camera.",
+                                     finalRestingPoint: BoardPoint(xInches: 12, yInches: 30))
+        XCTAssertTrue(automatic.isAutomatic)
+        automatic.source = TrialOutcome.automaticSource
+        try store.saveOutcome(automatic, for: trial)
+        // The coach changes the result in the report: the notes keep the prefix, but it is now a person's entry.
+        try store.setScore(.throughHole, for: try XCTUnwrap(store.project?.trials.first))
+        let corrected = try XCTUnwrap(store.project?.trials.first?.outcome)
+        XCTAssertEqual(corrected.source, TrialOutcome.personSource)
+        XCTAssertFalse(corrected.isAutomatic)
+        // A confirmation never replaces a person's entry.
+        XCTAssertNil(try store.confirmResult(.offBoard, trialID: trial.id, contact: nil, rest: nil))
+        // Off from a person removes an on-deck rest point the camera had placed.
+        try store.saveOutcome(automatic, for: try XCTUnwrap(store.project?.trials.first))
+        XCTAssertNotNil(try store.confirmResult(.offBoard, trialID: trial.id, contact: nil, rest: nil))
+        let confirmed = try XCTUnwrap(store.project?.trials.first?.outcome)
+        XCTAssertEqual(confirmed.source, TrialOutcome.confirmedByEyeSource)
+        XCTAssertNil(confirmed.finalRestingPoint)
+        XCTAssertFalse(confirmed.isAutomatic)
+    }
+
     private func temporaryDirectory(_ label: String = "test") throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CornholeBiomechanics-\(label)-\(UUID().uuidString)", isDirectory: true)

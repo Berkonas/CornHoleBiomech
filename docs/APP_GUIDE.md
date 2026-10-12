@@ -32,36 +32,130 @@ The Fall 2026 collection films each **take** (the athlete claps, shows the take 
 with two phones: the side camera and a front camera on a tripod behind the board. Name the files
 `Take_<n>_Side` and `Take_<n>_Front` (capitalisation does not matter) and keep one athlete's takes in one folder.
 
-1. Select the athlete, then choose **Throw → Import Two-Camera Takes…** (⇧⌘T) and pick the folder.
+### Import & analyse
+
+1. Choose **Throw → Import Takes…** (⇧⌘T) or **Import** in the throw list, or drop the folder on the throw
+   list. The import window also takes a dropped folder, or **Choose Folder…**.
 2. The app pairs the files and checks which phone recorded each one (device, size, frame rate). A pair whose
    labels are swapped is used in its true roles and marked **Labels swapped**; takes already in the library are
-   unticked. Choose the throwing side and the direction the board is in the side video.
-3. **Import** prepares the takes one at a time: the two cameras are synchronised from the clap and the bag
-   impacts, each throw is found and cut into a side clip and a front clip, and the front camera is calibrated
-   from the board. The original videos are not changed. The throws then analyse one at a time (≈ 2 minutes each).
-4. The throw list groups throws by take. Each report adds **Where it ended**: hole / board / off from the front
-   camera, the miss in inches (short/long, left/right), the aim, and the frontal-plane body measures. The replay
-   has **Side**, **Front**, **Both** (synchronised) and **Animation** views. **Animation** is a to-scale side
-   view: the stick figure throws, the bag flies its measured path (a dotted arc where the camera lost it), lands
-   at the measured first contact and slides to where it ended; the board, the floor and the release-to-board
-   distance are drawn in metres. **From above** (in *Where it ended*) draws the lane to scale with the board
-   2 ft × 4 ft along the throw: a strip with the release point, the aim line and the board, and an enlarged
-   board with the landing, the slide and the rest point (or an arrow off the board for a miss) and a 6 in scale.
-   A confident front-camera result is filled in automatically; check it against the video and change it if it
-   is wrong.
+   unticked.
+3. Confirm the **athlete**, the **throwing side** and the **board direction** in the side video. Both are
+   remembered for that athlete (saved with the athlete in the library) and filled in next time.
+4. Click **Import & Analyse**. Analysis always follows import; there is no separate step.
+
+Each take is prepared in turn (the two cameras are synchronised from the clap and the bag impacts, each throw
+is cut into a side clip and a front clip, the original videos are not changed), the front camera's field of
+view is pooled over the takes, and then every throw is analysed, **one at a time**.
+
+**The queue panel** at the bottom of the window shows where the work is, for example
+"Take 3/6 · Throw 2/4 · Bag tracking (5/10) · about 6 min left". The time left is the median of the last ten
+throws this Mac finished (about 2 minutes per throw before any has finished). **Pause** lets the current throw
+finish and then waits; **Resume** carries on; **Cancel All** stops the queue (throws already analysed keep their
+results). A throw or take that fails does not stop the others: it is listed under **needs attention** in the
+panel instead of interrupting you. You can keep working while the queue runs, and import more takes: they join
+the end of the queue.
+
+**After a restart.** The queue is saved in the library (`analysis-queue.json`). If the app is quit or the Mac
+restarts, the queue carries on two seconds after the library opens again (a paused queue stays paused). The
+throw that was running starts again from the beginning. A take that was being prepared is prepared again; its
+half-finished folder is left in the athlete's `takes` folder and can be deleted.
+
+### The Take screen
+
+The take is the main view after import: the app opens the first imported take, and its four bags fill in as
+they are analysed. Select a take's first row (**Take 3**, with its points and in/on/off) in the throw list to
+open it again; the arrows at the top go to the previous or next take.
+
+- **Points and counts**: for example 6/12 points and "1 in · 3 on · 0 off" from the recorded results.
+- **The take video**: the four throws one after another as a single video, side camera on the left and front
+  camera on the right, in step (synchronised from the sound). The scrubber has one segment per throw with a red
+  tick at each release; click a throw's number to jump to its release, or drag along the bar.
+- **From above**: the board to scale with the four bags numbered. A hollow ring is where the bag landed, the line
+  is the slide, and the filled square (a 6 in bag) is where it stopped; a bag that stopped further off the board
+  is an arrow at the edge, and bags in the hole are numbered around it. The cross is the group centre (the mean
+  of where the bags stopped), described as for example "Group 6 in right, 4 in short". Four bags are a snapshot:
+  the screen shows the range, never a standard deviation. While the video plays, the bag being played is
+  highlighted.
+- **Four throw cards**: the result (with **auto** when the app recorded it from the front camera), the first
+  sentence of the throw's explanation, and **Needs your eye** with **In / On / Off** buttons when the cameras were
+  not sure. Click a card to open the throw report. While a throw waits or is analysed, its card says so.
+- **Release, bag by bag**: release speed, angle and heading (to 0.5°) for bags 1–4 against this athlete's usual
+  band (the middle half of their other throws, shown once there are at least 8), so drift within a take (bag 4
+  softer) is visible.
+
+### Needs your eye
+
+Throws whose result the engine could not decide (the front camera asked for confirmation, or could not tell
+where the bag ended) collect in **Needs Your Eye** in the sidebar, with a count. One throw at a time it shows the
+front camera's clip looping around the moment the bag came to rest (paused on the rest frame with Reduce Motion
+on), the front and side cameras' readings in one line, and **In / On / Off** (keys **1**, **2**, **3**).
+**Later** moves a throw to the end. After an answer the next throw appears; **Undo** in the bar at the top puts
+back what was there. The same buttons are on an unsure throw's card on the Take screen.
+
+A person's result is never overwritten: an answer is recorded only when the throw has no result or an automatic
+one, and a later re-analysis never replaces a result a person entered. Automatic results are marked **auto** and
+can be changed at any time (right-click a throw card, or **Add or Edit Outcome** in the report). Where the bag
+landed and where it stopped stay measured automatically; the buttons only record the result.
+
+### In each throw report
+
+The report reads top to bottom in five blocks, then **Details** (collapsed):
+
+1. **Result and one sentence.** The result chip (Hole · 3 / Board · 1 / Miss · 0; *front camera* until a result
+   is recorded, **Needs confirmation** when the cameras were not sure) and the throw's sentence, for example
+   "Board: 13 in short, 10 in right. Most of the short came from the slide … Next: land it about 13 in further."
+   **Use This Result** records the front camera's result in one click.
+2. **Where it ended**, the board from above and to scale (2 × 4 ft, front edge at the left, the thrower's left at
+   the top): first contact (hollow ring) → slide (arrow, "slid 7 in") → where it stopped (filled 6 in bag) with its
+   precision ellipse (±0.5 in across from the front camera, ±2 in along from the side camera), the hole, the
+   dashed miss line from the hole, and a faint ghost of this athlete's usual: the other throws' rest points, the
+   usual group (with at least 8 throws) and the usual landing line. A bag beyond the view is an arrow at the edge.
+3. **Miss breakdown.** Two small additive bars, laid end to end from the hole line: *left/right* = release
+   position + aim (launch direction) + slide drift; *short/long* = your usual spot + carry and slide against your
+   usual. The grey band on each part is its measurement noise; a part is drawn in colour and bold only when the
+   engine names it (at least 2× its noise, 3 in and 40 % of that direction's miss). The last row is where the bag
+   stopped, over a band showing your usual spread. A part that was not measured is listed, not drawn, and the bar
+   then says it does not add up. Not shown for a bag in the hole.
+4. **Release vs your usual.** Release speed, release angle, launch direction (to 0.5°) and slide length as a dark
+   dot among this athlete's other throws (grey dots). The grey band is the usual ± what the measurement can
+   resolve: inside it the value reads "usual". A difference the sentence names is bold, with what it does to the
+   landing ("about 15 in of carry").
+5. **Replay.** **Side**, **Front**, **Both** (synchronised) and **Animation**. On the front video the bag's 3D
+   flight is drawn as it flies: solid where the front camera saw the bag on that frame, dashed where the path is
+   the model only (bag hidden, out of the picture or not found); without a 3D flight the older front tracker's
+   path is shown and the reason is written in the corner. **Animation** shows two panels drawn to scale and in step:
+   the side view (stick figure, measured arc solid, untracked gap dotted, drag-free model dashed, the usual landing
+   as a faint ring) above the top view, which shares the side view's distance axis. In the top view the flight is
+   a straight line along the measured launch direction (we measure the direction, not a curve) next to the dashed
+   line from the release point to the hole, with the angle between them shaded and labelled. From first contact
+   the top view enlarges to the board and the bag slides to rest at its measured pace. Playback pauses at
+   release, first contact and rest, each with one callout tied to the sentence (turn this off under **Show**).
+   Speeds are 1× and ¼×; drag the slider to scrub. With **Reduce Motion** on, the board appears enlarged at
+   first contact without the zoom.
+
+**Export Figure…** under the board and next to the animation controls saves a PNG (light, 2× resolution) of the
+board or of the side + top panels at the current frame, for reports and slides.
+
+**Details** holds everything else: the side camera's verdict, the front camera (body at release seen from the
+front: hand across the body, trunk lean, release point and stance as plausibility checks, not causes; camera sync,
+board tracking and the 3D flight fit), the release and body tiles (release height and its standard error, swing),
+the slide (entry speed; slow-down and effective μ are research-only because μ comes out negative on some throws),
+the plots, the green zone and the scientific details (all measurements, quality, launch fit, provenance).
+
+Anything not measured is left out with a short reason; nothing is filled in.
 
 How it works and how accurate it is: [METHODS_AND_MATH.md §5](METHODS_AND_MATH.md). For a batch of athletes from
 the command line, use `scripts/add_takes_to_library.py`, then `scripts/analyze_library.py` (one athlete at a time).
 
 ## What changed in this version (board phase and personal green zone)
 
-- **Where it ended.** Each throw report has a *Where it ended* card: where the bag landed on the board, how far it slid, and whether it stopped or dropped into the hole (including bags that hang on the lip and fall a moment later). It shows the slide physics (speed along the board, slow-down, effective friction μ) and a suggested result; **Use This Result** records it in one click. The flight chart marks *Landed* and *Stopped* / *Into the hole*, and the replay shows the slide.
+- **Where it ended.** Each throw report has a *Where it ended* card: where the bag landed on the board, how far it slid, and whether it stopped or dropped into the hole (including bags that hang on the lip and fall a moment later). The slide physics (speed along the board, slow-down, effective friction μ) are under the report's **Details**; the card shows a suggested result; **Use This Result** records it in one click. The flight chart marks *Landed* and *Stopped* / *Into the hole*, and the replay shows the slide.
 - **Made throws get no corrections.** A hole is summarized as what worked (and a slide-in is named as part of the shot). Board bags and misses get signed advice from where the bag really stopped: "ended 9 in short … about 0.12 m/s faster".
 - **Your distance, not 27 ft.** The app measures release point → front of the board in the videos (≈ 5.1–5.8 m in the tripod sessions) and uses it everywhere. The distance in Settings → Analysis is only a fallback.
 - **Left/right is not measured** by the side camera; throws are assumed straight at the board. Record the board camera to measure left/right misses.
 - **Personal green zone.** The athlete summary, each throw report and the Launch Lab show the athlete's own green zone (their release height, measured distance and measured slide) with a **best aim** target chosen for their consistency. In the Launch Lab choose **Use [athlete]'s green zone**. On the summary, click a throw on the map, or ▶ in the table, to watch it.
 - **The summary uses every throw.** The consistency average pools every comparable analyzed throw and lists any left out with the reason. Throws analyzed with an older version are left out until re-analyzed: use **Re-analyze All** (the throws run one at a time).
-- **One analysis at a time.** Imports and re-analyses go through a queue ("Throw 3 of 12"), and the engine refuses to start a second analysis on the same Mac until the first finishes, even from another copy of the app. Running several at once can use all the memory and freeze the computer.
+- **One analysis at a time.** Imports and re-analyses go through one queue (see *Import & analyse*), and the engine refuses to start a second analysis on the same Mac until the first finishes, even from another copy of the app. Running several at once can use all the memory and freeze the computer.
 
 ## What the numbers mean
 
@@ -70,7 +164,7 @@ the command line, use `scripts/add_takes_to_library.py`, then `scripts/analyze_l
 - **What differed:** which release variable, if any, separated scored throws (1 or 3 points) from misses (0).
 - **Next practice:** which typical scored throws to review.
 
-The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when there are at least 5 throws in each group, the effect is large (Cliff's δ ≥ 0.474), and it exceeds that variable's measurement noise. The dot plots below the summary show every throw.
+The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when the effect clears a chance level corrected for every variable tested (never below a large Cliff's δ of 0.474) and exceeds that variable's measurement noise. With the full variable list that takes about 7–8 throws in each group, and the summary says how many are needed. The dot plots below the summary show every throw.
 
 **This throw** shows the release angle with its tracking uncertainty, plus the release speed and release height. **Swing** shows the arm angle at release, peak arm swing speed, backswing, tempo (backswing ÷ forward-swing time) and the pendulum drive ratio. The drive ratio is measured arm speed ÷ what gravity alone would give; above 1 means the arm is actively driven.
 
@@ -89,6 +183,34 @@ In **Compare → Trial vs trial**, choose two throws from the same athlete. You 
 - a table of release differences next to the athlete's usual throw-to-throw spread;
 - both bag flights overlaid from their release points, on equal axis scales;
 - synchronized body curves and video.
+
+## Print an athlete report (PDF)
+
+On an athlete's summary, click **Print Report (PDF)…** in the toolbar. The app writes a US Letter PDF into the
+athlete's folder (`Athletes/<athlete>/reports/<code>-<date>.pdf`) and opens it in Preview, where you print it. It
+uses only the saved analyses (no video is read), so it also works while the analysis queue is running. From the
+command line: `cornhole_biomech athlete-report-pdf --library <library folder> --athlete-id <uuid> --output <file.pdf>`.
+
+The report pools the same throws as the athlete summary and uses only the measures already in the app:
+
+1. **Cover**: athlete code, recording dates, throws and takes, Hole / Board / Miss counts, PPR and In / On / Off %,
+   the three-line summary, the method versions (with a warning when throws from different versions are mixed) and
+   any throws left out with the reason.
+2. **Where the bags landed**: the board to scale with first contact (small ring), the slide and where each bag
+   stopped, the usual group (median ± robust SD) once at least 8 throws are located, and the left/right and
+   short/long miss at rest by outcome.
+3. **Release conditions**: release speed, angle and height by outcome and throw by throw, with each variable's
+   noise floor as a grey band.
+4. **Movement consistency**: the per-throw and profile body measures (side camera) and the front-camera measures,
+   each with n, median, IQR, SD and SD relative to its noise floor.
+5. **Miss explanations**: one row per throw with the result, the miss at rest and the engine's saved explanation
+   (evidence, possible explanation and what to look at; older analyses show the one-sentence explanation).
+6. **Scored vs misses**: the scored-vs-missed comparison with how many throws per group a claim needs, and a
+   limitations box.
+
+Outcomes differ by colour and marker shape (▲ hole, ● board, ■ miss, ◆ no result), so the pages read in
+grayscale. Filled marks are measured, hollow marks estimated; values that were not measured are counted as
+unavailable, never drawn.
 
 ## Launch Explorer
 

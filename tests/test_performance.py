@@ -153,3 +153,10 @@ def test_summary_includes_individual_points_with_groups_for_plotting():
     points = performance_summary(rows, {"u": "Throw 4"})["variables"]["bag_release_angle_deg"]["points"]
     assert [p["group"] for p in points] == ["scored", "scored", "miss", None]
     assert points[-1]["label"] == "Throw 4" and points[-1]["value"] == 30
+
+
+def test_minimum_claim_group_matches_the_family_wise_gate():
+    from cornhole_biomech.performance import critical_delta, minimum_claim_group
+    assert critical_delta(5, 5, 24) > 1.0                  # 5 + 5 can never make a claim with 24 tests
+    n = minimum_claim_group(24)
+    assert critical_delta(n, n, 24) < 1.0 <= critical_delta(n - 1, n - 1, 24)

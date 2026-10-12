@@ -46,24 +46,25 @@ def _record(result, rest, heading=None, frontal=None):
 
 def test_a_made_throw_gets_no_correction():
     text = tv.explain(_record("throughHole", {"x_in": 12, "y_in": 39, "on": "hole"}), {})
-    assert text["kind"] == "made" and "nothing to correct" in text["sentence"]
+    assert text["kind"] == "made" and text["sentence"] == "In the hole. Nothing to change." and text["cue"] is None
 
 
-def test_a_miss_names_distance_and_direction_with_measured_values():
+def test_a_miss_states_the_result_and_the_signed_miss_in_whole_inches():
     record = _record("onBoard", {"x_in": 4.0, "y_in": 27.0, "on": "board"},
                      heading={"deg": -1.4}, frontal={"arm_across_body_sw": {"value": 0.4},
                                                      "trunk_side_lean_deg": {"value": 2.0}})
     text = tv.explain(record, {"summaries": {"bag_release_speed_m_s": 6.31}})
     assert text["kind"] == "miss"
-    assert "12 in short" in text["sentence"] and "8 in left" in text["sentence"]
-    assert "aimed 1.4° left" in text["sentence"] and "across the body" in text["sentence"]
-    assert "trunk" not in text["sentence"]                  # 2° is within normal sway
+    assert text["sentence"].startswith("Board: 12 in short, 8 in left.")
+    # Body measures are not part of the per-throw attribution (council §4); a heading without the release hand
+    # assumes a centre-line release, so it names nothing either.
+    assert "across the body" not in text["sentence"] and "trunk" not in text["sentence"]
     assert "because" not in text["sentence"]                # associations, not causes
 
 
 def test_close_board_throw_is_not_called_a_miss():
     text = tv.explain(_record("onBoard", {"x_in": 13.0, "y_in": 37.5, "on": "board"}), {})
-    assert text["kind"] == "close"
+    assert text["kind"] == "close" and "keep the same throw" in text["sentence"]
 
 
 def test_take_link_resolves_the_take_record(tmp_path: Path):
@@ -154,7 +155,7 @@ def test_no_new_bag_on_the_visible_deck_means_off_the_board():
     alone = tv.decide_result({"where": None, "deck_clear": True}, {})
     assert alone["status"] == "needs_confirmation"
     text = tv.explain({"result": off, "miss": tv.miss_vector({"rest": None}), "heading": {"deg": -4.3}, "frontal": {}}, {})
-    assert text["sentence"].startswith("Off the board — aimed 4.3° left") and text["kind"] == "miss"
+    assert text["sentence"] == "Off the board: where it stopped was out of the cameras' view." and text["kind"] == "miss"
 
 
 def test_throws_from_one_side_camera_setup_pool_together_across_athletes(tmp_path: Path):
@@ -291,9 +292,13 @@ def test_landing_guard_version_still_pools_the_front_lag():
 def test_an_off_board_bag_seen_on_the_floor_is_not_called_out_of_view():
     record = {"result": {"category": "offBoard"}, "miss": {"left_right_in": -1.0, "short_long_in": None},
               "heading": {}, "frontal": {}, "landing": {"rest": {"x_in": 11.0, "y_in": None, "on": "floor"}}}
+    assert tv.explain(record, {})["sentence"] == ("Off the board: 1 in left; it stopped on the floor where the "
+                                                  "distance could not be measured.")
+    record = {"result": {"category": "offBoard"}, "miss": {"status": "unavailable"}, "heading": {}, "frontal": {},
+              "landing": {"rest": {"x_in": None, "y_in": None, "on": "floor"}}}
     assert "on the floor" in tv.explain(record, {})["sentence"]
     record["landing"] = {"rest": None}
-    assert "out of the front camera's view" in tv.explain(record, {})["sentence"]
+    assert "out of the cameras' view" in tv.explain(record, {})["sentence"]
 
 
 def test_a_bag_only_seen_in_the_air_by_the_side_camera_is_not_hole_or_board():

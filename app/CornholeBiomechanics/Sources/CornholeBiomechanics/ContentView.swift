@@ -1,16 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// Three columns: athletes (sidebar) → the athlete's throws → throw report or athlete summary.
-/// Launch Lab is a tool, not an athlete view, so it uses a two-column split with no throw list.
+/// Three columns: athletes (sidebar) → the athlete's throws → take screen, throw report or athlete summary.
+/// Launch Lab and the "Needs your eye" inbox are not one athlete's views, so they use a two-column split.
 struct ContentView: View {
     @EnvironmentObject private var store: ProjectStore
     @EnvironmentObject private var analysis: AnalysisService
+    @EnvironmentObject private var glances: ThrowGlanceStore
     @AppStorage("appearance") private var appearance = "system"
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var showsAthleteSheet = false
     @State private var importBatch: ImportBatch?
-    @State private var takeFolder: URL?
+    @State private var takeImport: TakeImportRequest?
     @State private var outcomeTrial: Trial?
     @State private var showsRecordingGuide = false
 
@@ -21,6 +22,12 @@ struct ContentView: View {
                     sidebar
                 } detail: {
                     LaunchLabView().navigationTitle("Launch Lab")
+                }
+            } else if store.destination == .reviewInbox {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    sidebar
+                } detail: {
+                    ReviewInboxView()
                 }
             } else {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -36,13 +43,17 @@ struct ContentView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .sheet(isPresented: $showsAthleteSheet) { AthleteForm() }
         .sheet(item: $importBatch) { ImportTrialForm(videoURLs: $0.urls) }
-        .sheet(item: $takeFolder) { TakeImportForm(folder: $0) }
+        .sheet(item: $takeImport) { TakeImportForm(folder: $0.folder) }
         .sheet(item: $outcomeTrial) { OutcomeEditor(trial: $0) }
         .sheet(isPresented: $showsRecordingGuide) { RecordingGuideSheet() }
         .alert(applicationName, isPresented: errorPresented) {
             Button("OK") { store.errorMessage = nil; analysis.errorMessage = nil }
         } message: { Text(store.errorMessage ?? analysis.errorMessage ?? "Unknown error") }
-        .safeAreaInset(edge: .bottom) { analysisProgress }
+        .safeAreaInset(edge: .bottom) { QueuePanel() }
+        // A queue saved in this library (quit or restart mid-import) carries on.
+        .task(id: store.projectURL) { analysis.restoreQueue(store: store) }
+        // Engine readings for the take screens, the throw list and the inbox; re-read when analyses change.
+        .task(id: glanceKey) { await glances.refresh(store: store) }
         .onChange(of: store.selectedAthleteID) { _, id in
             if store.project?.sessions?.first(where: { $0.id == store.selectedSessionID })?.athleteID != id {
                 store.selectedSessionID = nil
@@ -70,7 +81,8 @@ struct ContentView: View {
         if store.project == nil {
             EmptyState("No Library", symbol: "externaldrive.badge.questionmark", message: "Choose or create an athlete library.")
         } else if let athleteID = store.selectedAthleteID, store.selectedAthlete != nil {
-            ThrowListView(athleteID: athleteID, beginImport: beginImport, beginTakeImport: beginTakeImport)
+            ThrowListView(athleteID: athleteID, beginImport: beginImport, beginTakeImport: beginTakeImport,
+                          importFolder: { takeImport = TakeImportRequest(folder: $0) })
         } else if store.project?.athletes.isEmpty == true {
             EmptyState("No Athletes", symbol: "person.2", message: "Add an athlete, then import videos of their throws.",
                        action: ("Add Athlete", addAthlete))
@@ -92,6 +104,10 @@ struct ContentView: View {
                 } else {
                     EmptyState("Throw Not Found", symbol: "questionmark.video", message: "This throw is no longer in the library.")
                 }
+            case .take(let key):
+                TakeView(key: key).id(key)
+            case .reviewInbox:
+                ReviewInboxView()
             case .launchLab:
                 LaunchLabView()
             case nil:
@@ -105,36 +121,27 @@ struct ContentView: View {
     private var sidebarSelection: Binding<SidebarItem?> {
         Binding(get: {
             if store.destination == .launchLab { return .launchLab }
+            if store.destination == .reviewInbox { return .reviewInbox }
             return store.selectedAthleteID.map { .athlete($0) }
         }, set: { item in
             switch item {
             case .launchLab: store.destination = .launchLab
+            case .reviewInbox: store.destination = .reviewInbox
             case .athlete(let id):
                 if case .throwReport(let trialID) = store.destination,
                    store.project?.trials.first(where: { $0.id == trialID })?.athleteID == id { return }
+                if case .take(let key) = store.destination, key.athleteID == id { return }
                 store.destination = .summary(id)
             case nil: break
             }
         })
     }
 
-    @ViewBuilder private var analysisProgress: some View {
-        if analysis.isRunning {
-            HStack(spacing: Space.m) {
-                ProgressView(value: analysis.progress).frame(width: 140)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(analysis.batchPosition.map { "\($0) · \(analysis.stage)" } ?? analysis.stage).font(.subheadline.weight(.semibold))
-                    Text(analysis.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
-                Button(analysis.batchTotal > 1 ? "Cancel All" : "Cancel") { analysis.cancel() }
-                Text(analysis.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
-            }
-            .padding(Space.m)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
-            .shadow(radius: 10, y: 3)
-            .padding()
-        }
+    /// Changes whenever a throw's analysis, outcome or the running job changes (glances are re-read then).
+    private var glanceKey: String {
+        let trials = store.project?.trials ?? []
+        return trials.map { "\($0.id.uuidString.prefix(8))\($0.analysisRelativePath == nil ? "-" : "+")\($0.analysisStatus.count)" }
+            .joined() + "|\(store.projectURL?.path ?? "")|\(analysis.isRunning)|\(analysis.activeTrialID?.uuidString ?? "")"
     }
 
     private var errorPresented: Binding<Bool> {
@@ -150,7 +157,8 @@ struct ContentView: View {
     }
 
     private func addAthlete() {
-        guard store.project != nil, !analysis.isRunning else { return }
+        // Allowed while the queue runs: a new athlete touches no queued job.
+        guard store.project != nil else { return }
         showsAthleteSheet = true
     }
 
@@ -160,10 +168,11 @@ struct ContentView: View {
         store.chooseVideos { importBatch = ImportBatch(urls: $0) }
     }
 
+    /// The take import queues behind any running analysis, so it is open while the queue runs.
     private func beginTakeImport() {
-        guard store.project != nil, !analysis.isRunning else { return }
+        guard store.project != nil else { return }
         guard store.project?.athletes.isEmpty == false else { showsAthleteSheet = true; return }
-        store.chooseTakeFolder { takeFolder = $0 }
+        takeImport = TakeImportRequest(folder: nil)
     }
 
     private func analyzeSelected() {

@@ -8,6 +8,191 @@
     "shape_rejected_frames": 0,
     "status": "measured"
   },
+  "attribution": {
+    "body_evidence": [
+      {
+        "beyond_noise": false,
+        "delta": 0.003,
+        "key": "arm_across_body_sw",
+        "label": "Hand across the body at release",
+        "noise": 0.15,
+        "unit": "shoulder widths",
+        "usual": 0.039,
+        "value": 0.043
+      },
+      {
+        "beyond_noise": false,
+        "delta": -1.651,
+        "key": "trunk_side_lean_deg",
+        "label": "Trunk side lean at release",
+        "noise": 6.0,
+        "unit": "\u00b0",
+        "usual": 10.25,
+        "value": 8.599
+      }
+    ],
+    "cue": null,
+    "depth": {
+      "components": [
+        {
+          "in": 2.05,
+          "key": "usual_spot",
+          "label": "Your usual spot",
+          "named": false,
+          "noise_in": null,
+          "reference": true,
+          "usual_in": 2.05,
+          "vs_usual_in": null
+        },
+        {
+          "basis": "usual",
+          "in": -1.5,
+          "key": "carry",
+          "label": "Carry (where it landed)",
+          "named": false,
+          "noise_in": 2.0,
+          "test_in": -1.5,
+          "test_noise_in": 2.0,
+          "usual_in": -19.59,
+          "vs_usual_in": -1.5
+        },
+        {
+          "basis": "usual",
+          "in": null,
+          "key": "slide",
+          "label": "Slide",
+          "named": false,
+          "noise_in": 2.0,
+          "usual_in": 21.64,
+          "vs_usual_in": null
+        }
+      ],
+      "miss_in": null,
+      "reference": "usual",
+      "residual_in": null
+    },
+    "drivers": [
+      {
+        "delta": -0.265,
+        "implied_in": -14.0,
+        "key": "release_speed",
+        "label": "Release speed",
+        "named": false,
+        "noise": 0.15,
+        "status": "estimated",
+        "unit": "m/s",
+        "usual": 7.579,
+        "value": 7.314
+      },
+      {
+        "delta": 3.495,
+        "implied_in": -2.94,
+        "key": "release_angle",
+        "label": "Release angle",
+        "named": false,
+        "noise": 3.0,
+        "status": "measured",
+        "unit": "\u00b0",
+        "usual": 41.736,
+        "value": 45.231
+      },
+      {
+        "delta": 4.123,
+        "implied_in": 17.87,
+        "key": "launch_direction",
+        "label": "Launch direction",
+        "named": false,
+        "noise": 0.5,
+        "status": "estimated",
+        "unit": "\u00b0",
+        "usual": -1.396,
+        "value": 2.726
+      }
+    ],
+    "explanation": {
+      "basis": "Compared with this athlete's 19 other analysed throws (same method version).",
+      "evidence": [
+        "Release speed -0.27 m/s against usual (noise 0.15 m/s); on its own, in a drag-free flight, about 14 in less carry.",
+        "Release angle +3.5\u00b0 against usual (noise 3.0\u00b0); on its own, in a drag-free flight, about 3 in less carry.",
+        "Launch direction +4.1\u00b0 against usual (noise 0.5\u00b0)."
+      ],
+      "observed": "Ended off the board. First contact 2 in short of the usual spot.",
+      "observed_detail": "First contact 2 in short of the usual spot.",
+      "phase": null,
+      "possible_explanation": "No single measured part stands out above its noise, so the miss is not explained.",
+      "suggestion": null
+    },
+    "inside_spread": {
+      "depth": null,
+      "lateral": null
+    },
+    "lateral": {
+      "components": [
+        {
+          "basis": "usual",
+          "in": 0.98,
+          "key": "release_position",
+          "label": "Release position",
+          "named": false,
+          "noise_in": 1.18,
+          "source": "flight_3d",
+          "test_in": -0.63,
+          "test_noise_in": 1.18,
+          "usual_in": 1.6,
+          "vs_usual_in": -0.63
+        },
+        {
+          "angle_deg": 2.73,
+          "basis": "usual",
+          "distance_m": 6.297,
+          "in": 11.8,
+          "key": "aim",
+          "label": "Aim (launch direction)",
+          "named": false,
+          "noise_in": 2.16,
+          "source": "flight_3d",
+          "test_in": 17.85,
+          "test_noise_in": 2.16,
+          "usual_in": -6.04,
+          "vs_usual_in": 17.85
+        },
+        {
+          "basis": "absolute",
+          "in": null,
+          "key": "slide_drift",
+          "label": "Slide drift",
+          "named": false,
+          "noise_in": 1.0,
+          "usual_in": -3.26,
+          "vs_usual_in": null
+        }
+      ],
+      "miss_in": null,
+      "reference": "centre_line",
+      "residual_in": null
+    },
+    "reason": "Where the bag stopped is not known in both directions (it left the board where the cameras could not place it).",
+    "reasons": [
+      "Where the bag stopped is not known in both directions (it left the board where the cameras could not place it)."
+    ],
+    "rest_on": null,
+    "result": "offBoard",
+    "sentence": "Off the board: where it stopped was out of the cameras' view. It was launched about 4\u00b0 right of your usual line.",
+    "status": "partial",
+    "tier": "geometry",
+    "usual": {
+      "centre_depth_in": 0.0,
+      "centre_lateral_in": -1.41,
+      "located": 11,
+      "reason": null,
+      "source": "this athlete's other throws",
+      "spread_depth_in": 6.31,
+      "spread_lateral_in": 3.75,
+      "throws": 19
+    },
+    "version": "attribution_v2",
+    "within_usual_spread": null
+  },
   "auto_outcome": null,
   "board_phase": null,
   "camera": {
@@ -3404,19 +3589,1077 @@
     ]
   ],
   "explanation": {
+    "cue": null,
+    "four_part": {
+      "basis": "Compared with this athlete's 19 other analysed throws (same method version).",
+      "evidence": [
+        "Release speed -0.27 m/s against usual (noise 0.15 m/s); on its own, in a drag-free flight, about 14 in less carry.",
+        "Release angle +3.5\u00b0 against usual (noise 3.0\u00b0); on its own, in a drag-free flight, about 3 in less carry.",
+        "Launch direction +4.1\u00b0 against usual (noise 0.5\u00b0)."
+      ],
+      "observed": "Ended off the board. First contact 2 in short of the usual spot.",
+      "observed_detail": "First contact 2 in short of the usual spot.",
+      "phase": null,
+      "possible_explanation": "No single measured part stands out above its noise, so the miss is not explained.",
+      "suggestion": null
+    },
     "kind": "miss",
     "parts": [],
-    "sentence": "Off the board \u2014 aimed 1.7\u00b0 right; where it stopped was out of the front camera's view."
+    "sentence": "Off the board: where it stopped was out of the cameras' view. It was launched about 4\u00b0 right of your usual line.",
+    "tier": "geometry",
+    "version": "sentence_v2"
+  },
+  "flight_3d": {
+    "fit": {
+      "at_bound": {
+        "front_hfov": false,
+        "timing_offset": false
+      },
+      "contact_constraint_used": true,
+      "coverage_by_third": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "flight_only": {
+        "contact_x_m": 0.3508405369276497,
+        "delta_s": 0.0006579384761435574,
+        "hfov_deg": 63.8963623281513,
+        "vx": 0.26684475534457797,
+        "x0": 0.023332181875177774
+      },
+      "frames_searched": 37,
+      "front_hfov_deg": 63.893135592671236,
+      "front_hfov_pooled_deg": 66.09364662328686,
+      "inlier_frames": 37,
+      "median_px": 2.4938367274752666,
+      "rms_lateral_px": 2.796912236837561,
+      "rms_px": 3.7828891112372363,
+      "rms_tolerance_share": 0.2044972935526943,
+      "rms_vertical_px": 2.5470634007314303,
+      "side_apparent_gravity_m_s2": 9.807487194564628,
+      "side_rms_m": 0.01973251488907881,
+      "side_scale_status": "estimated",
+      "timing_offset_s": 0.000645694185249924
+    },
+    "frame": "x along the throw from the release point (m), y sideways from the board's centre line (m, + thrower's right), z height above the floor (m); t from release (s, side camera clock)",
+    "front_path": [
+      {
+        "frame": 86,
+        "px": [
+          552.4,
+          360.1
+        ]
+      },
+      {
+        "frame": 87,
+        "px": [
+          551.4,
+          342.5
+        ]
+      },
+      {
+        "frame": 88,
+        "px": [
+          550.4,
+          325.4
+        ]
+      },
+      {
+        "frame": 89,
+        "px": [
+          549.3,
+          308.8
+        ]
+      },
+      {
+        "frame": 90,
+        "px": [
+          548.2,
+          292.7
+        ]
+      },
+      {
+        "frame": 91,
+        "px": [
+          547.1,
+          277.3
+        ]
+      },
+      {
+        "frame": 92,
+        "px": [
+          545.9,
+          262.5
+        ]
+      },
+      {
+        "frame": 93,
+        "px": [
+          544.6,
+          248.5
+        ]
+      },
+      {
+        "frame": 94,
+        "px": [
+          543.3,
+          235.1
+        ]
+      },
+      {
+        "frame": 95,
+        "px": [
+          541.9,
+          222.6
+        ]
+      },
+      {
+        "frame": 96,
+        "px": [
+          540.4,
+          211.0
+        ]
+      },
+      {
+        "frame": 97,
+        "px": [
+          538.9,
+          200.4
+        ]
+      },
+      {
+        "frame": 98,
+        "px": [
+          537.2,
+          190.8
+        ]
+      },
+      {
+        "frame": 99,
+        "px": [
+          535.5,
+          182.2
+        ]
+      },
+      {
+        "frame": 100,
+        "px": [
+          533.7,
+          174.8
+        ]
+      },
+      {
+        "frame": 101,
+        "px": [
+          531.8,
+          168.6
+        ]
+      },
+      {
+        "frame": 102,
+        "px": [
+          529.7,
+          163.7
+        ]
+      },
+      {
+        "frame": 103,
+        "px": [
+          527.6,
+          160.3
+        ]
+      },
+      {
+        "frame": 104,
+        "px": [
+          525.3,
+          158.5
+        ]
+      },
+      {
+        "frame": 105,
+        "px": [
+          522.9,
+          158.3
+        ]
+      },
+      {
+        "frame": 106,
+        "px": [
+          520.4,
+          160.1
+        ]
+      },
+      {
+        "frame": 107,
+        "px": [
+          517.7,
+          163.8
+        ]
+      },
+      {
+        "frame": 108,
+        "px": [
+          514.9,
+          169.6
+        ]
+      },
+      {
+        "frame": 109,
+        "px": [
+          511.9,
+          177.7
+        ]
+      },
+      {
+        "frame": 110,
+        "px": [
+          508.7,
+          188.4
+        ]
+      },
+      {
+        "frame": 111,
+        "px": [
+          505.4,
+          201.7
+        ]
+      },
+      {
+        "frame": 112,
+        "px": [
+          501.8,
+          218.0
+        ]
+      },
+      {
+        "frame": 113,
+        "px": [
+          498.0,
+          237.4
+        ]
+      },
+      {
+        "frame": 114,
+        "px": [
+          493.9,
+          260.4
+        ]
+      },
+      {
+        "frame": 115,
+        "px": [
+          489.6,
+          287.1
+        ]
+      },
+      {
+        "frame": 116,
+        "px": [
+          485.0,
+          318.0
+        ]
+      },
+      {
+        "frame": 117,
+        "px": [
+          480.2,
+          353.4
+        ]
+      },
+      {
+        "frame": 118,
+        "px": [
+          475.0,
+          393.8
+        ]
+      },
+      {
+        "frame": 119,
+        "px": [
+          469.4,
+          439.6
+        ]
+      },
+      {
+        "frame": 120,
+        "px": [
+          463.4,
+          491.4
+        ]
+      },
+      {
+        "frame": 121,
+        "px": [
+          457.0,
+          549.9
+        ]
+      },
+      {
+        "frame": 122,
+        "px": [
+          450.1,
+          615.8
+        ]
+      }
+    ],
+    "heading_check": {
+      "difference_deg": 1.0170332688329107,
+      "two_view_heading_deg": 1.7092008637856169
+    },
+    "landing": {
+      "at": "side camera's first contact",
+      "difference_in": 3.5348419163931766,
+      "flight_only_difference_in": 3.548145675621406,
+      "flight_only_x_in": 25.8126195640807,
+      "measured_x_in": 22.264473888459293,
+      "predicted_along_m": 0.30623887900389535,
+      "predicted_height_m": 0.17395695787892596,
+      "predicted_x_in": 25.79931580485247,
+      "side_contact_t_s": 1.23333,
+      "t_s": 1.23333
+    },
+    "lateral_launch_angle_deg": 2.7262341326185275,
+    "method_version": "flight3d_v2",
+    "path_m": [
+      {
+        "t_s": 0.0,
+        "x_m": 0.0,
+        "y_m": 0.0248,
+        "z_m": 0.9578
+      },
+      {
+        "t_s": 0.0167,
+        "x_m": 0.0923,
+        "y_m": 0.0292,
+        "z_m": 1.0466
+      },
+      {
+        "t_s": 0.0333,
+        "x_m": 0.1844,
+        "y_m": 0.0336,
+        "z_m": 1.1327
+      },
+      {
+        "t_s": 0.05,
+        "x_m": 0.2762,
+        "y_m": 0.038,
+        "z_m": 1.2161
+      },
+      {
+        "t_s": 0.0667,
+        "x_m": 0.3678,
+        "y_m": 0.0424,
+        "z_m": 1.2968
+      },
+      {
+        "t_s": 0.0833,
+        "x_m": 0.4591,
+        "y_m": 0.0468,
+        "z_m": 1.3748
+      },
+      {
+        "t_s": 0.1,
+        "x_m": 0.5501,
+        "y_m": 0.0512,
+        "z_m": 1.45
+      },
+      {
+        "t_s": 0.1167,
+        "x_m": 0.6409,
+        "y_m": 0.0556,
+        "z_m": 1.5225
+      },
+      {
+        "t_s": 0.1333,
+        "x_m": 0.7315,
+        "y_m": 0.06,
+        "z_m": 1.5923
+      },
+      {
+        "t_s": 0.15,
+        "x_m": 0.8218,
+        "y_m": 0.0644,
+        "z_m": 1.6593
+      },
+      {
+        "t_s": 0.1667,
+        "x_m": 0.9119,
+        "y_m": 0.0688,
+        "z_m": 1.7236
+      },
+      {
+        "t_s": 0.1833,
+        "x_m": 1.0017,
+        "y_m": 0.0732,
+        "z_m": 1.7852
+      },
+      {
+        "t_s": 0.2,
+        "x_m": 1.0913,
+        "y_m": 0.0776,
+        "z_m": 1.8441
+      },
+      {
+        "t_s": 0.2167,
+        "x_m": 1.1806,
+        "y_m": 0.082,
+        "z_m": 1.9003
+      },
+      {
+        "t_s": 0.2333,
+        "x_m": 1.2696,
+        "y_m": 0.0864,
+        "z_m": 1.9537
+      },
+      {
+        "t_s": 0.25,
+        "x_m": 1.3585,
+        "y_m": 0.0908,
+        "z_m": 2.0044
+      },
+      {
+        "t_s": 0.2667,
+        "x_m": 1.447,
+        "y_m": 0.0952,
+        "z_m": 2.0524
+      },
+      {
+        "t_s": 0.2833,
+        "x_m": 1.5353,
+        "y_m": 0.0996,
+        "z_m": 2.0976
+      },
+      {
+        "t_s": 0.3,
+        "x_m": 1.6234,
+        "y_m": 0.104,
+        "z_m": 2.1402
+      },
+      {
+        "t_s": 0.3167,
+        "x_m": 1.7112,
+        "y_m": 0.1084,
+        "z_m": 2.18
+      },
+      {
+        "t_s": 0.3333,
+        "x_m": 1.7988,
+        "y_m": 0.1128,
+        "z_m": 2.2171
+      },
+      {
+        "t_s": 0.35,
+        "x_m": 1.8861,
+        "y_m": 0.1172,
+        "z_m": 2.2514
+      },
+      {
+        "t_s": 0.3667,
+        "x_m": 1.9731,
+        "y_m": 0.1216,
+        "z_m": 2.283
+      },
+      {
+        "t_s": 0.3833,
+        "x_m": 2.06,
+        "y_m": 0.126,
+        "z_m": 2.312
+      },
+      {
+        "t_s": 0.4,
+        "x_m": 2.1465,
+        "y_m": 0.1304,
+        "z_m": 2.3381
+      },
+      {
+        "t_s": 0.4167,
+        "x_m": 2.2328,
+        "y_m": 0.1348,
+        "z_m": 2.3616
+      },
+      {
+        "t_s": 0.4333,
+        "x_m": 2.3189,
+        "y_m": 0.1392,
+        "z_m": 2.3823
+      },
+      {
+        "t_s": 0.45,
+        "x_m": 2.4047,
+        "y_m": 0.1436,
+        "z_m": 2.4004
+      },
+      {
+        "t_s": 0.4667,
+        "x_m": 2.4903,
+        "y_m": 0.148,
+        "z_m": 2.4156
+      },
+      {
+        "t_s": 0.4833,
+        "x_m": 2.5756,
+        "y_m": 0.1524,
+        "z_m": 2.4282
+      },
+      {
+        "t_s": 0.5,
+        "x_m": 2.6607,
+        "y_m": 0.1568,
+        "z_m": 2.438
+      },
+      {
+        "t_s": 0.5167,
+        "x_m": 2.7455,
+        "y_m": 0.1612,
+        "z_m": 2.4452
+      },
+      {
+        "t_s": 0.5333,
+        "x_m": 2.83,
+        "y_m": 0.1656,
+        "z_m": 2.4495
+      },
+      {
+        "t_s": 0.55,
+        "x_m": 2.9144,
+        "y_m": 0.17,
+        "z_m": 2.4512
+      },
+      {
+        "t_s": 0.5667,
+        "x_m": 2.9984,
+        "y_m": 0.1744,
+        "z_m": 2.4502
+      },
+      {
+        "t_s": 0.5833,
+        "x_m": 3.0822,
+        "y_m": 0.1788,
+        "z_m": 2.4464
+      },
+      {
+        "t_s": 0.6,
+        "x_m": 3.1658,
+        "y_m": 0.1832,
+        "z_m": 2.4399
+      },
+      {
+        "t_s": 0.6167,
+        "x_m": 3.2491,
+        "y_m": 0.1876,
+        "z_m": 2.4306
+      },
+      {
+        "t_s": 0.6333,
+        "x_m": 3.3322,
+        "y_m": 0.192,
+        "z_m": 2.4187
+      },
+      {
+        "t_s": 0.65,
+        "x_m": 3.415,
+        "y_m": 0.1964,
+        "z_m": 2.404
+      },
+      {
+        "t_s": 0.6667,
+        "x_m": 3.4975,
+        "y_m": 0.2008,
+        "z_m": 2.3866
+      },
+      {
+        "t_s": 0.6833,
+        "x_m": 3.5799,
+        "y_m": 0.2052,
+        "z_m": 2.3665
+      },
+      {
+        "t_s": 0.7,
+        "x_m": 3.6619,
+        "y_m": 0.2096,
+        "z_m": 2.3436
+      },
+      {
+        "t_s": 0.7167,
+        "x_m": 3.7437,
+        "y_m": 0.2141,
+        "z_m": 2.318
+      },
+      {
+        "t_s": 0.7333,
+        "x_m": 3.8253,
+        "y_m": 0.2185,
+        "z_m": 2.2897
+      },
+      {
+        "t_s": 0.75,
+        "x_m": 3.9066,
+        "y_m": 0.2229,
+        "z_m": 2.2587
+      },
+      {
+        "t_s": 0.7667,
+        "x_m": 3.9877,
+        "y_m": 0.2273,
+        "z_m": 2.225
+      },
+      {
+        "t_s": 0.7833,
+        "x_m": 4.0685,
+        "y_m": 0.2317,
+        "z_m": 2.1885
+      },
+      {
+        "t_s": 0.8,
+        "x_m": 4.1491,
+        "y_m": 0.2361,
+        "z_m": 2.1493
+      },
+      {
+        "t_s": 0.8167,
+        "x_m": 4.2294,
+        "y_m": 0.2405,
+        "z_m": 2.1074
+      },
+      {
+        "t_s": 0.8333,
+        "x_m": 4.3094,
+        "y_m": 0.2449,
+        "z_m": 2.0627
+      },
+      {
+        "t_s": 0.85,
+        "x_m": 4.3892,
+        "y_m": 0.2493,
+        "z_m": 2.0154
+      },
+      {
+        "t_s": 0.8667,
+        "x_m": 4.4688,
+        "y_m": 0.2537,
+        "z_m": 1.9653
+      },
+      {
+        "t_s": 0.8833,
+        "x_m": 4.5481,
+        "y_m": 0.2581,
+        "z_m": 1.9125
+      },
+      {
+        "t_s": 0.9,
+        "x_m": 4.6272,
+        "y_m": 0.2625,
+        "z_m": 1.8569
+      },
+      {
+        "t_s": 0.9167,
+        "x_m": 4.706,
+        "y_m": 0.2669,
+        "z_m": 1.7986
+      },
+      {
+        "t_s": 0.9333,
+        "x_m": 4.7846,
+        "y_m": 0.2713,
+        "z_m": 1.7376
+      },
+      {
+        "t_s": 0.95,
+        "x_m": 4.8629,
+        "y_m": 0.2757,
+        "z_m": 1.6739
+      },
+      {
+        "t_s": 0.9667,
+        "x_m": 4.9409,
+        "y_m": 0.2801,
+        "z_m": 1.6075
+      },
+      {
+        "t_s": 0.9833,
+        "x_m": 5.0188,
+        "y_m": 0.2845,
+        "z_m": 1.5383
+      },
+      {
+        "t_s": 1.0,
+        "x_m": 5.0963,
+        "y_m": 0.2889,
+        "z_m": 1.4664
+      },
+      {
+        "t_s": 1.0167,
+        "x_m": 5.1736,
+        "y_m": 0.2933,
+        "z_m": 1.3918
+      },
+      {
+        "t_s": 1.0333,
+        "x_m": 5.2507,
+        "y_m": 0.2977,
+        "z_m": 1.3145
+      },
+      {
+        "t_s": 1.05,
+        "x_m": 5.3275,
+        "y_m": 0.3021,
+        "z_m": 1.2344
+      },
+      {
+        "t_s": 1.0667,
+        "x_m": 5.4041,
+        "y_m": 0.3065,
+        "z_m": 1.1516
+      },
+      {
+        "t_s": 1.0833,
+        "x_m": 5.4804,
+        "y_m": 0.3109,
+        "z_m": 1.0661
+      },
+      {
+        "t_s": 1.1,
+        "x_m": 5.5565,
+        "y_m": 0.3153,
+        "z_m": 0.9779
+      },
+      {
+        "t_s": 1.1167,
+        "x_m": 5.6323,
+        "y_m": 0.3197,
+        "z_m": 0.8869
+      },
+      {
+        "t_s": 1.1333,
+        "x_m": 5.7078,
+        "y_m": 0.3241,
+        "z_m": 0.7932
+      },
+      {
+        "t_s": 1.15,
+        "x_m": 5.7831,
+        "y_m": 0.3285,
+        "z_m": 0.6968
+      },
+      {
+        "t_s": 1.1667,
+        "x_m": 5.8582,
+        "y_m": 0.3329,
+        "z_m": 0.5977
+      },
+      {
+        "t_s": 1.1833,
+        "x_m": 5.933,
+        "y_m": 0.3373,
+        "z_m": 0.4959
+      },
+      {
+        "t_s": 1.2,
+        "x_m": 6.0076,
+        "y_m": 0.3417,
+        "z_m": 0.3913
+      },
+      {
+        "t_s": 1.2167,
+        "x_m": 6.0819,
+        "y_m": 0.3461,
+        "z_m": 0.284
+      }
+    ],
+    "reason": "The side camera's scale or the front camera's field of view is estimated on this throw.",
+    "release": {
+      "height_m": 0.9577785707030979,
+      "lateral_m": 0.024776675276000092,
+      "to_board_front_m": 5.849711224407228
+    },
+    "release_check": {
+      "difference_m": -0.04651146046233198,
+      "front_pose_hand_lateral_m": 0.07128813573833208
+    },
+    "status": "estimated",
+    "velocity_m_s": {
+      "along": 5.546316078712919,
+      "lateral": 0.2641028323054273,
+      "speed": 7.754060908343754,
+      "vertical": 5.4124013357550975
+    }
   },
   "frames": {
     "contact_front": 122,
+    "contact_front_mapped": 122,
+    "contact_front_source": "front camera",
     "contact_side": 243,
     "front_fps": 30.0,
     "front_frame_count": 186,
-    "front_lag_s": 0.016943825545976086,
+    "front_lag_s": 0.026742220988685173,
     "release_front": 85,
     "release_side": 169,
     "side_fps": 59.94
+  },
+  "front_kinematics": {
+    "camera_roll_deg": -0.86,
+    "filter": {
+      "cutoff_hz": 6.0,
+      "short_runs_left_raw": 0,
+      "type": "zero-phase Butterworth (4th order)"
+    },
+    "forward_swing_source": "side peak backswing",
+    "forward_swing_start_s": -0.333,
+    "forward_swing_wrist_unclear_share": 0.0,
+    "fps": 30.0,
+    "hip_sway_sw": [
+      -0.043,
+      -0.03,
+      -0.015,
+      -0.0,
+      0.01,
+      0.016,
+      0.02,
+      0.025,
+      0.031,
+      0.036,
+      0.039,
+      0.041,
+      0.04,
+      0.039,
+      0.038,
+      0.038,
+      0.04,
+      0.044,
+      0.046,
+      0.046,
+      0.042,
+      0.038,
+      0.036,
+      0.034,
+      0.032,
+      0.027,
+      0.021,
+      0.013,
+      0.008,
+      0.005,
+      0.002,
+      -0.002,
+      -0.007,
+      -0.011,
+      -0.012,
+      -0.012,
+      -0.012,
+      -0.014,
+      -0.016,
+      -0.012,
+      0.001,
+      0.017,
+      0.026,
+      0.024,
+      0.017,
+      0.015,
+      0.018,
+      0.022,
+      0.026,
+      0.031,
+      0.041,
+      0.051,
+      0.059,
+      0.062,
+      0.064
+    ],
+    "reason": null,
+    "release_frame": 85,
+    "scale_source": "set-up",
+    "setup_trunk_lean_deg": 2.8,
+    "setup_window_s": [
+      -1.4,
+      -1.2
+    ],
+    "shoulder_width_px": 36.4,
+    "signs": {
+      "hip_sway_sw": "+ towards the throwing arm",
+      "trunk_lean_deg": "+ towards the throwing arm",
+      "wrist_across_sw": "+ towards the midline"
+    },
+    "status": "measured",
+    "t_s": [
+      -1.4,
+      -1.367,
+      -1.333,
+      -1.3,
+      -1.267,
+      -1.233,
+      -1.2,
+      -1.167,
+      -1.133,
+      -1.1,
+      -1.067,
+      -1.033,
+      -1.0,
+      -0.967,
+      -0.933,
+      -0.9,
+      -0.867,
+      -0.833,
+      -0.8,
+      -0.767,
+      -0.733,
+      -0.7,
+      -0.667,
+      -0.633,
+      -0.6,
+      -0.567,
+      -0.533,
+      -0.5,
+      -0.467,
+      -0.433,
+      -0.4,
+      -0.367,
+      -0.333,
+      -0.3,
+      -0.267,
+      -0.233,
+      -0.2,
+      -0.167,
+      -0.133,
+      -0.1,
+      -0.067,
+      -0.033,
+      0.0,
+      0.033,
+      0.067,
+      0.1,
+      0.133,
+      0.167,
+      0.2,
+      0.233,
+      0.267,
+      0.3,
+      0.333,
+      0.367,
+      0.4
+    ],
+    "time_zero": "release (side camera, mapped to the front clip)",
+    "trunk_lean_deg": [
+      2.2,
+      2.5,
+      2.6,
+      2.8,
+      3.1,
+      3.4,
+      3.6,
+      3.7,
+      3.7,
+      3.7,
+      3.7,
+      3.9,
+      4.0,
+      4.2,
+      4.4,
+      4.7,
+      5.0,
+      5.2,
+      5.3,
+      5.6,
+      6.1,
+      6.6,
+      7.2,
+      7.9,
+      8.5,
+      9.1,
+      9.6,
+      10.1,
+      10.7,
+      11.4,
+      11.9,
+      12.2,
+      12.4,
+      12.5,
+      12.5,
+      12.4,
+      12.2,
+      11.8,
+      11.2,
+      10.5,
+      9.7,
+      9.1,
+      8.7,
+      8.5,
+      8.1,
+      7.5,
+      6.8,
+      6.1,
+      5.6,
+      5.0,
+      4.2,
+      3.5,
+      3.1,
+      3.1,
+      3.1
+    ],
+    "units": {
+      "hip_sway_sw": "shoulder widths",
+      "t_s": "s",
+      "trunk_lean_deg": "\u00b0",
+      "wrist_across_sw": "shoulder widths"
+    },
+    "view": "front view 2D (frontal plane image)",
+    "wrist_across_sw": [
+      0.111,
+      0.098,
+      0.086,
+      0.075,
+      0.069,
+      0.069,
+      0.072,
+      0.071,
+      0.059,
+      0.041,
+      0.035,
+      0.049,
+      0.073,
+      0.082,
+      0.062,
+      0.02,
+      -0.024,
+      -0.053,
+      -0.07,
+      -0.087,
+      -0.111,
+      -0.14,
+      -0.161,
+      -0.167,
+      -0.16,
+      -0.148,
+      -0.133,
+      -0.113,
+      -0.087,
+      -0.057,
+      -0.03,
+      -0.013,
+      -0.003,
+      0.004,
+      0.008,
+      0.005,
+      -0.01,
+      -0.031,
+      -0.046,
+      -0.043,
+      -0.02,
+      0.014,
+      0.048,
+      0.07,
+      0.069,
+      0.041,
+      0.005,
+      -0.015,
+      -0.009,
+      0.005,
+      0.002,
+      -0.021,
+      -0.046,
+      -0.063,
+      -0.075
+    ]
   },
   "front_landing": {
     "candidates": [],
@@ -3468,6 +4711,7 @@
           46.999948528051384
         ],
         "frame": 122,
+        "phase": "deck",
         "px": [
           440.5,
           691.5833333333334
@@ -3483,6 +4727,7 @@
           50.89872980940748
         ],
         "frame": 123,
+        "phase": "deck",
         "px": [
           423.20754716981133,
           683.2830188679245
@@ -3498,6 +4743,7 @@
           61.826025286297444
         ],
         "frame": 124,
+        "phase": "deck",
         "px": [
           415.5238095238095,
           707.1156462585034
@@ -3513,6 +4759,7 @@
           61.821925608476384
         ],
         "frame": 125,
+        "phase": "deck",
         "px": [
           413.02255639097746,
           709.4285714285714
@@ -3528,6 +4775,7 @@
           61.86541966731307
         ],
         "frame": 126,
+        "phase": "deck",
         "px": [
           411.327731092437,
           711.1932773109244
@@ -3543,6 +4791,7 @@
           61.924769335186646
         ],
         "frame": 127,
+        "phase": "deck",
         "px": [
           407.9710144927536,
           714.1449275362319
@@ -3558,6 +4807,7 @@
           61.88317175124389
         ],
         "frame": 128,
+        "phase": "deck",
         "px": [
           398.0,
           715.7647058823529
@@ -3577,279 +4827,266 @@
   },
   "front_path": [
     {
-      "frame": 85,
-      "px": [
-        546.2264150943396,
-        383.0566037735849
-      ]
-    },
-    {
       "frame": 86,
       "px": [
-        547.9767441860465,
-        358.27906976744185
+        552.4,
+        360.1
       ]
     },
     {
       "frame": 87,
       "px": [
-        548.7333333333333,
-        343.97777777777776
+        551.4,
+        342.5
       ]
     },
     {
       "frame": 88,
       "px": [
-        549.968253968254,
-        329.4920634920635
+        550.4,
+        325.4
       ]
     },
     {
       "frame": 89,
       "px": [
-        548.4615384615385,
-        318.7435897435897
+        549.3,
+        308.8
       ]
     },
     {
       "frame": 90,
       "px": [
-        545.6785714285714,
-        295.0357142857143
+        548.2,
+        292.7
       ]
     },
     {
       "frame": 91,
       "px": [
-        544.7941176470588,
-        278.8529411764706
+        547.1,
+        277.3
       ]
     },
     {
       "frame": 92,
       "px": [
-        544.3582089552239,
-        262.6865671641791
+        545.9,
+        262.5
       ]
     },
     {
       "frame": 93,
       "px": [
-        543.4,
-        248.14285714285714
+        544.6,
+        248.5
       ]
     },
     {
       "frame": 94,
       "px": [
-        542.45,
-        234.075
+        543.3,
+        235.1
       ]
     },
     {
       "frame": 95,
       "px": [
-        541.7105263157895,
-        221.6315789473684
+        541.9,
+        222.6
       ]
     },
     {
       "frame": 96,
       "px": [
-        540.3333333333334,
-        209.38888888888889
+        540.4,
+        211.0
       ]
     },
     {
       "frame": 97,
       "px": [
-        539.1076923076923,
-        198.36923076923077
+        538.9,
+        200.4
       ]
     },
     {
       "frame": 98,
       "px": [
-        538.0,
-        188.93333333333334
+        537.2,
+        190.8
       ]
     },
     {
       "frame": 99,
       "px": [
-        536.1176470588235,
-        181.33333333333334
+        535.5,
+        182.2
       ]
     },
     {
       "frame": 100,
       "px": [
-        534.9818181818182,
-        173.56363636363636
+        533.7,
+        174.8
       ]
     },
     {
       "frame": 101,
       "px": [
-        532.4571428571429,
-        166.85714285714286
+        531.8,
+        168.6
       ]
     },
     {
       "frame": 102,
       "px": [
-        529.8305084745763,
-        161.35593220338984
+        529.7,
+        163.7
       ]
     },
     {
       "frame": 103,
       "px": [
-        527.4722222222222,
-        156.80555555555554
+        527.6,
+        160.3
       ]
     },
     {
       "frame": 104,
       "px": [
-        526.4395604395604,
-        157.36263736263737
+        525.3,
+        158.5
       ]
     },
     {
       "frame": 105,
       "px": [
-        526.1666666666666,
-        154.83333333333334
+        522.9,
+        158.3
       ]
     },
     {
       "frame": 106,
       "px": [
-        522.3908045977012,
-        158.55172413793105
+        520.4,
+        160.1
       ]
     },
     {
       "frame": 107,
       "px": [
-        517.9285714285714,
-        164.75
+        517.7,
+        163.8
       ]
     },
     {
       "frame": 108,
       "px": [
-        516.2439024390244,
-        171.21951219512195
+        514.9,
+        169.6
       ]
     },
     {
       "frame": 109,
       "px": [
-        513.9183673469388,
-        179.46938775510205
+        511.9,
+        177.7
       ]
     },
     {
       "frame": 110,
       "px": [
-        511.53982300884957,
-        190.26548672566372
+        508.7,
+        188.4
       ]
     },
     {
       "frame": 111,
       "px": [
-        507.8955223880597,
-        203.955223880597
+        505.4,
+        201.7
       ]
     },
     {
       "frame": 112,
       "px": [
-        504.358024691358,
-        220.06172839506172
+        501.8,
+        218.0
       ]
     },
     {
       "frame": 113,
       "px": [
-        500.15384615384613,
-        239.75824175824175
+        498.0,
+        237.4
       ]
     },
     {
       "frame": 114,
       "px": [
-        495.56,
-        263.0
+        493.9,
+        260.4
       ]
     },
     {
       "frame": 115,
       "px": [
-        490.89908256880733,
-        288.8073394495413
+        489.6,
+        287.1
       ]
     },
     {
       "frame": 116,
       "px": [
-        486.07960199004975,
-        320.0696517412935
+        485.0,
+        318.0
       ]
     },
     {
       "frame": 117,
       "px": [
-        480.3720930232558,
-        352.8720930232558
+        480.2,
+        353.4
       ]
     },
     {
       "frame": 118,
       "px": [
-        473.3975903614458,
-        395.0
+        475.0,
+        393.8
       ]
     },
     {
       "frame": 119,
       "px": [
-        466.3885714285714,
-        440.1142857142857
+        469.4,
+        439.6
       ]
     },
     {
       "frame": 120,
       "px": [
-        458.78391959798995,
-        490.13065326633165
+        463.4,
+        491.4
       ]
     },
     {
       "frame": 121,
       "px": [
-        449.9265306122449,
-        547.3387755102041
+        457.0,
+        549.9
       ]
     },
     {
       "frame": 122,
       "px": [
-        439.6969696969697,
-        612.7003367003367
-      ]
-    },
-    {
-      "frame": 123,
-      "px": [
-        422.4752475247525,
-        683.2079207920792
+        450.1,
+        615.8
       ]
     }
   ],
+  "front_path_source": "flight_3d",
   "front_size": [
     1280,
     720
@@ -3860,7 +5097,8 @@
       "reason": null,
       "status": "measured",
       "unit": "shoulder widths",
-      "value": 0.042775699232582814
+      "value": 0.042775699232582814,
+      "view": "front view 2D (frontal plane image)"
     },
     "camera_roll_deg": {
       "label": "Front camera roll (corrected)",
@@ -3874,42 +5112,65 @@
       "reason": null,
       "status": "measured",
       "unit": "shoulder widths",
-      "value": -0.01338191801780413
+      "value": -0.01338191801780413,
+      "view": "front view 2D (frontal plane image)"
+    },
+    "hand_path_range_sw": {
+      "forward_swing_source": "side peak backswing",
+      "label": "Hand path sideways range in the forward swing (front view 2D)",
+      "reason": null,
+      "status": "measured",
+      "unit": "shoulder widths",
+      "value": 0.094,
+      "view": "front view 2D (frontal plane image)"
     },
     "release_point_offset_m": {
       "label": "Release hand's distance from the board's centre line (+ thrower's right)",
       "reason": null,
       "status": "measured",
       "unit": "m",
-      "value": 0.07128813573833208
+      "value": 0.07128813573833208,
+      "view": "front view 2D (frontal plane image)"
     },
     "shoulder_tilt_deg": {
       "label": "Shoulder tilt at release (+ throwing shoulder lower)",
       "reason": null,
       "status": "measured",
       "unit": "\u00b0",
-      "value": 10.162293478168154
+      "value": 10.162293478168154,
+      "view": "front view 2D (frontal plane image)"
     },
     "stance_offset_m": {
       "label": "Feet midpoint from the board's centre line 1 s before release (+ thrower's right)",
       "reason": null,
       "status": "measured",
       "unit": "m",
-      "value": -0.1968224057127932
+      "value": -0.1968224057127932,
+      "view": "front view 2D (frontal plane image)"
     },
     "stance_width_m": {
       "label": "Sideways distance between the ankles",
       "reason": null,
       "status": "measured",
       "unit": "m",
-      "value": 0.1820703404691725
+      "value": 0.1820703404691725,
+      "view": "front view 2D (frontal plane image)"
+    },
+    "trunk_lean_change_deg": {
+      "label": "Trunk side lean change from set-up to release (+ towards throwing arm, front view 2D)",
+      "reason": null,
+      "status": "measured",
+      "unit": "\u00b0",
+      "value": 5.8999999999999995,
+      "view": "front view 2D (frontal plane image)"
     },
     "trunk_side_lean_deg": {
       "label": "Trunk side lean at release (+ towards throwing arm)",
       "reason": null,
       "status": "measured",
       "unit": "\u00b0",
-      "value": 8.59941481915289
+      "value": 8.59941481915289,
+      "view": "front view 2D (frontal plane image)"
     }
   },
   "heading": {
@@ -3937,7 +5198,7 @@
     "where": null,
     "x_source": "front camera deck homography"
   },
-  "method_version": "two_view_v5_knocked_confirm",
+  "method_version": "two_view_v8_front_body",
   "miss": {
     "reason": "Where the bag stopped is not known in both directions.",
     "status": "unavailable"

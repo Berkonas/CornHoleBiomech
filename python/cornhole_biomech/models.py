@@ -172,3 +172,5 @@ class TrialOutcome:
     intended_point: BoardPoint | None = None
     first_contact_point: BoardPoint | None = None
     final_resting_point: BoardPoint | None = None
+    # Who recorded it: "automatic", "person" or "confirmed_by_eye" (the app writes it since 2026-10-11).
+    source: str | None = None

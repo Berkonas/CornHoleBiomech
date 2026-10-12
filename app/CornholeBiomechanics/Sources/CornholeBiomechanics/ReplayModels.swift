@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import SwiftUI
 
@@ -43,7 +44,7 @@ struct ReplayDocument: Decodable {
 
     /// Release-frame pixels → pixels of `frame` (identity for a fixed camera).
     func toFrame(_ x: Double, _ y: Double, frame: Int) -> CGPoint {
-        guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m[0].count == 3 else {
+        guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m.allSatisfy({ $0.count == 3 }) else {
             return CGPoint(x: x, y: y)
         }
         return CGPoint(x: m[0][0] * x + m[0][1] * y + m[0][2], y: m[1][0] * x + m[1][1] * y + m[1][2])
@@ -97,6 +98,8 @@ struct CoachMetricRow: Decodable, Identifiable {
     var reasons: [String]
     var value: Double?
     var exploratory: Bool?
+    /// "per_throw", "profile" or "advanced" (reliability.METRIC_TIERS; nil in older analyses).
+    var tier: String? = nil
     /// Smallest change the measurement can resolve (same unit as `value`).
     var noise_floor: Double?
 
@@ -113,6 +116,15 @@ struct CoachMetricRow: Decodable, Identifiable {
     var usableValue: Double? {
         guard !Self.unusableStatuses.contains(status), let value, value.isFinite else { return nil }
         return value
+    }
+
+    var tierText: String {
+        switch tier {
+        case "per_throw": "Per throw"
+        case "profile": "Athlete profile"
+        case "advanced": "Advanced"
+        default: "—"
+        }
     }
 
     var statusText: String {
@@ -254,5 +266,21 @@ func formatValue(_ value: Double?, unit: String) -> String {
     case "arm lengths/s": return "\(number(value, digits: 1)) arm lengths/s"
     case "": return number(value, digits: 2)
     default: return "\(number(value, digits: 2)) \(unit)"
+    }
+}
+
+
+/// Frame ↔ time for constant-rate clips (the engine writes every clip at a constant rate). Frame k is on screen from
+/// k/fps to (k+1)/fps: a time maps to the frame it falls in (floor), and a seek goes to the frame's middle so that
+/// rounding in CMTime can never land on the frame before (seeking to exactly k/fps sometimes showed k − 1).
+enum FrameClock {
+    static func time(of frame: Int, fps: Double) -> CMTime {
+        CMTime(seconds: (Double(max(0, frame)) + 0.5) / max(fps, 1), preferredTimescale: 600_000)
+    }
+
+    static func frame(at seconds: Double, fps: Double, count: Int) -> Int? {
+        let value = seconds * fps
+        guard value.isFinite, fps > 0, count > 0 else { return nil }
+        return min(max(0, Int(value.rounded(.down))), count - 1)
     }
 }

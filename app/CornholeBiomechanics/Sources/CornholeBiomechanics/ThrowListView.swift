@@ -1,14 +1,20 @@
 import SwiftUI
 
-/// Middle column: a pinned Summary row, then the athlete's throws, oldest first.
+/// Middle column: a pinned Summary row, then the athlete's throws, oldest first. Two-camera throws are grouped by
+/// take; each take starts with a selectable take row (points, in/on/off, needs-your-eye count) that opens the
+/// Take screen. A folder of takes dropped on the list opens the import.
 struct ThrowListView: View {
     @EnvironmentObject private var store: ProjectStore
     @EnvironmentObject private var analysis: AnalysisService
+    @EnvironmentObject private var glances: ThrowGlanceStore
     let athleteID: UUID
     let beginImport: () -> Void
     var beginTakeImport: () -> Void = {}
+    /// Open the take import with a dropped folder.
+    var importFolder: (URL) -> Void = { _ in }
     @State private var summaries: [UUID: ThrowRowSummary] = [:]
     @State private var deleting: Trial?
+    @State private var dropTargeted = false
 
     var body: some View {
         Group {
@@ -17,7 +23,7 @@ struct ThrowListView: View {
                     VStack(spacing: Space.l) {
                         EmptyState("No Throws Yet", symbol: "video.badge.plus",
                                    message: "Import this athlete's two-camera takes (Take_N_Front and Take_N_Side), or single side-view videos.",
-                                   action: store.project == nil || analysis.isRunning ? nil : ("Import Two-Camera Takes", beginTakeImport))
+                                   action: store.project == nil ? nil : ("Import Takes", beginTakeImport))
                         RecordingGuide().padding(.horizontal, Space.l)
                     }
                     .padding(.vertical, Space.xl)
@@ -31,32 +37,55 @@ struct ThrowListView: View {
                         }
                     } icon: { Image(systemName: "chart.bar.xaxis") }
                         .tag(Destination.summary(athleteID))
-                    ForEach(groups, id: \.title) { group in
-                        Section(group.title) {
+                    ForEach(groups, id: \.id) { group in
+                        Section {
+                            if let key = group.key {
+                                TakeListRow(title: group.title, trials: group.trials,
+                                            needsEye: glances.needsEye(group.trials).count,
+                                            analysing: group.trials.contains { analysis.activeTrialID == $0.id && analysis.isRunning },
+                                            waiting: group.trials.filter { analysis.queuePosition(of: $0.id) != nil }.count)
+                                    .tag(Destination.take(key))
+                            }
                             ForEach(group.trials) { trial in
                                 ThrowRow(trial: trial, summary: summaries[trial.id],
                                          isAnalyzing: analysis.activeTrialID == trial.id && analysis.isRunning,
+                                         isQueued: analysis.queuePosition(of: trial.id) != nil,
+                                         needsEye: !glances.needsEye([trial]).isEmpty,
                                          videoMissing: !store.videoState(for: trial).isAvailable,
                                          canAnalyze: !analysis.isRunning && store.videoState(for: trial).isAvailable,
                                          analyze: { analyze(trial) })
                                     .tag(Destination.throwReport(trial.id))
                                     .contextMenu { menu(for: trial) }
                             }
+                        } header: {
+                            if group.key == nil { Text(group.title) }
                         }
                     }
                 }
             }
         }
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: Radius.card).strokeBorder(Color.accentColor, lineWidth: 2).padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard store.project != nil, let url = urls.first else { return false }
+            importFolder(TakeImportForm.folderURL(for: url))
+            return true
+        } isTargeted: { dropTargeted = $0 }
         .navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 360)
         .navigationTitle(store.project?.athletes.first { $0.id == athleteID }?.displayName ?? "Throws")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button("Import Two-Camera Takes… (⇧⌘T)", action: beginTakeImport)
+                    Button("Import Takes… (⇧⌘T)", action: beginTakeImport)
                     Button("Import Single Videos… (⇧⌘I)", action: beginImport)
+                        .disabled(analysis.isRunning)
                 } label: { Label("Import", systemImage: "plus") }
-                    .help("Import throws")
-                    .disabled(store.project == nil || analysis.isRunning)
+                    .help("Import throws; they are analysed automatically, one at a time")
+                    .disabled(store.project == nil)
             }
         }
         .task(id: reloadKey) { await loadSummaries() }
@@ -81,13 +110,23 @@ struct ThrowListView: View {
         }
     }
 
-    /// Two-camera throws are grouped by take; single videos stay together under "Throws".
-    private var groups: [(title: String, trials: [Trial])] {
-        var result: [(title: String, trials: [Trial])] = []
+    /// Two-camera throws are grouped by take (its record, so two takes with one number stay apart); single videos
+    /// stay together under "Throws".
+    private var groups: [(id: String, key: TakeKey?, title: String, trials: [Trial])] {
+        var result: [(id: String, key: TakeKey?, title: String, trials: [Trial])] = []
         for trial in trials {
-            let title = trial.takeNumber.map { "Take \($0)" } ?? "Throws"
-            if let last = result.indices.last, result[last].title == title { result[last].trials.append(trial) }
-            else { result.append((title, [trial])) }
+            let key = trial.takeKey
+            let id = key?.record ?? "single-videos"
+            if let index = result.firstIndex(where: { $0.id == id }) {
+                result[index].trials.append(trial)
+            } else {
+                result.append((id, key, trial.takeNumber.map { "Take \($0)" } ?? "Throws", [trial]))
+            }
+        }
+        // Two takes with the same number (different days) carry their date.
+        let numbers = result.map(\.title)
+        for index in result.indices where result[index].key != nil && numbers.filter({ $0 == result[index].title }).count > 1 {
+            if let date = result[index].trials.first?.recordingDate { result[index].title += " · \(date)" }
         }
         return result
     }
@@ -156,6 +195,8 @@ private struct ThrowRow: View {
     let trial: Trial
     let summary: ThrowRowSummary?
     let isAnalyzing: Bool
+    var isQueued = false
+    var needsEye = false
     let videoMissing: Bool
     let canAnalyze: Bool
     let analyze: () -> Void
@@ -171,6 +212,8 @@ private struct ThrowRow: View {
                 Group {
                     if isAnalyzing {
                         Text("Analyzing…")
+                    } else if isQueued {
+                        Label("In the queue", systemImage: "clock")
                     } else if videoMissing {
                         Label("Missing video", systemImage: "questionmark.video").foregroundStyle(.orange)
                             .help("The video was moved or deleted. Use Locate / Relink Video… in the context menu.")
@@ -188,16 +231,64 @@ private struct ThrowRow: View {
             Spacer(minLength: Space.xs)
             if isAnalyzing {
                 ProgressView().controlSize(.small)
+            } else if isQueued {
+                EmptyView()
             } else if trial.analysisRelativePath == nil {
                 Button("Analyze", action: analyze).controlSize(.small).disabled(!canAnalyze)
+            } else if needsEye {
+                Image(systemName: "eye").foregroundStyle(.orange)
+                    .help("The cameras could not tell the result: choose In, On or Off in Needs Your Eye")
+                    .accessibilityLabel("Needs your eye")
             } else if summary?.hasQualityWarning == true {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     .help("Some tracking quality checks were WARNING or POOR")
                     .accessibilityLabel("Tracking quality warning")
             }
+            if trial.outcome?.isAutomatic == true, trial.outcome?.scoreCategory != nil {
+                Text("auto").font(.caption2).foregroundStyle(.secondary)
+                    .help("Recorded automatically from the front camera; a result you enter replaces it")
+                    .accessibilityLabel("recorded automatically")
+            }
             ResultBadge(score: trial.outcome?.scoreCategory)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// The first row of a take: "Take 3", points and in/on/off, and how many bags need a person's eye. Selecting it
+/// opens the Take screen.
+private struct TakeListRow: View {
+    let title: String
+    let trials: [Trial]
+    let needsEye: Int
+    let analysing: Bool
+    let waiting: Int
+
+    var body: some View {
+        let tally = TakeTally(trials)
+        HStack(spacing: Space.s) {
+            Image(systemName: "square.grid.2x2").foregroundStyle(.secondary).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Group {
+                    if analysing || waiting > 0 {
+                        Text("Analysing · \(tally.analysed) of \(tally.throwsCount) done")
+                    } else {
+                        Text("\(tally.pointsText) · \(tally.countsText)").monospacedDigit()
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Space.xs)
+            if analysing { ProgressView().controlSize(.small) }
+            if needsEye > 0 {
+                Label("\(needsEye)", systemImage: "eye").font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                    .help("\(needsEye) bag\(needsEye == 1 ? "" : "s") need your eye")
+                    .accessibilityLabel("\(needsEye) need your eye")
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
     }
 }
 

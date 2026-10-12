@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import hashlib
 import json
+import os
 import math
 
 import numpy as np
@@ -31,7 +32,12 @@ def json_ready(value: Any) -> Any:
 
 
 def write_json(path: str | Path, value: Any) -> None:
-    Path(path).write_text(json.dumps(json_ready(value), indent=2, sort_keys=True) + "\n")
+    """Write atomically (temporary file in the same folder, then rename): a reader such as the app never sees a
+    half-written file, and an interrupted run leaves the previous version intact."""
+    target = Path(path)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(json_ready(value), indent=2, sort_keys=True) + "\n")
+    os.replace(temporary, target)
 
 
 def canonical_hash(value: Any) -> str:

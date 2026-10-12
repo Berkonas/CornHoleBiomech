@@ -8,16 +8,17 @@ This document collects, in one place, the methods and every equation the system 
 
 | Item | Value | Where defined |
 |---|---|---|
-| Measurement method version | `METHOD_VERSION = "2026.10.05-release-touchdown"` | `cornhole_biomech/__init__.py` |
+| Measurement method version | `METHOD_VERSION = "2026.10.11-calculation-audit"` (previous: `2026.10.05-release-touchdown`; changes in [CALCULATION_AUDIT.md](CALCULATION_AUDIT.md)) | `cornhole_biomech/__init__.py` |
 | Body-event detector | `filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay` | `events.py` |
 | Python package | 0.6.2 | `cornhole_biomech/__init__.py` |
 | Pose software | Sports2D 0.8.34 (pinned), RTMPose via RTMLib/ONNX Runtime on CPU, model `body_with_feet` (HALPE-26 incl. heel/toe points), mode `balanced` | `sports2d_adapter.py`, `config.py` |
 | Automatic bag tracker | `auto_motion_parabola_v18_hand_to_touchdown` | `auto_bag.py` |
 | Bag silhouette centroid | `local_median_background_mask_v1` | `bag_segment.py` |
 | Bag flight filter | `ca_kalman_rts_v1` | `bag_filter.py` |
-| Board phase (touchdown, slide, end) | `board_phase_v3_deck_footprint_touchdown` | `board_phase.py` |
-| Two-camera combination | `two_view_v5_knocked_confirm` | `two_view.py`, `front_view.py`, `front_track.py` |
-| 3D bag flight (side + front) | `flight3d_v1` | `flight3d.py` (§5.4) |
+| Board phase (touchdown, slide, end) | `board_phase_v4_settled_slide_fit` | `board_phase.py` |
+| Two-camera combination | `two_view_v6_attribution` | `two_view.py`, `front_view.py`, `front_track.py` |
+| Miss attribution and coach sentence (two-camera) | `attribution_v2`, `sentence_v2` | `attribution.py` (§5.5) |
+| 3D bag flight (side + front) | `flight3d_v2` | `flight3d.py` (§5.4) |
 
 **Validation status in one line.** Software behaviour is unit-tested; the measurement accuracy of body landmarks, bag centroids and metric scale has **not** been validated against a criterion (motion capture or manual digitisation) for this task. Evidence so far is a light engineering validation on 26 hand-held pilot clips from 3 athletes (17 Sep 2026; [LIGHT_VALIDATION.md](LIGHT_VALIDATION.md), [SCENE_REGRESSION.md](SCENE_REGRESSION.md)). Every noise floor for body metrics is **provisional**.
 
@@ -143,7 +144,7 @@ Older path still in the code for fixed cameras: a gravity scale from the reviewe
 | Motion start | the **start of the throwing swing**: find the fastest rearward wrist movement ($\max(-\dot w_x)$) in the 1 s before the top, then take the last frame before it where the wrist is not moving. Falls back to the first sustained (≥ 0.05 s) moving frame if the wrist never goes quiet |
 | Forward swing | first valid frame after the top |
 | Peak follow-through | the arm's **highest point after release**: the first frame in $[t_\text{rel},\ \min(t_\text{end},\ t_\text{rel}+2\text{ s})]$ where $w_y$ is within 0.02 arm lengths of its maximum in that window |
-| Motion end | last frame of sustained (≥ 0.05 s) moving |
+| Motion end | last frame of sustained (≥ 0.05 s) moving — every frame of a run of ≥ 0.05 s counts (before 2026.10.11 a centred-window test eroded the run, so motion end was 1 frame early at 60 fps; CALCULATION_AUDIT §A6) |
 | Peak elbow extension | max $d\theta_\text{elbow}/dt>0$ from the first frame after the top where $d\theta_\text{elbow}/dt \le 0$ (extension carried over from the backswing has ended) to release + 0.1 s; none if the elbow only flexes in the forward swing |
 
 Backswing *start* (for tempo, `swing.py`) = the last frame before the fastest backward arm swing where arm angular speed < 15 % of that peak; it agreed with motion start within 0–2 frames on 5 of the 6 audited throws below (on the sixth it found no quiet frame, so tempo is unavailable there). All automatic events are candidates that a reviewer can correct; the raw candidate is preserved.
@@ -169,7 +170,7 @@ Backswing *start* (for tempo, `swing.py`) = the last frame before the fastest ba
    *Side-camera re-run of the 14 audited two-camera throws (5 Oct 2026, before → after revisions v18/v3, each changed value checked on the frames):* release 144 → 150 on Player 3 take 1 throw 4 (visual 148/149; the real flight is now accepted) and 174 → 180 on Player 4 take 5 throw 3 (visual 180; backfill now reaches the hand); replaying the Mac run's stored flights, Player 2 take 4 throw 2 goes 163 → 169 (visual 168/169) and the static object chosen on Player 3 take 1 throw 4 is rejected (wrist proxy 149). Touchdown 234 → 235 on Player 2 take 3 throw 3 (visual 235), 220 → 218 on Player 3 take 1 throw 4 (visual 218), 220 → 219 on Player 4 take 1 throw 1 (a corner touches at 219, flat at 220), and Player 3 take 2 throw 1 has none (it sailed over the back of the board onto the floor; previously an airborne "touchdown" at 211). The other 10 throws kept every release, contact, touchdown and end frame.
 6. Suggested score: 3 fell in, 1 rests on the deck, 0 left the deck; always a one-click coach confirmation. When the flight tracker lost the bag in the air, a touchdown seen on the deck becomes the measured first contact.
 
-**Slide kinematics.** On the plain deck before the hole, a least-squares constant-deceleration fit $s(t)=s_0+v_0t-\tfrac12 a t^2$ gives the entry speed along the deck $v_0$ and the deceleration $a$. For a bag sliding **up** the slope $\alpha$ (10.8°), $a = g(\sin\alpha + \mu\cos\alpha)$, so the effective kinetic friction is $\mu = (a/g - \sin\alpha)/\cos\alpha$ (withheld for slides < 4 in or < 5 samples, or a non-decelerating fit).
+**Slide kinematics.** On the plain deck before the hole, a least-squares constant-deceleration fit $s(t)=s_0+v_0t-\tfrac12 a t^2$ gives the entry speed along the deck $v_0$ and the deceleration $a$. For a bag sliding **up** the slope $\alpha$ (10.8°), $a = g(\sin\alpha + \mu\cos\alpha)$, so the effective kinetic friction is $\mu = (a/g - \sin\alpha)/\cos\alpha = a/(g\cos\alpha) - \tan\alpha$. The fit starts 0.03 s (2 frames) after touchdown — the touchdown sample can be the last airborne frame and the landing bag flattens, so on the pilot slides those two samples sat off the slide (residual RMS 0.35 in with them, 0.16 in without) — with time still measured from touchdown, so $v_0$ is the speed at touchdown. $\mu$ and $a$ are withheld for slides < 4 in or < 5 samples, when $a \le g\sin\alpha$ ($\mu<0$: not a friction slide), or when the fit standard error $\text{SE}(\mu)=\text{SE}(a)/(g\cos\alpha) > 0.10$; `mu_se` is reported. *Why (CALCULATION_AUDIT §B3):* on 55 fitted pilot slides 17 fits gave $a \le g \sin\alpha$ or $a<0$, two reached the app as negative $\mu$ (−0.14, −0.01), and others exceeded 1.5; the causes were the touchdown transient and plain-deck windows of only 0.1 s, where SE($\mu$) was 0.2–2. After the change 24 slides report $\mu$ = 0.31–1.17 (median 0.52), none negative.
 
 **Validation on the tripod clips (Player 1 throws 17–24, Players 3–4, checked frame by frame):** the end was classified correctly on 10/10 clips where the board was located (3 holes, including the 0.6 s hang; 7 board bags, including bags resting against the lip); the earlier rule got 5 of the same 7 Player 1 throws right. Slides were 10–23 in; plain-deck $\mu$ = 0.32–0.49, entry speed 1.9–2.5 m/s. **Lateral position:** from a side camera the deck's across direction runs nearly along the optical axis, and the along-deck position from the homography and from the centre-line throw plane differed by a median of ≈ 3 in; $u$ is reported as approximate and never used for the decision, and positions along the deck carry about ±3 in. Throws were made straight at the board; left/right needs the board camera.
 
@@ -180,7 +181,7 @@ All body quantities are **projected 2D** in the camera plane, from filtered land
 | Quantity | Definition (equation in §3) | Units |
 |---|---|---|
 | Elbow included angle | angle $S$–$E$–$W$ (Eq. 3.4.1); 180° = straight as seen by the camera | ° |
-| Shoulder angle (chain) | upper arm vs trunk axis, angle $E$–$S$–($M_S\!-\!M_H$) | ° |
+| Shoulder angle (chain) | upper arm vs trunk axis, continuous through the trunk line: $180° - $ signed shoulder flexion (Eq. 3.4.8); 180° = arm along the trunk, < 180° in front, > 180° behind | ° |
 | Arm angle φ | shoulder→wrist line from straight down, + toward the board (Eq. 3.4.3) | ° |
 | Backswing | minimum φ from backswing start to release | ° |
 | Trunk inclination | hip-midpoint → shoulder-midpoint line from image vertical, + toward the target (Eq. 3.4.4) | ° |
@@ -317,7 +318,7 @@ Produced in Python (`verdict.py`) from tested math, never in the Swift views. Tw
 
 **Scoring** (`zones.sports_stats`): per-bag values 3 (hole), 1 (board), 0 (off/foul); unknown results are excluded, never treated as misses. $\text{PPR} = 4\times$ mean points per bag (gross, no cancellation); In % / On % / Off % are shares of known outcomes. These are per-bag values, not the cancellation score of a round.
 
-**Scored vs miss** (`performance.py`), within one athlete, over a fixed, pre-specified list of release/body variables: per group $n$, median, quartiles, SD, CV (ratio-scale only); Cliff's δ (Eq. 3.13.3) and Hedges' $g$. A variable "differed" only when **all** hold: ≥ 5 throws per group; $\lvert\delta\rvert \ge \delta_{\text{crit}}$, where $\delta_{\text{crit}}$ is the larger of 0.474 ("large") and a Bonferroni chance level across all tests (Eq. 3.13.4); and the median difference exceeds the noise floor. A second test catches two-sided misses (too high *and* too low): misses' distance from the scored median vs scored throws' leave-one-out distance.
+**Scored vs miss** (`performance.py`), within one athlete, over a fixed, pre-specified list of release/body variables: per group $n$, median, quartiles, SD, CV (ratio-scale only); Cliff's δ (Eq. 3.13.3) and Hedges' $g$. A variable "differed" only when **all** hold: ≥ 5 throws per group; $\lvert\delta\rvert \ge \delta_{\text{crit}}$, where $\delta_{\text{crit}}$ is the larger of 0.474 ("large") and a Bonferroni chance level across all tests (Eq. 3.13.4); and the median difference exceeds the noise floor. In practice the Bonferroni term dominates: each variable is tested twice (shift and spread), so with 12–16 variables ($k$ = 24–32) $\delta_{\text{crit}} \approx 1.18$ at 5 + 5 (no claim is possible), 0.81 at 10 + 10 and 0.74 at 12 + 12; even a perfect separation needs about 7–8 throws per group (`minimum_claim_group`), and the coach message says so. Power is low at these sizes: for a true δ ≈ 0.6 a 20–24-throw athlete gets a finding 12–22 % of the time (simulation in the 2026-10-12 review), so "no clear difference" is not evidence of no difference. The scored-vs-miss outcome links in `chain_analysis.py` apply the same noise floors (speed 0.15 m/s, angle 3°, height 0.03 m) and leave out the exploratory peak elbow-extension velocity. A second test catches two-sided misses (too high *and* too low): misses' distance from the scored median vs scored throws' leave-one-out distance.
 
 **Coaching priority gate — five checks** (`coaching.py`). A variable becomes a priority only if it is:
 
@@ -434,6 +435,8 @@ $$\beta = \operatorname{atan2}(T_x, T_y), \quad 0^\circ = \text{vertical},\ + = 
 $$\omega_{\text{passive}} = \sqrt{\frac{3g(1 - \cos A)}{L}}, \qquad \text{ratio} = \frac{\omega_{\text{measured}}}{\omega_{\text{passive}}} \tag{3.4.6}$$
 
 **Hand point** (rigid-hand model): $\mathbf H = \mathbf W + 0.34\,L_{\text{arm}}\,\dfrac{\mathbf W - \mathbf E}{\lVert\mathbf W - \mathbf E\rVert}$. — Eq. (3.4.7)
+
+**Shoulder angle** (upper arm vs trunk, `arm_to_trunk_deg`). With $\mathbf D = M_H - M_S$ (trunk, pointing down) and $\mathbf A = E - S$ in analysis axes, the signed flexion is $\psi = \operatorname{atan2}(D_xA_y - D_yA_x,\ \mathbf D\cdot\mathbf A)$ (+ toward the target), wrapped into $[-125°, 235°)$ — a cut behind and above the shoulder that no swing reaches (pilot range −67° to +178°). Frames where the upper arm is projected shorter than 0.35 of its robust length (≥ 69° out of the image plane, `SHOULDER_MIN_PROJECTED_SHARE`) are missing: its 2D direction is noise there. The rest is unwrapped within each finite run and each later run shifted by whole turns to continue the previous one, so a crossing of the cut never adds 360° (synthetic sweep across the cut: ROM 360° and 10,800 °/s before, the true 10° after; test `test_a3_foreshortened_upper_arm_across_the_cut_gives_no_spurious_rom_or_velocity`). Velocities are only computed on finite runs of ≥ 16 frames, the shortest the zero-phase filter smooths (`FILTERED_MIN_RUN`); a raw run with 4 px landmark noise gave about 4× the true speed. The reported angle is $180° - \psi$, which equals the included angle between upper arm and the hip→shoulder line while the arm is in front of the trunk. *Why (CALCULATION_AUDIT §A3):* the included angle alone folds at 180° each time the arm swings past the trunk line, so its range of motion was 11–65° too small on all 14 audited throws (e.g. 112° → 171°) and its derivative dipped toward zero at the crossing; the release value, the peak shoulder angular velocity and its timing were unchanged on all 14. — Eq. (3.4.8)
 
 ### 3.5 Finite-difference derivatives
 
@@ -591,7 +594,7 @@ $$\delta_{\text{crit}} = \max\!\left(0.474,\ z_{1-\alpha/(2k)}\sqrt{\frac{n_a + 
 
 **Percentile bootstrap CI.** Draw $B = 2000$ resamples of the $n$ pairs with replacement (fixed seed; resamples with a constant variable are skipped); compute $\rho^{*}_b$; the 95 % CI is $[Q_{2.5\%}(\rho^*),\ Q_{97.5\%}(\rho^*)]$ (for $k$ Bonferroni-adjusted tests in `chain_analysis`, $[Q_{\alpha/2k}, Q_{1-\alpha/2k}]$). The same procedure on medians gives the CI of the miss − scored median difference (priority check 3). — Eq. (3.14.2)
 
-**Theil–Sen slope** of release angle on speed: $\hat b = \operatorname{median}_{i<j}\dfrac{\theta_j - \theta_i}{v_j - v_i}$, with its 95 % CI (`scipy.stats.theilslopes`). — Eq. (3.14.3)
+**Theil–Sen slope** of release speed on angle (m/s per degree, `slope_m_s_per_deg`): $\hat b = \operatorname{median}_{i<j}\dfrac{v_j - v_i}{\theta_j - \theta_i}$, with its 95 % CI (`scipy.stats.theilslopes(speed, angle)`). — Eq. (3.14.3)
 
 **Compensation permutation test:** $\text{ratio} = \overline{\operatorname{SD}}\big(x_c(\pi(v), \theta, h)\big)/\operatorname{SD}\big(x_c(v, \theta, h)\big)$ over 500 random permutations $\pi$. — Eq. (3.14.4)
 
@@ -641,7 +644,10 @@ $$\delta_{\text{crit}} = \max\!\left(0.474,\ z_{1-\alpha/(2k)}\sqrt{\frac{n_a + 
 | Lateral (left/right) | Not measured from the side camera alone; measured on two-camera takes from the front camera (§5.2, ±0.5 in across the deck). |
 | Pilot library | 26 clips, 3 athletes, ~10 throws each, no outcomes recorded: no priorities can be claimed yet; the stress test suggests 20–40 throws per athlete for reliable outcome comparisons ([STRESS_TEST.md](STRESS_TEST.md)). |
 | Multiple comparisons | Bonferroni control within analyses; the scored-vs-miss analysis is exploratory across variables. |
-| 6 Hz filter | Supported by residual analysis on 12 signals, but may flatten wrist-speed peaks. |
+| 6 Hz filter | Supported by residual analysis on 12 signals. It is zero-phase (no peak-timing shift in synthetic tests) but flattens fast peaks: a Gaussian speed pulse of FWHM 0.24 s keeps 97 %, 0.14 s keeps 93 %; on the 14 audited throws peak wrist speed was a median 5 % lower than at 12 Hz (CALCULATION_AUDIT §B2). The same filter is used for every throw, so within-athlete comparisons are unaffected. |
+| Launch fit in pixels | Release speed/angle are fitted in image pixels and converted with one horizontal pixels-per-metre; the throw plane is mapped by a homography, so on the 82 pilot throws a fit in plane metres differs by −1.3…+0.9 % in speed (≤ 0.10 m/s) and −1.2…+1.5° in angle (synthetic oblique camera: +5.7 %, +3.5°). `bag.plane_launch_fit` does the plane fit, and the pipeline uses it whenever the board plane is the scale and the board is measured in the release frame; otherwise the pixel route remains (CALCULATION_AUDIT §D2). |
+| Bag off the board's centre line | The throw plane is the board's centre line; a bag released 0.4 m nearer the camera (6 m away) is absorbed by the gravity-calibrated field of view (62° → 55.6°) but leaves release height ≈ 8 cm low and angle ≈ 1° high (synthetic, CALCULATION_AUDIT §D3). Session pooling makes this a per-session offset. |
+| Constant frame rate | Time is frame / fps from the container's average rate. The 14 audited side clips are exactly constant-rate (every frame 1001/60000 s); a variable-frame-rate source would be mis-timed (not checked automatically). |
 
 ---
 
@@ -653,7 +659,7 @@ is one continuous recording per camera: the athlete claps, shows the take number
 then throws four bags. Each athlete has 5–7 takes. The side camera keeps every method in §1–§3; the
 front camera adds what one side camera cannot see: **left/right**, where the bag stopped across the
 board, whether it went in, and frontal-plane body measures. Code: `takes.py` (§5.1), `front_view.py`
-and `front_track.py` (§5.2), `two_view.py` (§5.3), `flight3d.py` (§5.4).
+and `front_track.py` (§5.2), `two_view.py` (§5.3), `flight3d.py` (§5.4), `attribution.py` (§5.5).
 
 | Camera | Device (this collection) | Video | Sees |
 |---|---|---|---|
@@ -884,6 +890,15 @@ the side the thrown and the knocked bag overlap: over the 92-throw library the s
 on 5 of 7 such throws; the other two (Player 1) slid into the hole while nudging an old bag and were read as
 "rest".
 
+A knock on the deck itself is also flagged (`identity_unsure`, needs confirmation). Once the thrown bag stops it
+no longer passes the motion test, so the deck track can carry on along the bag it knocked, and the rest, an "off"
+or a "hole" read from that track would describe the wrong bag (synthetic test
+`test_track_on_deck_flags_the_turn_where_it_passes_to_a_knocked_bag`). The track marks a `turn` where its heading
+over 3 points before and after changes by more than 45° (displacements ≥ 20 px; a slide keeps its heading). The
+throw is then `ambiguous` when two new bags appear on the deck, or when the tracked slide turned while another bag
+moved. These thresholds come from the synthetic case, not from labelled real knocks: the validation run should
+count how often real slides without a knock are flagged.
+
 **Bag path in the front camera** (`front_track.py`; the replay overlay `front_path` and the deck track
 below). *Candidates* in each frame (searched at half resolution) are pixels that are bag-red (hue ≤ 12 or
 ≥ 150, S ≥ 60, V ≥ 35), differ from the empty scene by > 30 (8-bit, largest channel; the scene is the
@@ -911,6 +926,8 @@ body on 6 of 13 Final Data Collection throws and stayed half on the body on 2 mo
 earlier test library) follow the bag from the hand to the deck, 1.1–1.8 s per throw. Only red bags are
 found; the path is for display and no number is computed from it. When the 3D flight (§5.4) is fitted, its
 projection replaces this path in the replay (`front_path_source`).
+
+**Front-view contact timing (two_view_v7).** The front camera's first contact is its own observed frame (the first tracked deck point on the deck), stored as `frames.contact_front` with `contact_front_mapped` (the side contact mapped to the nearest front frame) and `contact_front_source`. On a 30 fps front camera the nearest frame to the side's first-contact instant can still show the bag in the air: observed − mapped was +1 frame on 34 of 86 library throws (Player 1 take 2 throw 2: frame 122 airborne, 123 on the deck, checked on the clip's frames). The deck track starts ~0.15 s before contact to catch the last flight steps, so its first 1–4 points are airborne; each point now carries `phase` (`air`/`deck`) and the replay draws the slide colour only from the observed contact (it had started 67–100 ms early on 76 of 86 throws). Playback overlays use the front player's own displayed frame, and every seek goes to the middle of the target frame (`FrameClock`), so the overlay and the picture are the same frame. Tests: `test_deck_track_points_before_first_contact_are_marked_in_the_air`, `FrontContactTimingTests`.
 
 **First contact across the board.** The moving bag near the deck is tracked from just before the side
 camera's contact time with the same colour and motion test (blobs with ≥ 15 % moving pixels; a bag at rest
@@ -947,6 +964,75 @@ angles are corrected for camera roll, measured from the board's level back edge.
 | Follow-through | the same, 0.15 s after release | shown only |
 | Release offset | release hand's sideways distance from the centre line (ray ∩ release plane) | 0.03 m |
 | Stance offset / width | ankle rays ∩ floor (7 cm ankle height), 1 s before release | shown only |
+| Hand path range | max − min of the hand-across series over the forward swing (below) | 0.05 shoulder widths |
+| Trunk lean change | trunk lean at release − median set-up lean (below) | 1.5° |
+
+All of these are **front view 2D (frontal plane image)** measures (every item carries `view`); none is a 3D angle.
+The throwing arm swings towards this camera (out of the image plane), so **no elbow or shoulder joint angle is
+computed from the front view**; only sideways positions and the trunk's in-image tilt are used.
+
+**Frontal-plane body over the throw** (`front_view.front_kinematics`, `two_view.json → front_kinematics`).
+*Definition.* Three time series, $t = (f - f_\text{release,front})/f_s$ from −1.4 s to +0.4 s, time 0 = the side
+camera's release frame mapped to the front clip (§5.1 sync, ±17.5 ms): (1) `wrist_across_sw`, the throwing wrist's
+sideways image position minus the throwing shoulder's, + towards the midline (the convention of the hand-across
+measure); (2) `trunk_lean_deg`, hip centre → shoulder centre against image vertical, + towards the throwing arm;
+(3) `hip_sway_sw`, the hip centre's sideways displacement from its set-up position, + towards the throwing arm.
+*Anatomical meaning.* (1) whether the hand path stays in the throw plane (pendulum) or crosses the body; (2) lateral
+trunk flexion / weight lean over the throwing side; (3) lateral weight shift of the pelvis.
+*Calculation.* Joints with confidence ≥ 0.3 are rotated by −roll (board back edge) and low-passed with the side
+pipeline's zero-phase 4th-order Butterworth at 6 Hz (§3.6, `filtering.lowpass_zero_phase`) on each finite run long
+enough to filter; shorter runs stay raw (counted in `filter.short_runs_left_raw`); gaps are never interpolated, so a
+frame without the joints is `null`. One ruler for the whole series: the median shoulder width in the set-up window
+−1.4 to −1.2 s (else over the window, `scale_source`); per-frame widths would mix trunk rotation into the positions
+(the projected shoulder width changes by ±15 % over the throw). Set-up = the median over that window: on all 92
+library throws the hips are still there (per-athlete SD ≤ 0.01 shoulder widths at −1.4 s) and the side camera's
+motion start is later on most throws (median −0.97 s). *Units* s, shoulder widths (≈ 0.4 m; 30–38 px in this
+collection), degrees. *Sign*: the image is mirrored (thrower's right = image left); a left-hander's mirrored throw
+gives identical signed values (test). The values at time 0 agree with the release measures (hand across: within-athlete
+means 0.125/0.029/−0.461/−0.111 vs 0.124/0.021/−0.422/−0.132; trunk lean within 0.1°); they differ slightly
+because of the set-up ruler and the filter.
+
+*Swing measures* (in `frontal`, to the athlete rows as `front_hand_path_range_sw`, `front_trunk_lean_change_deg`):
+- `hand_path_range_sw` — max − min of `wrist_across_sw` from the forward-swing start to release. The forward swing
+  starts at the side camera's `peak_backswing` mapped with `two_view.side_to_front_frame` (all 92 throws; −0.27 to
+  −0.60 s), else 0.5 s before release; `forward_swing_source` says which. Needs the wrist in ≥ 80 % of those frames
+  (a range over fewer frames under-reads). When > 20 % of them have wrist confidence < 0.5 the value is `estimated`:
+  behind the body the model still places the wrist on the hip line at confidence 0.35–0.45 (Player 3), while a
+  visible wrist scores 0.6–0.85.
+- `trunk_lean_change_deg` — trunk lean at release minus the set-up lean.
+
+*Reliability evidence* (92 cached front-camera throws, 4 right-handed athletes with 20–28 throws each; pooled
+within-athlete SD vs SD of the athlete means; ICC(1,1), one-way; kept when ICC ≥ 0.75, "good" in Koo & Li 2016,
+J Chiropr Med 15:155–163):
+
+| Candidate | Within-athlete SD | Between-athlete SD | ICC | Decision |
+|---|---|---|---|---|
+| Hand path range (peak-backswing start) | 0.146 sw (0.042 without Player 3) | 0.437 sw | 0.89 | kept |
+| — same, only throws not flagged estimated | 0.078 sw | 0.314 sw | 0.83 | |
+| — same, fixed 0.5 s start (comparison) | 0.134 sw | 0.442 sw | 0.91 | |
+| Trunk lean change set-up → release | 1.5° | 2.7° | 0.77 (0.80 without Player 3) | kept |
+| Hip sway set-up → release | 0.066 sw (≈ 2.6 cm) | 0.093 sw | 0.66 | **dropped** |
+| (reference) hand across at release | 0.045 sw | 0.237 sw | 0.96 | existing |
+| (reference) trunk lean at release | 1.0° | 3.2° | 0.90 | existing |
+
+Athlete means (SD): hand path range 0.23 (0.05), 0.08 (0.03), 1.02 (0.30, mostly `estimated`), 0.14 (0.05) sw;
+trunk lean change 11.7 (1.4), 6.6 (1.8), 5.9 (1.5), 6.6 (1.5)°. The hand-path range separates athletes mainly through
+Player 3, whose hand comes from behind the body (clearly-seen frames only: 0.54 ± 0.12 sw, still far above the
+others); between the other three it is moderate (ICC 0.74). **Hip sway at release is dropped as a scalar**: its
+within-athlete spread is two thirds of the between-athlete spread and of the order of the errors it carries (the
+front camera's sideways drift, median 0.3 px and 90th percentile 1 px ≈ 0.03 sw over the window, not corrected;
+the forward step changes the image scale by ~5–7 %). It stays in the time series for viewing. Its peak
+|sway| over −1.2…0 s was more reproducible (ICC 0.85) but was not a pre-specified candidate; it is left for when
+more throws per athlete exist. The noise floors in the table above are the within-athlete SDs of the clearly seen
+throws (an upper bound on measurement noise).
+
+*Limitations.* 2D image measures in the frontal plane: trunk rotation, the forward step and the arm moving towards
+the camera all project into them; the athlete is ~8 m away (shoulders 30–38 px), so 1 px ≈ 0.03 sw. The front
+camera runs at 30 fps (one frame = 33 ms); the release mapping is ±1 front frame. Four athletes only, all
+right-handed (the left-handed path is checked on mirrored synthetic data). *Relevance to cornhole.* A hand path that
+crosses the body or a trunk that leans more at release than at set-up are candidate sources of left/right misses
+(§5.5 attributes misses to release position and aim); they are athlete-level associations under the evidence gate,
+not per-throw causes, and are not used in the coach sentence.
 
 ### 5.3 Combined result: where it ended and why
 
@@ -980,19 +1066,15 @@ knocked bag, corners not suspect) is recorded as the throw's outcome with the no
 *"Recorded automatically…"*; it never replaces a result someone entered. When a re-analysis is no longer
 confident, an earlier automatic result is removed, so the throw shows as needing a result.
 
-**The coach sentence** (outcome first; associations, never "because"):
-- in the hole → no correction;
-- within 3 in both ways (the hole radius) → "close";
-- otherwise `N in short/long` with the release speed, and `N in left/right` with the aim when
-  $|\psi| \ge 0.3°$. The hand across the body (≥ 0.25 shoulder widths, ≈ 2× its noise) or a stance
-  ≥ 15 cm off the centre line is named **only when it points the same way as the miss** (across the body
-  sends the bag toward the non-throwing side). Trunk side lean is a steady personal trait for most
-  athletes (≈ 10° on every Player 1 throw), so it is compared across throws on the athlete summary, not
-  named per throw.
+**The coach sentence** is built from the miss attribution (§5.5): the result, the signed miss in whole inches, the
+largest named part and, only outside the athlete's normal spread, one next-throw cue; a hole gets "In the hole.
+Nothing to change." Up to `two_view_v5` the sentence named the release speed, the heading and, when they pointed the
+same way as the miss, the hand across the body (≥ 0.25 shoulder widths) or a stance ≥ 15 cm off the centre line.
+Body measures are no longer named per throw (design council decision §4: they are athlete-level associations).
 
 **Athlete level.** `front_heading_deg`, `front_arm_across_body_sw`, `front_trunk_side_lean_deg` and
 `front_release_offset_m` join the scored-vs-miss and relationship analyses (§2.4) with the noise floors
-above, under the same evidence gate (≥ 5 throws per group, Cliff's δ ≥ 0.474, difference > noise).
+above, under the same evidence gate (≥ 5 throws per group, |δ| ≥ the Bonferroni critical δ and ≥ 0.474, difference > noise).
 
 **Limits.** The front camera sees the deck at a grazing angle, so along-board distance from it alone is
 coarse (that is why y comes from the side). A bag that lands far off the board, outside the front view, is
@@ -1002,7 +1084,7 @@ heard the same events; it is checked per throw but not against an external clock
 ### 5.4 3D flight from two views
 
 `flight3d.py` (`reconstruct_flight`, called from `two_view.analyze_two_view` after the landing and the heading;
-output `flight_3d` in two_view.json and `flight3d.json`). Method version `flight3d_v1`.
+output `flight_3d` in two_view.json and `flight3d.json`). Method version `flight3d_v2` (v2: the side camera's contact time is not shifted by the fitted timing offset δ, which maps front-frame times only; a fit whose δ or field of view sits within 5 % of its bound is reported as `estimated` with `fit.at_bound`).
 
 **Why.** Each camera sees the flight badly in one direction. The side camera measures the throw plane well (along
 the throw and height, metric through the board and the gravity-calibrated field of view, §1.7–§1.8) but not
@@ -1128,8 +1210,89 @@ the depth at which the front camera reads the lateral position (a 5 % depth erro
 Suspect front deck corners give no 3D flight (missing stays missing). Only red bags are found. The bag tumbles, so the
 blob centre is not its centre of mass (a few px at the end, where it is 40 px across). The field of view and timing are
 fitted per throw as nuisance parameters, so they cannot also validate the sync or the camera; they are reported for
-review, not used elsewhere. The lateral launch angle is a number for the athlete page and the replay; no coaching
-sentence uses it yet.
+review, not used elsewhere. The lateral launch angle and release position feed the miss attribution (§5.5) when the fit
+is accepted; otherwise the attribution falls back to the heading and the front pose's release hand.
+
+### 5.5 Miss attribution and the coach sentence
+
+`attribution.py` (`attribute`, called from `two_view.analyze_two_view` after the 3D flight; output `attribution` in
+two_view.json, and `explanation` built from it). Versions `attribution_v1`, `sentence_v2`. Thresholds and the noise
+propagation are in [METRICS.md](METRICS.md) ("Miss attribution"); the design is the coaching council's decision §4.
+
+**Left/right is an identity.** In the board's frame (inches, + = thrower's right) the bag's first contact sits at
+$x_c - 12 = X_0 + D\tan\psi$, with $X_0$ the sideways release position, $\psi$ the sideways launch direction and $D$ the
+horizontal distance from release to first contact ($D$ = release → board front + $y_c\cos 10.8°$). The slide then moves
+it to the rest, so
+
+$$\Delta x_\text{rest} = \underbrace{X_0}_\text{release position} + \underbrace{D\tan\psi}_\text{aim} + \underbrace{(x_\text{rest} - x_c)}_\text{slide drift} + r_x \tag{5.5.1}$$
+
+$X_0$ and $\psi$ come from the accepted 3D flight (§5.4), else from the front pose's release hand and the heading (§5.2);
+a heading without the release hand assumes a centre-line release and is not used. Through the heading the identity
+closes exactly (the heading is drawn through the contact); through the 3D flight $r_x$ is the flight's lateral contact
+against the front camera's measured one (SD 1.35 in, §5.4).
+
+**Short/long is measured from the hole and split against the athlete's usual** (inches, + = long):
+
+$$\Delta y_\text{rest} = \underbrace{(\tilde y_c - 39) + \tilde s}_\text{usual spot} + \underbrace{(y_c - \tilde y_c)}_\text{carry} + \underbrace{(s - \tilde s)}_\text{slide} + r_y,\qquad s = y_\text{rest} - y_c \tag{5.5.2}$$
+
+with $\tilde{\ }$ the median over the athlete's other analysed two-camera throws (≥ 8; else carry is $y_c - 39$ and slide is
+$s$). Both come from the same side board phase, so $r_y = 0$ by construction; the parts are what is informative.
+
+**Naming.** A part is named when $|p| \ge 2\sigma_p$, $|p| \ge 3$ in, $|p| \ge 0.4\,|\Delta|$ and $\operatorname{sign} p =
+\operatorname{sign}\Delta$ for its axis (miss ≥ 3 in), at most two over both axes. Release position and aim are tested as
+changes from the athlete's usual ($X_0 - \tilde X_0$; $D(\tan\psi - \tan\tilde\psi)$, the usual angle at this throw's
+distance); with no usual the aim is tested as $X_0 + D\tan\psi$ (where the launch line met the deck against the hole's
+line) and the release position not at all. Noise $\sigma_p$: release position 1.2 in, aim $D\tan 0.5°$ (≈ 2.4 in),
+slide drift 1 in, carry and slide 2 in each.
+
+**Drivers.** Release speed against the usual is named only next to a named carry, at $|\Delta v| \ge 0.15$ m/s and with
+its sign; its size in carry is $\Delta v \cdot \partial s/\partial v$, where $s$ is the drag-free first contact along
+the 10.8° deck for this throw's own release speed, angle, height and release distance (`attribution.carry_sensitivity`,
+central differences of `zones.landing`). At the pilot median release (5.68 m, 1.00 m, 40.6°, 7.49 m/s) this is
+≈ 1.33 m per m/s; the flat-ground $2R/v \approx 1.8$ used before overstated it by about 35 %. When an input is missing,
+1.3 m per m/s is used. The release angle is not named for carry: near 37–45° one degree moves first contact only about
+±2 cm, but at flatter releases (24–32°) it is 5–7 cm per degree, so its implied carry is shown from the same per-throw
+sensitivity. The usual excludes throws analysed with another method version (manifest `method_version`). Launch direction is named only next to a named aim, at
+$|\Delta\psi| \ge 0.5°$ with its sign.
+
+**Explanation in four parts (attribution_v2).** Besides the one sentence, each throw gets four separate statements
+(`attribution.explanation`): *observed* (where it stopped, first contact against the usual spot or the hole, the slide),
+*measured evidence* (named parts; release speed, angle and launch direction that differ from the usual by more than
+their noise floor, with the drag-free carry each implies on its own; front-camera body measures at release that differ
+by ≥ 2× their noise: hand across the body 0.15 shoulder widths, trunk side lean 6°), *possible explanation* (only
+where geometry or the drag-free flight ties a measured difference to the miss: a launch line → lateral contact; a
+release-speed change → carry; otherwise it says the measured release does not account for it) and *to review* (what
+to look at, tied to that evidence). `phase` separates a miss made in the flight (release position, aim, carry) from
+one made after landing (the slide). Front-view body differences are evidence only, never a named part: no per-throw
+model links them to where the bag went. The comparison baseline is the athlete's other throws of the same method
+version; without a usual group the statement says so.
+
+**Bandwidth gate.** The athlete's usual centre and spread are the median and the robust SD ($1.4826 \times$ MAD) of where
+their other throws stopped (holes at 0, 0; ≥ 8 located throws). A miss within 1 SD of the centre on both axes names
+nothing and gets "Normal spread: keep the same throw." A cue is given only when the sentence's axis is outside the
+spread (or when there is no usual yet): aim → "aim about N in further left/right", carry → "a touch harder/softer",
+release position → "release from your usual spot". A named slide gets no cue: no per-throw release value explains it
+(the angle → slide link is an athlete-level association no athlete passes yet, council §4), and moving the aim point
+after one odd slide only adds variance (Deming's funnel).
+
+**Sentence v2.** `[Result]: [N in short/long], [N in left/right]. [Largest named part]. [Cue].` Whole inches, whole
+degrees, 0.1 m/s; never "because", "caused", "fault" or "should" (a test runs the builder over 1,800 synthetic cases).
+Example: "Board: 9 in short, 8 in right. Most of the short came from the carry (it landed 11 in shorter than usual,
+about 0.4 m/s slower release). Next: throw a touch harder."
+
+**Results on the 92-throw library** (11 Oct 2026, recomputed from the stored two-camera outputs; 18 holes, 38 board,
+36 off). Tier: 10 within the normal spread, 17 physics (a named speed or launch-direction change next to the part), 65
+geometry (18 of them holes). Parts named: carry 24, slide drift 15, aim 13, slide 13, release position 2; release speed
+named on 13 throws and launch direction on 12; no named part disagrees in sign with the miss. The sentence speaks about
+the carry on 20 throws, the slide on 10, the sideways slide on 6, aim on 6 and the release point on 1; 27 throws get a
+cue (12 "softer", 8 "harder", 6 aim, 1 release spot). 17 off-board bags are `partial` (rest not placed). X0 and ψ came from
+the 3D flight on 60 throws and from the heading on 6. Left/right residual (3D flight vs the measured contact): median
+|0.8| in, 90th pct 2.3 in, max 2.9 in (48 throws with every part measured).
+
+**Limits.** The usual comes from ~20 throws per athlete and mixes sessions; it moves as throws are added. A named part
+is geometry (where the bag went), not a cause; speed is the only release value linked to it, through the drag-free
+model. Off-board bags the cameras could not place get the result and, when the launch direction is ≥ 1° off the
+athlete's usual line, that direction only. Body measures are not part of the per-throw attribution.
 
 ---
 

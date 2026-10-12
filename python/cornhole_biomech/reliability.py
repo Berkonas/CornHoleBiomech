@@ -23,7 +23,7 @@ Statuses: reliable · caution (shown with a note) · unreliable (value withheld:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -49,6 +49,7 @@ class CoachMetric:
     source: str = "body"              # body · bag · derived
     modifiable: bool = True
     exploratory: bool = False
+    tier: str = "advanced"            # METRIC_TIERS below
 
 
 S = "{side}"
@@ -108,6 +109,20 @@ COACH_METRICS: tuple[CoachMetric, ...] = (
                 ("left_shoulder", "right_shoulder", "left_hip", "right_hip"),
                 (("left_hip", "left_shoulder"), ("right_hip", "right_shoulder")), at_release=True, noise_floor=5.0),
 )
+# How the coach should use each metric (METRICS.md "Metric review", 2026-10-12, from the 92-throw library):
+# "per_throw" — usable on ≥ 90 % of throws and its throw-to-throw spread is ≥ 1.4× its noise floor, so one throw's
+#               difference from usual can be resolved;
+# "profile"   — usable, but it varies about as much as (or less than) its noise from throw to throw: it describes how
+#               this athlete throws (between-athlete differences are real), not why one throw differed;
+# "advanced"  — usable on < 80 % of throws (foreshortened arm, release-frame sensitivity) or exploratory.
+METRIC_TIERS = {
+    "bag_release_speed_m_s": "per_throw", "bag_release_angle_deg": "per_throw", "bag_release_height_m": "per_throw",
+    "bag_release_position_forward_arm_lengths": "per_throw", "swing_forward_duration_s": "per_throw",
+    "swing_tempo_ratio": "per_throw",
+    "wrist_peak_speed_arm_lengths_s": "profile", "wrist_peak_speed_time_rel_release_ms": "profile",
+    "swing_backswing_angle_deg": "profile", "trunk_inclination_deg_at_release": "profile",
+}
+COACH_METRICS = tuple(replace(m, tier=METRIC_TIERS.get(m.key, "advanced")) for m in COACH_METRICS)
 BY_KEY = {m.key: m for m in COACH_METRICS}
 # Summaries that must never be shown to coaches: 2D segment directions are undefined when
 # the segment points at the camera, so their ranges and velocities can be absurd.
@@ -139,7 +154,7 @@ def assess_metrics(values: dict[str, float | None], raw: np.ndarray, confidence:
         frame = event_frames.get(metric.event) if metric.event else None
         row: dict[str, Any] = {"label": metric.label, "unit": metric.unit, "group": metric.group,
                                "definition": metric.definition, "event": metric.event, "frame": frame,
-                               "noise_floor": metric.noise_floor, "exploratory": metric.exploratory,
+                               "noise_floor": metric.noise_floor, "exploratory": metric.exploratory, "tier": metric.tier,
                                "status": "not_measured", "reasons": [], "value": None}
         if value is None or not math.isfinite(value):
             row["reasons"].append("Not measured for this throw.")

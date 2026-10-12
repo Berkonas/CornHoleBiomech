@@ -187,3 +187,13 @@ def test_analyze_relationships_rows_carry_chain_states(tmp_path):
                                    "release_to_board_front_m": "measured"}
     assert result["chain_analysis"]["speed_angle_tradeoff"]["value_states"] == {
         "measured": 3, "estimated": 3, "unknown": 0}
+
+
+def test_outcome_link_below_the_noise_floor_is_not_a_difference():
+    """Perfect separation (δ = 1) of release speed by 0.05 m/s, under its 0.15 m/s floor: not reported."""
+    n = 10
+    speed = [7.50 + 0.001 * i for i in range(n)] + [7.45 + 0.001 * i for i in range(n)]
+    rows = rows_from(speed, [40.0] * 2 * n, [1.0] * 2 * n, score=[3] * n + [0] * n)
+    link = next(l for l in ca.outcome_links(rows) if l["variable"] == "chain_release_speed_m_s")
+    assert abs(link["cliffs_delta"]) == 1.0 and link["below_noise_floor"] and not link["distinguishes"]
+    assert "chain_elbow_peak_extension_velocity_deg_s" not in ca.OUTCOME_VARIABLES

@@ -163,7 +163,7 @@ def test_path_straightness_and_curvature_are_descriptive():
 
 
 def test_projected_translation_decomposition_and_radius():
-    frames = 12
+    frames = 20
     landmarks = tuple(REQUIRED_LANDMARKS)
     lookup = {name: index for index, name in enumerate(landmarks)}
     coords = np.zeros((frames, len(landmarks), 2), dtype=float)

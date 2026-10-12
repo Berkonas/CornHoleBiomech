@@ -27,6 +27,8 @@ Method (side camera, board located by `board.py`):
 6. Slide kinematics by finite differences / least squares on the along-deck position:
    distance, duration, entry speed, deceleration a, and an effective sliding friction
    coefficient for a bag sliding UP the slope (angle alpha):  a = g (sin alpha + mu cos alpha).
+   The fit starts 0.03 s after touchdown and mu is withheld when its standard error exceeds 0.10
+   or a <= g sin alpha (see `slide_kinematics`).
 
 Lateral position: from a side camera the deck's across direction runs nearly along the
 optical axis, so a few pixels of height move u by several inches. The bag's centre sits
@@ -51,7 +53,7 @@ from .bag import GRAVITY_M_S2
 from .bag_segment import _local_align, _warp_to
 from .regulation import INCH_M
 
-BOARD_PHASE_REVISION = "board_phase_v3_deck_footprint_touchdown"
+BOARD_PHASE_REVISION = "board_phase_v4_settled_slide_fit"
 HOLE_U_IN, HOLE_V_IN, HOLE_RADIUS_IN = 12.0, 39.0, 3.0
 BAG_HALF_IN = 3.0
 # A bag whose centre vanishes within the hole radius + half a bag (along the deck) fell in.
@@ -61,6 +63,15 @@ STOP_BAND_IN = 1.0             # along-deck range allowed while "stopped"
 VANISH_S = 0.12                # absent this long = gone
 DRAIN_AREA_DROP = 0.35         # visible area falling by this fraction before vanishing = tipping into the hole
 MIN_SLIDE_FOR_FRICTION_IN = 4.0
+# Slide fit (CALCULATION_AUDIT.md §B3). On the 55 measured pilot slides the touchdown sample and the next
+# one sat off the later slide (along-deck residual RMS 0.35 in with them, 0.16 in without): the touchdown
+# sample can be the last airborne frame (±1 frame, see TOUCHDOWN_FALL_BAG_LENGTHS) and the landing bag
+# flattens, so its centre maps backward along the deck. 16 of the 17 negative mu came from those two samples.
+SLIDE_SETTLE_S = 0.03          # = 2 frames at 59.94 fps, 4 at 120 fps
+# mu is reported only when its fit standard error is at most this (95 % CI about +-0.2, half the
+# 0.3-0.7 spread of plausible bag-on-board friction). Short plain-deck windows (5-7 samples, ~0.1 s) with
+# ~0.15 in position noise give SE(mu) 0.2-2 -- the source of the negative and > 1.5 values.
+MAX_MU_SE = 0.10
 LATERAL_UNRELIABLE_IN = 0.5    # inches across per pixel above which u is only approximate
 BAG_CENTRE_HEIGHT_IN = 0.6     # a resting/sliding bag's centre above the deck (about half its thickness)
 DECK_TOLERANCE_M = 0.07        # bag half-thickness + plane-mapping noise
@@ -184,13 +195,18 @@ def slide_kinematics(times_s: np.ndarray, along_in: np.ndarray, deck_angle_rad: 
 
     Up the slope the bag decelerates by gravity's along-slope part plus kinetic friction:
     a = g (sin alpha + mu cos alpha)  =>  mu = (a / g - sin alpha) / cos alpha.
-    Returned in SI units; values are unavailable (None, with a reason) when the slide is too short.
+    `times_s` are seconds from touchdown. Samples in the first `SLIDE_SETTLE_S` after touchdown are
+    left out: the touchdown sample can be the last airborne frame and the landing bag flattens, so its
+    centre maps backward along the deck (CALCULATION_AUDIT.md §B3). The fit's standard errors give
+    SE(mu) = SE(a) / (g cos alpha); mu and a are withheld (None, with a reason, the raw fit kept in
+    `fit`) when a <= g sin alpha (mu < 0: not a friction slide) or SE(mu) > `MAX_MU_SE`.
+    Returned in SI units; entry speed is the fitted speed at t = 0 (touchdown).
     """
     out: dict[str, Any] = {"entry_speed_m_s": None, "deceleration_m_s2": None, "mu_effective": None,
-                           "fit_rmse_in": None, "state": "unavailable", "reason": None}
+                           "mu_se": None, "fit_rmse_in": None, "fit": None, "state": "unavailable", "reason": None}
     t = np.asarray(times_s, float)
     s = np.asarray(along_in, float) * INCH_M
-    ok = np.isfinite(t) & np.isfinite(s)
+    ok = np.isfinite(t) & np.isfinite(s) & (t >= SLIDE_SETTLE_S - 1e-9)
     t, s = t[ok], s[ok]
     distance_in = float((s[-1] - s[0]) / INCH_M) if len(s) >= 2 else 0.0
     if len(t) < 5 or abs(distance_in) < MIN_SLIDE_FOR_FRICTION_IN:
@@ -198,18 +214,32 @@ def slide_kinematics(times_s: np.ndarray, along_in: np.ndarray, deck_angle_rad: 
         if len(t) >= 3 and t[-1] > t[0]:
             out["entry_speed_m_s"] = float((s[min(2, len(s) - 1)] - s[0]) / (t[min(2, len(t) - 1)] - t[0]))
         return out
-    t0 = t - t[0]
-    A = np.column_stack([np.ones_like(t0), t0, -0.5 * t0 ** 2])
+    # Time origin at touchdown: v0 is the slide's speed extrapolated back to touchdown (over at most
+    # SLIDE_SETTLE_S with the fitted deceleration), so it keeps meaning "speed along the board at touchdown".
+    A = np.column_stack([np.ones_like(t), t, -0.5 * t ** 2])
     coef, *_ = np.linalg.lstsq(A, s, rcond=None)
     residual = s - A @ coef
     v0, a = float(coef[1]), float(coef[2])
-    out.update(entry_speed_m_s=v0, deceleration_m_s2=a, fit_rmse_in=float(np.sqrt(np.mean(residual ** 2)) / INCH_M))
-    if v0 <= 0 or a <= 0:
-        out["reason"] = "The slide did not decelerate steadily up the deck (bounce or tumble)."
+    se_a = None
+    if len(t) > 3:
+        cov = float(np.sum(residual ** 2) / (len(t) - 3)) * np.linalg.inv(A.T @ A)
+        se_a = math.sqrt(max(float(cov[2, 2]), 0.0))
+    se_mu = None if se_a is None else se_a / (GRAVITY_M_S2 * math.cos(deck_angle_rad))
+    out.update(entry_speed_m_s=v0, fit_rmse_in=float(np.sqrt(np.mean(residual ** 2)) / INCH_M), mu_se=se_mu,
+               fit={"deceleration_m_s2": a, "deceleration_se_m_s2": se_a, "samples": int(len(t)),
+                    "from_s": float(t[0]), "to_s": float(t[-1])})
+    if v0 <= 0 or a <= GRAVITY_M_S2 * math.sin(deck_angle_rad):
+        out["reason"] = ("The slide did not decelerate steadily up the deck (bounce, tumble or tracking); a slower "
+                         "slow-down than gravity alone gives (g sin α) is not a friction slide.")
         return out
     mu = (a / GRAVITY_M_S2 - math.sin(deck_angle_rad)) / math.cos(deck_angle_rad)
-    out.update(mu_effective=float(mu), state="estimated",
-               reason="Effective kinetic friction for a bag sliding up the deck, from a constant-deceleration fit.")
+    if se_mu is None or se_mu > MAX_MU_SE:
+        out["reason"] = (f"Friction not resolved: the slide on the plain deck is too short or noisy "
+                         f"(standard error of μ {'unknown' if se_mu is None else f'{se_mu:.2f}'} > {MAX_MU_SE:.2f}).")
+        return out
+    out.update(deceleration_m_s2=a, mu_effective=float(mu), state="estimated",
+               reason=f"Effective kinetic friction for a bag sliding up the deck, from a constant-deceleration fit "
+                      f"(± {se_mu:.2f} SE).")
     return out
 
 

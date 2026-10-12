@@ -26,11 +26,17 @@ struct ThrowReplayView: View {
     var front: FrontReplaySource? = nil
     /// Scale, release height, board distance and board phase: the animation is then drawn to scale with the board.
     var stage: ReplayStage? = nil
+    /// Two-camera throws: the top view drawn under the side view in the Animation (council §5).
+    var plan: TopDownScene? = nil
+    /// Where the Animation pauses (release, first contact, rest) and the callout at each pause.
+    var story: ReplayStory? = nil
+    /// File name offered when the animation is exported as a figure.
+    var figureName = "replay"
     @State private var player: AVPlayer
     @State private var frontPlayer: AVPlayer
     @State private var timeObserver: Any?
     @State private var playing = false
-    @State private var rate: Float = 0.5
+    @State private var rate: Float = 1
     @State private var mode: Mode
     @State private var figureBounds: CGRect?
     @State private var scene: SideScene?
@@ -38,14 +44,18 @@ struct ThrowReplayView: View {
     @AppStorage("replayShowSkeleton") private var showSkeleton = true
     @AppStorage("replayShowModel") private var showModel = true
     @AppStorage("replayShowTrail") private var showTrail = true
+    @AppStorage("replayAutoPause") private var autoPause = true
 
     init(videoURL: URL?, replay: ReplayDocument, pose: PoseDocument?, throwingSide: ThrowingSide,
          currentFrame: Binding<Int>, seekRequest: Binding<Int?>, mode: Mode = .video, front: FrontReplaySource? = nil,
-         stage: ReplayStage? = nil) {
+         stage: ReplayStage? = nil, plan: TopDownScene? = nil, story: ReplayStory? = nil, figureName: String = "replay") {
         self.videoURL = videoURL; self.replay = replay; self.pose = pose; self.throwingSide = throwingSide
         _currentFrame = currentFrame; _seekRequest = seekRequest
         self.front = front
         self.stage = stage
+        self.plan = plan
+        self.story = story
+        self.figureName = figureName
         _player = State(initialValue: videoURL.map { AVPlayer(url: $0) } ?? AVPlayer())
         _frontPlayer = State(initialValue: front.map { AVPlayer(url: $0.url) } ?? AVPlayer())
         _mode = State(initialValue: videoURL == nil ? .animation : (front != nil && mode == .video ? .both : mode))
@@ -57,6 +67,13 @@ struct ThrowReplayView: View {
 
     /// Front-clip frame showing the same instant as side frame `frame`.
     private func frontFrame(_ frame: Int) -> Int? { front?.document.frontFrame(forSide: frame) }
+    /// The front frame on screen: while playing, the front player's own frame (the two players may be a frame apart
+    /// between corrections, and the overlay must match the picture it is drawn on); when paused, the seeked frame.
+    private func shownFrontFrame(_ front: FrontReplaySource) -> Int? {
+        guard playing, mode != .animation else { return frontFrame(currentFrame) }
+        return FrameClock.frame(at: frontPlayer.currentTime().seconds, fps: front.document.frontFPS, count: Int.max)
+            ?? frontFrame(displayedFrame)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
@@ -80,12 +97,16 @@ struct ThrowReplayView: View {
                 } else if mode == .front, let front {
                     frontVideo(front)
                         .aspectRatio(CGFloat(front.document.frontWidth / max(front.document.frontHeight, 1)), contentMode: .fit)
+                } else if showsPanels {
+                    // Side panel above the top panel: taller than the video.
+                    sideVideo.aspectRatio(1.45, contentMode: .fit)
                 } else {
                     sideVideo
                         .aspectRatio(CGFloat(replay.width) / CGFloat(max(replay.height, 1)), contentMode: .fit)
                 }
             }
-            .frame(maxHeight: 520)
+            .frame(maxHeight: showsPanels ? 640 : 520)
+            if mode == .animation, scene != nil { calloutRow }
             timeline
             controls
         }
@@ -105,9 +126,14 @@ struct ThrowReplayView: View {
         .task(id: mode == .animation && playing) {
             // Animation playback runs on its own clock, at the chosen rate.
             guard mode == .animation, playing else { return }
+            // Auto-pause at release, first contact and rest (council §5), only in the to-scale animation.
+            let stops = autoPause && scene != nil ? (story?.frames ?? []) : []
             while !Task.isCancelled {
                 guard let clock else { return }
                 let frame = clock.frame + Int((Date().timeIntervalSince(clock.start) * replay.fps * Double(rate)).rounded())
+                if let stop = stops.first(where: { $0 > clock.frame && $0 <= frame }) {
+                    currentFrame = stop; playing = false; self.clock = nil; return
+                }
                 if frame >= replay.frame_count - 1 { currentFrame = replay.frame_count - 1; playing = false; return }
                 currentFrame = frame
                 try? await Task.sleep(for: .milliseconds(16))
@@ -127,8 +153,8 @@ struct ThrowReplayView: View {
                 }
                 TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
                     if mode == .animation, let scene {
-                        SideViewReplay(scene: scene, replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
-                                       showModel: showModel, showTrail: showTrail)
+                        SyncedThrowPanels(scene: scene, replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
+                                          plan: plan, showModel: showModel, showTrail: showTrail)
                     } else if mode == .animation {
                         StickFigureReplay(replay: replay, pose: pose, side: throwingSide, frame: displayedFrame,
                                           bounds: figureBounds ?? CGRect(x: 0, y: 0, width: replay.width, height: replay.height),
@@ -157,7 +183,8 @@ struct ThrowReplayView: View {
                 Color.black
                 NativeVideoPlayer(player: frontPlayer, showsControls: false)
                 TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
-                    FrontReplayOverlay(document: front.document, frontFrame: frontFrame(displayedFrame) ?? 0, size: geometry.size)
+                    FrontReplayOverlay(document: front.document, frontFrame: shownFrontFrame(front) ?? 0, size: geometry.size,
+                                       seenFrames: front.seenFrames, pose: front.pose, showsSkeleton: showSkeleton)
                 }.allowsHitTesting(false)
                 viewLabel("Front camera (behind the board)")
             }
@@ -179,6 +206,7 @@ struct ThrowReplayView: View {
             Toggle("Skeleton", isOn: $showSkeleton).disabled(mode == .animation)
             Toggle("Drag-free model", isOn: $showModel)
             Toggle("Full bag path", isOn: $showTrail)
+            Toggle("Pause at release, contact and rest", isOn: $autoPause).disabled(story == nil)
         } label: {
             Label("Show", systemImage: "eye")
         }
@@ -248,10 +276,15 @@ struct ThrowReplayView: View {
             Button { step(1) } label: { Image(systemName: "forward.frame.fill") }.help("Next frame")
                 .accessibilityLabel("Next frame")
             Picker("Speed", selection: $rate) {
-                Text("¼×").tag(Float(0.25)); Text("½×").tag(Float(0.5)); Text("1×").tag(Float(1))
-            }.pickerStyle(.segmented).frame(width: 130).labelsHidden()
+                Text("¼×").tag(Float(0.25)); Text("1×").tag(Float(1))
+            }.pickerStyle(.segmented).frame(width: 96).labelsHidden()
+            .help("Real time or a quarter speed")
             Text("Frame \(currentFrame) · \(relativeTime(currentFrame))").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Spacer()
+            if mode == .animation, scene != nil {
+                Button("Export Figure…", systemImage: "square.and.arrow.down", action: exportFigure)
+                    .help("Save the side and top panels at this frame as a PNG figure")
+            }
         }
         .onChange(of: rate) { _, value in
             if playing && mode != .animation { player.rate = value; if front != nil { frontPlayer.rate = value } }
@@ -259,10 +292,41 @@ struct ThrowReplayView: View {
         }
     }
 
+    /// The to-scale animation (side panel, plus the top panel for two-camera throws).
+    private var showsPanels: Bool { mode == .animation && scene != nil && plan != nil }
+
+    /// Under the animation: the callout of the pause the replay is on, else what the lines mean.
+    private var calloutRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            if !playing, let stop = story?.stop(at: currentFrame) {
+                Circle().fill(eventColor(stop.key)).frame(width: 9, height: 9)
+                Text(stop.title).font(.callout.weight(.semibold))
+                Text(stop.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(plan == nil
+                     ? "Solid: measured flight · dotted: not tracked (a drag-free arc joins the gap) · dashed: drag-free model (reference)."
+                     : "Side: solid measured, dotted not tracked, dashed drag-free model. Top: the measured launch direction as a straight line, the dashed line to the hole, the shaded angle between them; faint marks are this athlete's usual.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 22)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func exportFigure() {
+        guard let scene else { return }
+        let panels = SyncedThrowPanels(scene: scene, replay: replay, pose: pose, side: throwingSide, frame: currentFrame,
+                                       plan: plan, showModel: showModel, showTrail: showTrail, still: true)
+            .padding(12)
+        FigureExport.savePNG(panels, size: CGSize(width: 1400, height: plan == nil ? 760 : 1000),
+                             suggestedName: "\(figureName) frame \(currentFrame)")
+    }
+
     // MARK: playback
     private var displayedFrame: Int {
         guard playing, mode != .animation else { return currentFrame }
-        return min(max(0, Int((player.currentTime().seconds * replay.fps).rounded())), replay.frame_count - 1)
+        return FrameClock.frame(at: player.currentTime().seconds, fps: replay.fps, count: replay.frame_count) ?? 0
     }
     private var currentEventKey: String? {
         replay.orderedEvents.min { abs($0.event.frame - currentFrame) < abs($1.event.frame - currentFrame) }
@@ -278,14 +342,14 @@ struct ThrowReplayView: View {
         pause()
         currentFrame = min(max(0, frame), replay.frame_count - 1)
         if videoURL != nil {
-            player.seek(to: CMTime(seconds: Double(currentFrame) / replay.fps, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+            player.seek(to: FrameClock.time(of: currentFrame, fps: replay.fps), toleranceBefore: .zero, toleranceAfter: .zero)
         }
         seekFront(currentFrame)
     }
     /// Put the front clip on the same instant as side frame `frame`.
     private func seekFront(_ frame: Int) {
         guard let front, let target = frontFrame(frame) else { return }
-        frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+        frontPlayer.seek(to: FrameClock.time(of: target, fps: front.document.frontFPS),
                          toleranceBefore: .zero, toleranceAfter: .zero)
     }
     private func step(_ amount: Int) { seek(to: currentFrame + amount) }
@@ -305,13 +369,13 @@ struct ThrowReplayView: View {
         let fps = replay.fps, last = replay.frame_count - 1
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
             guard playing, mode != .animation else { return }
-            currentFrame = min(max(0, Int((time.seconds * fps).rounded())), last)
+            if let frame = FrameClock.frame(at: time.seconds, fps: fps, count: last + 1) { currentFrame = frame }
             if currentFrame >= last { playing = false; frontPlayer.pause() }
             // Keep the front clip on the side clip's clock (two players drift apart slowly).
             if let front, let target = frontFrame(currentFrame) {
-                let frontNow = frontPlayer.currentTime().seconds * front.document.frontFPS
-                if abs(frontNow - Double(target)) > 2 {
-                    frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+                let frontNow = FrameClock.frame(at: frontPlayer.currentTime().seconds, fps: front.document.frontFPS, count: Int.max)
+                if frontNow.map({ abs($0 - target) > 1 }) ?? true {
+                    frontPlayer.seek(to: FrameClock.time(of: target, fps: front.document.frontFPS),
                                      toleranceBefore: .zero, toleranceAfter: .zero)
                 }
             }

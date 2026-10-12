@@ -15,7 +15,7 @@ For 2D vectors, define `A(u,v) = atan2(|ux vy − uy vx|, u·v) × 180/π`. Zero
 | **2D projected elbow included angle** | How straight the throwing elbow appears; shoulder S, elbow E, wrist W | `A(S−E,W−E)`, degrees, 0–180; **180 is straight** | Whole waveform, movement summary, release candidate | Smaller angle means more flexed in this view. Not 3D flexion or axial rotation. | Signed elbow flexion F uses different offset/sign. Included angle = `180 − abs(wrap180(F))`. Synthetic tests cover 0°,45°,90°,135°,180° and both signs. |
 | **Upper-arm orientation** | Throwing shoulder-to-elbow direction | `atan2(Sy−Ey, signX*(Ex−Sx))`, degrees | Waveform, mean, ROM, velocity | Segment direction relative to target-forward horizontal, not shoulder internal/external rotation. | Sports2D arm uses E−S and an image-y correction; equal only with matching left/right, floor and facing settings. Recompute from pixels for authority. |
 | **Forearm orientation** | Elbow-to-wrist direction | `atan2(Ey−Wy, signX*(Wx−Ex))`, degrees | Waveform, mean, ROM, velocity | Not pronation or supination. | Same caveat as upper arm. |
-| **Arm relative to trunk** | Arm direction against trunk axis; upper arm and midpoint hip→shoulder | `A(E−S,midS−midH)` in analysis axes, degrees | Waveform, mean, ROM, release | Unsigned projected angle; does not isolate shoulder articulation from projection errors. | Upstream shoulder flexion is signed and uses a reversed upper-arm vector; not interchangeable. |
+| **Arm relative to trunk** | Arm direction against trunk axis; upper arm and midpoint hip→shoulder | `180 − ψ`, ψ = signed angle from the trunk's downward axis (midH−midS) to the upper arm (E−S), + toward the target, wrapped into (−125°, 235°]; degrees (METHODS Eq. 3.4.8) | Waveform, mean, ROM, release | Projected angle, continuous through the trunk line: 180 = arm along the trunk, < 180 in front, > 180 behind (backswing). Before method 2026.10.11 it was the unsigned angle, which folded at 180 and under-read ROM by 11–65° (CALCULATION_AUDIT §A3); release values are unchanged. Does not isolate shoulder articulation from projection errors. | Upstream shoulder flexion is signed and uses a reversed upper-arm vector; not interchangeable. |
 | **Trunk inclination** | How far the trunk leans toward the target | `atan2(trunkX,trunkY)`, degrees; positive toward target | Waveform, mean, ROM, release | Depends on camera roll and bilateral landmark visibility. Not a lumbar joint angle. | Upstream Trunk is measured from horizontal; no direct comparison without axis/offset audit. Recompute from midpoint landmarks. |
 | **Normalized wrist path** | Wrist movement relative to shoulder, scaled to body size | `[signX*(Wx−Sx), Sy−Wy]/Larm`, arm lengths | Whole normalized cycle and marked events | Removes image translation/uniform scale; not perspective or limb-proportion effects. | Generic pixel TRC exists; normalization is ours. |
 | **Normalized elbow path** | Elbow movement relative to shoulder | Same equation using E, arm lengths | Whole cycle | Useful for aligned skeleton. Same projection limits. | Generic pixel TRC; normalization is ours. |
@@ -32,7 +32,7 @@ For 2D vectors, define `A(u,v) = atan2(|ux vy − uy vx|, u·v) × 180/π`. Zero
 | Movement duration | `(endFrame − startFrame)/fps`, seconds | Effective automatic/manual bounds; no sub-frame precision |
 | Normalized time | `τ=(frame−start)/(end−start)`, 0–1 | Default 101 samples; interpolation only between adjacent finite supports, preserving long missing gaps |
 | Motion start | Last frame with shoulder-relative wrist speed below `max(0.05, 0.12×peak)` arm lengths/s before the fastest rearward wrist movement in the 1 s before peak backswing (fallback: first sustained moving frame) | Start of the throwing swing; walking in, aiming and practice swings before it are excluded. Candidate; review against video |
-| Motion end | Last frame of sustained (≥ 0.05 s) wrist speed above that threshold | Candidate; can include lowering the arm or walking away after the throw |
+| Motion end | Last frame of sustained (≥ 0.05 s) wrist speed above that threshold (every frame of the run counts; was 1 frame early before 2026.10.11) | Candidate; can include lowering the arm or walking away after the throw |
 | Peak backswing | Minimum target-axis wrist position before release candidate (top of the backswing) | A wrist-path event, not a muscle activation event |
 | Forward swing | Frame following backswing, bounded by release | Coarse heuristic onset; manually correct when necessary |
 | Release candidate | Peak target-axis wrist velocity after backswing | **Not observed bag–hand separation.** Review and manually label actual visible release when possible. Uncertainty at least a frame interval and larger with blur/occlusion. |
@@ -55,7 +55,7 @@ A reference may be one selected throw or a set. The pointwise mean represents th
 | Wrist / elbow path RMSE | `sqrt(mean(||ptrial−preference||²))` | arm lengths; Euclidean path discrepancy |
 | Largest movement difference | Maximum absolute angle error or Euclidean point error at a normalized sample | degrees or arm lengths, with cycle percentage and phase; ranked after division by pilot tolerance |
 
-For segment orientation and trunk inclination, signed error is wrapped into `[-180°,180°)`. The elbow included angle and unsigned arm/trunk angle use ordinary subtraction. The largest-difference UI uses **pointwise** error; the error table uses **whole-cycle** errors.
+For segment orientation and trunk inclination, signed error is wrapped into `[-180°,180°)`. The elbow included angle and the arm/trunk angle use ordinary subtraction. The largest-difference UI uses **pointwise** error; the error table uses **whole-cycle** errors.
 
 A 0–100 "Reference Similarity" composite was removed on 22 September 2026. Its tolerances (15°, 10°, 0.25 arm lengths, 0.10 cycle) and weights (1.0/0.75) had no empirical basis, and the single number hid which component differed. The raw errors above are reported instead. Resemblance to a reference is not skill, correct form, accuracy or safety.
 
@@ -152,15 +152,23 @@ thrower's frame: + = thrower's right. Noise floors are the smallest differences 
 | `front_arm_across_body_sw` | Throwing wrist sideways from the throwing shoulder at release, + towards the midline | shoulder widths | 0.15 | 2D landmark noise ~4 px over a ~60–80 px shoulder width |
 | `front_trunk_side_lean_deg` | Hip centre → shoulder centre vs vertical (roll-corrected), + towards the throwing arm | ° | 6 | same landmark noise over a ~120 px trunk, plus ±1° roll |
 | `front_release_offset_m` | Release hand's sideways distance from the board centre line | m | 0.03 | ray through the wrist at the side camera's release distance; ±2.5° field of view |
+| `front_hand_path_range_sw` | Sideways range of the throwing wrist (relative to the throwing shoulder) from the side camera's peak backswing (mapped; else 0.5 s before release) to release; front view 2D (frontal plane image). `estimated` when > 20 % of those frames have the wrist hidden (confidence < 0.5) | shoulder widths | 0.05 | within-athlete SD 0.04 on clearly seen throws; ICC 0.89 over 92 throws (§5.2) |
+| `front_trunk_lean_change_deg` | Trunk side lean at release minus the median set-up lean (−1.4 to −1.2 s), + towards the throwing arm; front view 2D | ° | 1.5 | within-athlete SD 1.5°, between-athlete 2.7°, ICC 0.77 (§5.2) |
 | `left_right_in`, `short_long_in` | Signed miss at rest from the hole centre | in | 0.5 / side-camera board phase | deck homography resolution at mid-deck |
 
-The coach sentence names the hand across the body only at ≥ 0.25 shoulder widths (≈ 2× its noise) and a stance only
-when ≥ 15 cm off the centre line, and only when either points the same way as the miss. Lateral "on line" is
-within 3 in (the hole radius).
+`front_kinematics` in two_view.json holds the frontal time series (−1.4 to +0.4 s, time 0 = release): `wrist_across_sw`,
+`trunk_lean_deg`, `hip_sway_sw` (hip centre from set-up, + towards the throwing arm); missing frames are `null`.
+Hip sway at release was tested as a scalar and dropped (ICC 0.66, mostly noise; §5.2). No elbow or shoulder joint
+angles come from the front camera: the arm swings towards it.
+
+Lateral "on line" is within 3 in (the hole radius). Since `two_view_v6_attribution` the coach sentence no longer names
+frontal body measures per throw (hand across the body, stance, trunk lean); it is built from the miss attribution
+below. The body measures stay in the athlete-level analyses under the evidence gate.
 
 **3D flight** (`flight_3d` in two_view.json, `flight3d.json`; method: [METHODS_AND_MATH.md §5.4](METHODS_AND_MATH.md)).
-Per throw only (not yet in the athlete analyses or the coach sentence); `measured` when both the side scale and the front
-camera are measured, else `estimated`; `unavailable` with a reason otherwise.
+Per throw only (not yet in the athlete analyses); the release position and launch angle feed the miss attribution below.
+`measured` when both the side scale and the front camera are measured, else `estimated`; `unavailable` with a reason
+otherwise.
 
 | Key | Meaning | Unit | Agreement on the library (72 throws) |
 |---|---|---|---|
@@ -169,3 +177,104 @@ camera are measured, else `estimated`; `unavailable` with a reason otherwise.
 | `lateral_launch_angle_deg` | atan2(sideways, along-the-throw velocity) at release, + right | ° | median 0.34° from `front_heading_deg` (90th pct 0.79°) |
 | `landing.predicted_x_in` | Sideways landing at first contact, board inches (12 = centre line) | in | flight alone vs the front camera's measured contact: 86 % within 2 in, SD 1.35 in |
 | `path_m` | 60 Hz samples of (t, x along from release, y sideways, z height) | s, m | for the replay animation |
+
+## Miss attribution (two-camera takes)
+
+`attribution` in two_view.json (`attribution.py`, version `attribution_v1`; method: [METHODS_AND_MATH.md §5.5](METHODS_AND_MATH.md)).
+It splits the miss at rest into measured parts that add up to it, names a part only when it clearly stands above
+its noise, and feeds the coach sentence (`explanation`, `sentence_v2`). Inches, degrees, m/s; + = thrower's right
+and long. Any number may be null (missing stays missing, never 0).
+
+**Parts.** Left/right: `release_position` (X0) + `aim` (D·tan ψ) + `slide_drift` (x_rest − x_contact) + `residual_in`.
+Short/long: `usual_spot` (the athlete's usual first contact + usual slide, from the hole) + `carry` (first contact
+vs usual) + `slide` (slide vs usual) + `residual_in`; with no usual, carry is first contact vs the hole and slide is
+the slide itself (`reference: "hole"`). X0 and ψ come from the accepted 3D flight (`flight_3d`), else from the front
+pose's release hand and `heading` (`source` says which); a heading without the release hand assumes a centre-line
+release and is not used.
+
+**Noise per part** (`noise_in`) — what one throw's value can be off by, propagated from the noise floors above:
+
+| Part / driver | Noise | Propagation and basis |
+|---|---|---|
+| Release position | 0.03 m ≈ 1.2 in | `front_release_offset_m` floor (ray through the hand at the side camera's release distance, ±2.5° field of view); the 3D flight's X0 sits a median 1 cm from the hand |
+| Aim | D·tan 0.5° ≈ 2.2–2.6 in at D = 6.5–7.6 m | `front_heading_deg` floor 0.5°; the 3D launch angle agrees with the heading to a median 0.34° (90th pct 0.79°). Brief §0: ≈ 15 cm sideways per degree at the full carry |
+| Aim vs the hole (no usual) | √(aim² + release position²) | the launch line's crossing of the deck combines both |
+| Slide drift | 1 in | two deck-homography x positions, ±0.5 in each (√2 × 0.5 ≈ 0.7 in, rounded up for the bag centre's wobble) |
+| Carry, slide | 2 in each | side board phase along the deck (METHODS §1.9: about 1 in per sample; council §4: ±2 in). Both are differences from the athlete's median by the same method, so a steady mapping offset (two along-deck mappings differ by a median ≈ 3 in) cancels |
+| Release speed | 0.15 m/s | `bag_release_speed_m_s` floor (`reliability.py`). Per-throw ∂(deck contact)/∂v ≈ 1.33 m per m/s at the pilot median release, so the floor alone is ≈ 8 in of carry (`implied_in`, `attribution.carry_sensitivity`) |
+| Release angle | 3° | `bag_release_angle_deg` floor. ∂R/∂θ ≈ 0.03 m/° near 40–45° (brief §0): 3° ≈ 3.5 in, under twice the carry's noise, so the angle is **never** named for carry |
+| Launch direction | 0.5° | as aim |
+
+**Naming rule** (`named`; `test_in` is the value tested, `basis` what it is measured against). A part is named when
+all hold: |part| ≥ 2 × its noise (a difference twice the noise floor is unlikely to be noise alone); |part| ≥ 3 in
+(the hole radius: a smaller part could not by itself have turned a hole into a miss); |part| ≥ 40 % of that axis's
+miss (`share`; "Most of the …" from 60 %, "About half of the …" from 40 %); the same sign as the miss; the axis's
+miss ≥ 3 in. At most **two** parts are named over both axes (one cue at a time, council §4). Release position and aim
+are tested by their change from the athlete's usual when one exists (`basis: "usual"`; an athlete who always releases
+8 in right aims back left every throw); the release position is never named without a usual (council §7: release
+offset is not a cause, ρ ≈ 0 with the miss). The usual spot is never named.
+
+**Drivers** (`drivers`: value, usual, delta, noise, `implied_in`, `named`). Release speed is named only next to a named
+carry measured against the usual, at |Δv| ≥ 0.15 m/s and the same sign as the carry; release angle never; launch
+direction only next to a named aim against the usual, at |Δψ| ≥ 0.5° and the same sign.
+
+**Usual and bandwidth gate** (`usual`, `within_usual_spread`, `inside_spread`). The usual is the median over the same
+athlete's other analysed two-camera throws (the throw itself excluded), from ≥ 8 values (council §3: no SD from small
+groups; 8 as for Spearman ρ above); otherwise the usual fields are null and there is no gate. The spread is a robust
+SD, 1.4826 × the median absolute deviation, of where those throws stopped (holes count as 0, 0), so one bag that slid
+3 ft off the board does not widen the "normal spread". A miss within 1 SD of the athlete's usual centre on **both**
+axes names nothing and gets no cue (`tier: "within_spread"`, "Normal spread: keep the same throw." — bandwidth
+feedback, council §1). A next-throw cue is given only when the sentence's axis is outside the spread (or there is no
+usual yet). Release position and launch direction usuals use only throws measured the same way (3D flight or heading).
+
+**Sentence v2** (`explanation.sentence`, `cue`, `tier`; the keys `sentence`, `kind`, `parts` are unchanged):
+`[Result]: [N in short/long], [N in left/right]. [Largest named part]. [Next-throw cue].` Whole inches, whole degrees,
+speed differences to 0.1 m/s. The sentence speaks about the largest named part on an axis outside the spread. Cues:
+aim → "Next: aim about N in further left/right."; carry → "Next: throw a touch harder/softer."; release position →
+"Next: release from your usual spot."; slide (along or sideways) → none (no per-throw release value explains it, and
+moving the aim point after one odd slide only adds variance). A hole: "In the hole. Nothing to change." Never
+"because", "caused", "fault", "should" (tested on 1,800 synthetic cases). `tier`: `within_spread`; `physics` when the
+named part has a named driver (speed with carry, launch direction with aim); otherwise `geometry`.
+
+**Status.** `measured`; `estimated` when the rest, contact, launch direction or release speed used is estimated;
+`partial` when the rest is known in one direction or none (an off-board bag the cameras could not place), with
+`reasons`; `unavailable` when there is no hole / board / off result.
+
+## Metric review (2026-10-12)
+
+Which coach metrics carry information a coach can act on, measured on the 92-throw library (4 athletes, cached
+results; no re-analysis). *Usable* = share of throws with a value that is not withheld. *SD within* = root-mean-square
+of each athlete's throw-to-throw SD; *SD between* = SD of the athletes' means; *ICC* ≈ between² / (between² + within²),
+a rough share of the variation that is athlete-to-athlete (4 athletes: treat as indicative only). *Within / noise* ≥ 1
+means one throw's difference from usual can exceed what the measurement resolves.
+
+| Metric | Usable | SD within | SD between | Noise floor | ICC | Within / noise | Use |
+|---|---|---|---|---|---|---|---|
+| Release speed (m/s) | 96 % | 0.32 | 0.04 | 0.15 | 0.01 | 2.1 | per throw |
+| Release angle (°) | 97 % | 4.3 | 3.4 | 3.0 | 0.38 | 1.4 | per throw |
+| Release height (m) | 96 % (46 % caution) | 0.09 | 0.06 | 0.03 | 0.31 | 2.9 | per throw |
+| Release point (arm lengths) | 97 % | 0.11 | 0.13 | 0.05 | 0.59 | 2.1 | per throw |
+| Forward swing time (s) | 97 % | 0.050 | 0.065 | 0.035 | 0.62 | 1.4 | per throw |
+| Tempo (back ÷ forward) | 93 % | 0.31 | 0.27 | 0.15 | 0.42 | 2.1 | per throw |
+| Peak wrist speed (arm lengths/s) | 85 % | 0.43 | 0.74 | 0.3 | 0.75 | 1.4 | athlete profile |
+| Peak wrist speed timing (ms) | 83 % | 20 | 23 | 35 | 0.59 | 0.6 | athlete profile |
+| Backswing (°) | 100 % | 4.3 | 20.3 | 5 | 0.96 | 0.9 | athlete profile |
+| Trunk lean at release (°) | 97 % | 2.4 | 7.2 | 5 | 0.90 | 0.5 | athlete profile |
+| Elbow angle at release (°) | 67 % | 2.4 | 4.5 | 10 | 0.77 | 0.2 | advanced |
+| Arm angle at release (°) | 68 % | 6.7 | 6.7 | 5 | 0.50 | 1.3 | advanced |
+| Hand direction at release (°) | 68 % | 6.8 | 8.9 | 5 | 0.64 | 1.4 | advanced |
+| Wrist speed at release (arm lengths/s) | 68 % | 0.53 | 1.05 | 0.3 | 0.80 | 1.8 | advanced |
+| Peak elbow extension speed (°/s) | 70 % | 29 | 54 | 150 | 0.78 | 0.2 | advanced (exploratory) |
+| Elbow extension timing (ms) | 68 % | 114 | 98 | 50 | 0.42 | 2.3 | advanced (exploratory) |
+
+Decisions:
+- **Per throw** (`reliability.METRIC_TIERS`): the release values, release point, forward swing time and tempo. These
+  can differ from the athlete's usual by more than their noise on a single throw, and the release values connect to the
+  bag's flight through the drag-free model (§5.5).
+- **Athlete profile**: backswing, trunk lean, peak wrist speed and its timing describe *how this athlete throws*
+  (large between-athlete differences, ICC 0.6–0.96) but barely change from throw to throw, so they are not used to
+  explain a single miss. Release speed is the reverse: almost all of its variation is within athletes (ICC ≈ 0).
+- **Advanced**: elbow and arm angles at release are withheld on about a third of throws (foreshortened arm, release-frame
+  sensitivity), and the elbow angle varies far less than its 10° noise floor, so it left the headline body tiles
+  (replaced by forward swing time) and stays in *All measurements*.
+- No composite "technique score" is computed: none of these has been validated against an outcome on this sample.

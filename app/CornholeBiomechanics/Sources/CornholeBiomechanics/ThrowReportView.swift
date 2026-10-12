@@ -69,6 +69,11 @@ struct ThrowReportData {
     /// Two-camera takes: the front camera's analysis (two_view.json) and its clip.
     var twoView: TwoViewDocument?
     var frontVideoURL: URL?
+    /// Front frames where the bag was found on the 3D path (flight3d.json), for the front-video overlay.
+    var seenFrames: Set<Int>?
+    var frontPose: PoseDocument?
+    /// This athlete's two-camera throws (launch direction, slide, rest) for the strips and the board ghost.
+    var twoViewHistory: [TwoViewHistoryEntry] = []
 
     // Derived once per load by `derive()`, never per replay frame.
     var timeline = EventTimeline(fps: 30, frames: [:])
@@ -196,6 +201,9 @@ struct LaunchFitSummary: Equatable {
 /// What the page can ask its host to do.
 struct ThrowReportActions {
     var canEdit = true
+    /// Recording In / On / Off only rewrites project.json and outcome.json, so it stays open while the queue runs
+    /// (the analysis re-reads the outcome when it finishes).
+    var canRecordResult = true
     var setScore: (ScoreCategory?) -> Void = { _ in }
     var reanalyze: () -> Void = {}
     /// Rebuild insights.json (verdict, consistency) from the saved results; no pose re-run.
@@ -205,6 +213,11 @@ struct ThrowReportActions {
     var locateVideo: () -> Void = {}
     var export: () -> Void = {}
     var openReport: () -> Void = {}
+    /// Two-camera throws: "Take 3 · Bag 2 of 4", back to the take, and the take's previous / next bag (nil = none).
+    var takeLabel: String? = nil
+    var openTake: (() -> Void)? = nil
+    var previousBag: (() -> Void)? = nil
+    var nextBag: (() -> Void)? = nil
 }
 
 // MARK: - Report (connected to the library)
@@ -315,8 +328,8 @@ struct ThrowReportView: View {
     private var actions: ThrowReportActions {
         ThrowReportActions(
             canEdit: !busy,
+            canRecordResult: true,
             setScore: { score in
-                guard !analysis.isRunning else { return }
                 do { try store.setScore(score, for: trial) } catch { store.errorMessage = error.localizedDescription }
             },
             reanalyze: reanalyze,
@@ -325,7 +338,22 @@ struct ThrowReportView: View {
             trim: { if !analysis.isRunning { sheet = .trim } },
             locateVideo: { store.locateAndRelinkVideo(for: trial) },
             export: { store.exportAnalysis(for: trial) },
-            openReport: { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } })
+            openReport: { if let url = store.analysisURL(for: trial)?.appendingPathComponent("report.html") { NSWorkspace.shared.open(url) } },
+            takeLabel: takeNeighbours.label,
+            openTake: trial.takeKey.map { key in { store.destination = .take(key) } },
+            previousBag: takeNeighbours.previous.map { id in { store.destination = .throwReport(id) } },
+            nextBag: takeNeighbours.next.map { id in { store.destination = .throwReport(id) } })
+    }
+
+    /// This bag's place in its take and the bags before and after it (same take record, ordered by place in the take).
+    private var takeNeighbours: (label: String?, previous: UUID?, next: UUID?) {
+        guard let key = trial.takeKey, let trials = store.project?.trials else { return (nil, nil, nil) }
+        let bags = trials.filter { $0.takeKey == key }
+            .sorted { ($0.throwInTake ?? Int.max, $0.createdAt) < ($1.throwInTake ?? Int.max, $1.createdAt) }
+        guard let index = bags.firstIndex(where: { $0.id == trial.id }) else { return (nil, nil, nil) }
+        let take = trial.takeNumber.map { "Take \($0) · " } ?? ""
+        return ("\(take)Bag \(index + 1) of \(bags.count)",
+                index > 0 ? bags[index - 1].id : nil, index + 1 < bags.count ? bags[index + 1].id : nil)
     }
 
     /// Metric key → values on this athlete's other throws.
@@ -359,6 +387,10 @@ struct ThrowReportView: View {
         if !Task.isCancelled { history = values; report.history = historyByMetric() }
         let releases = await MeasuredRelease.load(athleteID: trial.athleteID, store: store)
         if !Task.isCancelled { report.athleteReleases = releases }
+        if trial.isTwoCamera {
+            let entries = await AthleteTwoViewHistory.entries(athleteID: trial.athleteID, store: store)
+            if !Task.isCancelled { report.twoViewHistory = entries }
+        }
     }
 
     /// Show the saved results at once; re-run the insights step (moved from the old Results page) only when
@@ -432,6 +464,11 @@ struct ThrowReportView: View {
         next.staleReason = Self.staleReason(url.appendingPathComponent("needs_reanalysis.json"))
         next.boardPhase = BoardPhase.load(results: resultsURL)
         next.twoView = TwoViewDocument.load(url)
+        next.seenFrames = Flight3DFile.seenFrames(url)
+        if let data = try? Data(contentsOf: url.appendingPathComponent("front_pose_raw.json")) {
+            next.frontPose = try? JSONDecoder().decode(PoseDocument.self, from: data)
+        }
+        next.twoViewHistory = report.twoViewHistory
         if let front = trial.frontVideoRelativePath.flatMap(store.url(for:)), FileManager.default.fileExists(atPath: front.path) {
             next.frontVideoURL = front
         }
@@ -475,7 +512,7 @@ struct ThrowReportContent: View {
     @Binding var currentFrame: Int
     @Binding var seekRequest: Int?
     var actions = ThrowReportActions()
-    /// Scientific details start closed (spec §3.6); visual review opens them.
+    /// Details start closed (council §1); visual review opens them.
     @State var showsDetails = false
 
     /// The eight headline numbers (spec §1.3): three release, five body.
@@ -483,7 +520,9 @@ struct ThrowReportContent: View {
         ("bag_release_speed_m_s", "Release speed", "m/s"), ("bag_release_angle_deg", "Release angle", "°"),
         ("bag_release_height_m", "Release height", "m")]
     static let bodyKeys: [(key: String, label: String, unit: String)] = [
-        ("elbow_angle_deg_at_release", "Elbow angle at release", "°"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°"),
+        // Elbow angle at release left the headline (METRICS.md "Metric review"): it varies 2.4° from throw to throw
+        // against a 10° noise floor and is usable on 67 % of throws; it stays under All measurements.
+        ("swing_forward_duration_s", "Forward swing time", "s"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°"),
         ("wrist_peak_speed_arm_lengths_s", "Peak wrist speed", "arm lengths/s"), ("swing_backswing_angle_deg", "Backswing", "°"),
         ("swing_tempo_ratio", "Tempo", "back ÷ forward")]
     static var headlineKeys: [(key: String, label: String, unit: String)] { releaseKeys + bodyKeys }
@@ -509,28 +548,16 @@ struct ThrowReportContent: View {
                     staleBanner(reason)
                     replayCard
                 } else {
-                    VerdictCard(verdict: data.insight?.verdict,
-                                frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
-                                refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
-                                canRefresh: actions.canEdit && !loading)
-                    if let twoView = data.twoView {
-                        TwoViewCard(document: twoView, phase: data.boardPhase, recorded: trial.outcome?.scoreCategory,
-                                    releaseToBoardM: (data.results?.summaries["release_to_board_front_m"] ?? nil),
-                                    currentFrame: currentFrame, canEdit: actions.canEdit,
-                                    accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+                    // Council §1: result and sentence → board from above → miss breakdown → release vs usual →
+                    // replay; everything else under Details (collapsed).
+                    summaryBlock
+                    boardBlock
+                    if let attribution = data.twoView?.attribution, data.twoView?.isMeasured == true, !attribution.isHole {
+                        MissBreakdownCard(attribution: attribution)
                     }
+                    releaseBlock
                     replayCard
-                    if let phase = data.boardPhase {
-                        WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canEdit,
-                                         accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
-                    }
-                    keyNumbers
-                    ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
-                    if let zone = data.personalZone {
-                        PersonalZoneCard(zone: zone, releases: data.athleteReleases, highlight: trial.id,
-                                         distanceNote: data.distanceNote, lateralNote: data.lateralNote)
-                    }
-                    scientificDetails
+                    detailsSection
                 }
             }
         }
@@ -591,6 +618,21 @@ struct ThrowReportContent: View {
     private var header: some View {
         HStack(alignment: .top, spacing: Space.l) {
             VStack(alignment: .leading, spacing: Space.xs) {
+                if let label = actions.takeLabel {
+                    HStack(spacing: Space.xs) {
+                        if let open = actions.openTake {
+                            Button(action: open) { Label("Take", systemImage: "chevron.backward") }
+                                .buttonStyle(.link).help("Back to this take's four bags")
+                        }
+                        Button { actions.previousBag?() } label: { Image(systemName: "chevron.left") }
+                            .buttonStyle(.borderless).disabled(actions.previousBag == nil)
+                            .help("Previous bag in this take").accessibilityLabel("Previous bag")
+                        Text(label).font(.callout.weight(.semibold)).foregroundStyle(.secondary).monospacedDigit()
+                        Button { actions.nextBag?() } label: { Image(systemName: "chevron.right") }
+                            .buttonStyle(.borderless).disabled(actions.nextBag == nil)
+                            .help("Next bag in this take").accessibilityLabel("Next bag")
+                    }
+                }
                 Text(trial.displayName).font(.largeTitle.weight(.bold)).lineLimit(1)
                 Text(subtitle).font(.title3).foregroundStyle(.secondary)
             }
@@ -604,7 +646,7 @@ struct ThrowReportContent: View {
                     Text("None").tag(ScoreCategory?.none)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
-                .disabled(!actions.canEdit)
+                .disabled(!actions.canRecordResult)
                 .help("Record where this bag ended up; one click saves")
             }
         }
@@ -639,14 +681,109 @@ struct ThrowReportContent: View {
         }
     }
 
+    // MARK: Blocks 1–4
+
+    /// The side camera's verdict (the summary for side-only throws; under Details for two-camera throws).
+    private var verdictCard: some View {
+        VerdictCard(verdict: data.insight?.verdict,
+                    frameFor: { data.coach?.coach_metrics[$0]?.frame }, seek: { seekRequest = $0 },
+                    refresh: data.coach?.coach_metrics.isEmpty == false ? actions.refreshSummary : nil,
+                    canRefresh: actions.canEdit && !loading)
+    }
+
+    /// 1. The result chip and one sentence.
+    @ViewBuilder private var summaryBlock: some View {
+        if let twoView = data.twoView {
+            ThrowSummaryCard(document: twoView, recorded: trial.outcome?.scoreCategory, canEdit: actions.canRecordResult,
+                             accept: { actions.setScore($0) })
+        } else {
+            verdictCard
+        }
+    }
+
+    /// The throw from above (two-camera throws with a measured landing), shared by the board hero and the replay.
+    private var planScene: TopDownScene? {
+        guard let twoView = data.twoView else { return nil }
+        let others = data.twoViewHistory.filter { $0.id != trial.id }.compactMap(\.rest)
+        return TopDownScene(document: twoView, phase: data.boardPhase,
+                            releaseToBoardM: data.results?.summaries["release_to_board_front_m"] ?? nil,
+                            releaseFrame: data.replay?.events["release"]?.frame, others: others)
+    }
+
+    /// 2. The board from above as the hero; the side camera's board view for side-only throws.
+    @ViewBuilder private var boardBlock: some View {
+        if let plan = planScene {
+            BoardHeroCard(scene: plan, figureName: "\(trial.displayName) board")
+        } else if let phase = data.boardPhase {
+            WhereItEndedCard(phase: phase, recorded: trial.outcome?.scoreCategory, canEdit: actions.canRecordResult,
+                             accept: { actions.setScore($0) }, seek: { seekRequest = $0 })
+        } else if data.twoView?.isMeasured == true {
+            Card("Where it ended", symbol: "flag.checkered") {
+                Label("Where the bag landed and stopped was not measured on this throw.", systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// 4. Release vs the athlete's usual: speed, angle, launch direction and slide on personal range strips
+    /// (two-camera throws); the release tiles against the athlete's history for side-only throws.
+    @ViewBuilder private var releaseBlock: some View {
+        if let twoView = data.twoView, twoView.isMeasured {
+            ReleaseVsUsualCard(rows: ReleaseVsUsualCard.rows(attribution: twoView.attribution, document: twoView,
+                                                             speedHistory: data.history["bag_release_speed_m_s"] ?? [],
+                                                             angleHistory: data.history["bag_release_angle_deg"] ?? [],
+                                                             others: data.twoViewHistory.filter { $0.id != trial.id },
+                                                             speed: data.value("bag_release_speed_m_s"),
+                                                             angle: data.value("bag_release_angle_deg")),
+                               usualThrows: twoView.attribution?.usual?.throwCount)
+        } else {
+            Card("Release vs your usual", symbol: "arrow.up.right", subtitle: "How the bag left the hand, among this athlete's other throws.") {
+                tiles(Array(Self.releaseKeys.prefix(2)), group: "Release")
+                Text(releaseCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    // MARK: Details
+
+    /// Everything that supports the five blocks, collapsed by default (council §1 "Details").
+    private var detailsSection: some View {
+        DisclosureGroup(isExpanded: $showsDetails) {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                if let twoView = data.twoView {
+                    verdictCard
+                    TwoViewDetailsCard(document: twoView)
+                }
+                keyNumbers
+                if let slide = data.boardPhase?.slide, slide.distance_in != nil || slide.entry_speed_m_s != nil {
+                    Card { SlideDetails(slide: slide) }
+                }
+                ReportPlots(data: data, currentFrame: $currentFrame, seekRequest: $seekRequest)
+                if let zone = data.personalZone {
+                    PersonalZoneCard(zone: zone, releases: data.athleteReleases, highlight: trial.id,
+                                     distanceNote: data.distanceNote, lateralNote: data.lateralNote)
+                }
+                scientificDetails
+            }
+            .padding(.top, Space.m)
+        } label: {
+            Label("Details", systemImage: "list.bullet.rectangle").font(.title2.weight(.semibold))
+        }
+    }
+
     // MARK: Replay
 
     private var replayCard: some View {
         Card("Replay", symbol: "play.rectangle") {
             if let replay = data.replay {
+                let plan = planScene
                 ThrowReplayView(videoURL: videoAvailable ? videoURL : nil, replay: replay, pose: data.pose, throwingSide: trial.throwingSide,
                                 currentFrame: $currentFrame, seekRequest: $seekRequest,
-                                front: frontSource, stage: replayStage)
+                                front: frontSource, stage: replayStage, plan: plan,
+                                story: ReplayStory.make(replay: replay, phase: data.boardPhase,
+                                                        document: data.twoView?.isMeasured == true ? data.twoView : nil, plan: plan,
+                                                        speed: data.value("bag_release_speed_m_s"), angle: data.value("bag_release_angle_deg")),
+                                figureName: "\(trial.displayName) replay")
                     .id(trial.id)
                 if let note = replay.model_note {
                     Text("Dashed line: drag-free model fitted to the measured flight, shown as a reference only. \(note)")
@@ -671,7 +808,7 @@ struct ThrowReportContent: View {
     /// The front clip for the replay, when this throw came from a synchronised two-camera take.
     private var frontSource: FrontReplaySource? {
         guard let url = data.frontVideoURL, let document = data.twoView, document.side_to_front_frames?.isEmpty == false else { return nil }
-        return FrontReplaySource(url: url, document: document)
+        return FrontReplaySource(url: url, document: document, seenFrames: data.seenFrames, pose: data.frontPose)
     }
 
     // MARK: Key numbers
@@ -732,27 +869,23 @@ struct ThrowReportContent: View {
     // MARK: Scientific details
 
     private var scientificDetails: some View {
-        Card {
-            DisclosureGroup(isExpanded: $showsDetails) {
-                VStack(alignment: .leading, spacing: Space.xl) {
-                    metricsTable
-                    qualitySection
-                    launchSection
-                    warningsSection
-                    provenanceSection
-                    HStack {
-                        Button("Export Package…", systemImage: "square.and.arrow.up", action: actions.export).disabled(!actions.canEdit)
-                        Button("Open Local Report", action: actions.openReport)
-                        if let url = data.analysisURL {
-                            Button("Inspect Saved Settings") { NSWorkspace.shared.open(url.appendingPathComponent("manifest.json")) }
-                        }
-                        Spacer()
-                        Text("Projected 2D measurements from one side-view camera.").font(.caption).foregroundStyle(.secondary)
+        Card("Scientific details", symbol: "flask") {
+            VStack(alignment: .leading, spacing: Space.xl) {
+                metricsTable
+                qualitySection
+                launchSection
+                warningsSection
+                provenanceSection
+                HStack {
+                    Button("Export Package…", systemImage: "square.and.arrow.up", action: actions.export).disabled(!actions.canEdit)
+                    Button("Open Local Report", action: actions.openReport)
+                    if let url = data.analysisURL {
+                        Button("Inspect Saved Settings") { NSWorkspace.shared.open(url.appendingPathComponent("manifest.json")) }
                     }
+                    Spacer()
+                    Text(trial.isTwoCamera ? "Release and body: projected 2D from the side camera; left/right from the front camera."
+                         : "Projected 2D measurements from one side-view camera.").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.top, Space.m)
-            } label: {
-                Label("Scientific details", systemImage: "flask").font(.title2.weight(.semibold))
             }
         }
     }
@@ -776,6 +909,10 @@ struct ThrowReportContent: View {
                     TableColumn("Uncertainty") { row in
                         Text(uncertainty(row).map { "± \(number($0.value, digits: $0.value >= 10 ? 0 : $0.value < 1 ? 2 : 1)) (\($0.kind == .standardError ? "SE" : "noise"))" } ?? "—")
                             .monospacedDigit().foregroundStyle(.secondary)
+                    }.width(min: 90, ideal: 110)
+                    TableColumn("Use") { row in
+                        Text(row.tierText).foregroundStyle(row.tier == "advanced" ? .secondary : .primary)
+                            .help("Per throw: one throw's change can be resolved. Athlete profile: describes how this athlete throws; it varies less than its noise from throw to throw. Advanced: often unavailable or exploratory.")
                     }.width(min: 90, ideal: 110)
                     TableColumn("Status") { row in
                         HStack(spacing: Space.xs) { ReliabilityGlyph(status: row.status); Text(row.statusText) }

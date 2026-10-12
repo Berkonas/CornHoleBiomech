@@ -41,10 +41,9 @@ def arm_angle_deg(shoulder: np.ndarray, wrist: np.ndarray, target_direction: str
     d = np.asarray(wrist, float) - np.asarray(shoulder, float)
     forward, down = sign * d[:, 0], d[:, 1]            # image y points down
     phi = np.degrees(np.arctan2(forward, down))
-    finite = np.isfinite(phi)
-    if finite.sum() > 1:
-        idx = np.flatnonzero(finite)
-        phi[idx] = np.degrees(np.unwrap(np.radians(phi[idx])))
+    from .filtering import _finite_runs
+    for first, last in _finite_runs(np.isfinite(phi)):      # never across a gap: a > 180° jump there is not a turn
+        phi[first:last] = np.degrees(np.unwrap(np.radians(phi[first:last])))
     return phi
 
 

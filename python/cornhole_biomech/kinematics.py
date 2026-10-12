@@ -5,15 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from .filtering import derivative, _finite_runs
+from .filtering import FILTERED_MIN_RUN, derivative, _finite_runs
 from .geometry import (
     robust_segment_length,
     signed_orientation_degrees,
     throw_centered_points,
-    unsigned_vector_angle_degrees,
     vector_angle_degrees,
 )
 
+
+# Branch cut of the signed shoulder flexion behind and above the shoulder (see calculate_kinematics).
+SHOULDER_FLEXION_CUT_DEG = -125.0
+SHOULDER_MIN_PROJECTED_SHARE = 0.35   # upper arm ≥ 69° out of the image plane (cos 69° ≈ 0.35): direction undefined
 
 ANGLE_FIELDS = (
     "elbow_angle_deg",
@@ -245,7 +248,10 @@ def calculate_kinematics(
     - elbow_angle_deg: unsigned shoulder-elbow-wrist planar angle, degrees.
     - upper_arm_orientation_deg: shoulder-to-elbow direction from +x, degrees.
     - forearm_orientation_deg: elbow-to-wrist direction from +x, degrees.
-    - arm_to_trunk_deg: unsigned upper-arm versus hip-to-shoulder angle, degrees.
+    - arm_to_trunk_deg: upper arm versus the hip-to-shoulder line, degrees, continuous through the
+      trunk line: 180 − signed shoulder flexion (flexion from the trunk's downward axis, + toward the
+      target, wrapped into (−125, 235]). 180 = arm along the trunk, < 180 in front of it, > 180
+      behind it; −55 … 305 overall.
     - trunk_inclination_deg: signed trunk displacement from image vertical,
       degrees; positive is toward the target after direction reflection.
     - wrist/elbow_path_arm_lengths: throwing-shoulder-relative position divided
@@ -292,7 +298,39 @@ def calculate_kinematics(
     elbow_angle = vector_angle_degrees(shoulder, elbow, wrist)
     upper_orientation = signed_orientation_degrees(arm_vec)
     forearm_orientation = signed_orientation_degrees(forearm_vec)
-    arm_to_trunk = unsigned_vector_angle_degrees(arm_vec, trunk_vec)
+    # Upper arm vs trunk, continuous through the trunk line: 180° − signed shoulder flexion, where
+    # flexion is the angle from the trunk's downward axis (shoulder → hip) to the upper arm, + toward
+    # the target. Equal to the unsigned upper-arm/trunk angle while the arm is in front of the trunk
+    # (every release); > 180° while it is behind (backswing). The unsigned angle folded at 180° as the
+    # arm swung past the trunk line (CALCULATION_AUDIT.md §A3): ROM 15–68° too small on 14 audited throws.
+    # Flexion is wrapped into (SHOULDER_FLEXION_CUT_DEG, SHOULDER_FLEXION_CUT_DEG + 360°] rather than
+    # unwrapped: the cut lies behind and above the shoulder, beyond both the deepest backswing (−67°)
+    # and the highest follow-through (+178°) seen, so a swing never crosses it, while an upper arm that
+    # briefly points at the camera (2D direction undefined) cannot add a spurious 360°.
+    down_trunk = -trunk_vec
+    flexion = np.degrees(np.arctan2(down_trunk[:, 0] * arm_vec[:, 1] - down_trunk[:, 1] * arm_vec[:, 0],
+                                    np.sum(down_trunk * arm_vec, axis=-1)))
+    flexion = SHOULDER_FLEXION_CUT_DEG + np.mod(flexion - SHOULDER_FLEXION_CUT_DEG, 360.0)
+    degenerate = ~(np.isfinite(flexion) & (np.linalg.norm(arm_vec, axis=-1) > 1e-12)
+                   & (np.linalg.norm(trunk_vec, axis=-1) > 1e-12))
+    flexion[degenerate] = np.nan
+    # Foreshortening gate: an upper arm projected shorter than SHOULDER_MIN_PROJECTED_SHARE of its own length
+    # points largely at or away from the camera, so its 2D direction is noise (a sweep across the cut read 360°
+    # of ROM and 10,800 °/s). Such frames are missing. The remaining frames are then made continuous: unwrapped
+    # within each finite run, and each later run shifted by whole turns to start within 180° of where the
+    # previous run ended, so a crossing of the cut (around a gap or not) never adds 360°.
+    projected = np.linalg.norm(arm_vec, axis=-1)
+    full = robust_segment_length(shoulder, elbow)
+    if np.isfinite(full) and full > 0:
+        flexion[projected < SHOULDER_MIN_PROJECTED_SHARE * full] = np.nan
+    previous = None
+    for first, last in _finite_runs(np.isfinite(flexion)):
+        run = np.degrees(np.unwrap(np.radians(flexion[first:last])))
+        if previous is not None:
+            run += 360.0 * np.round((previous - run[0]) / 360.0)
+        flexion[first:last] = run
+        previous = run[-1]
+    arm_to_trunk = 180.0 - flexion
     # Positive means the trunk top is displaced toward the target from the hips.
     trunk_inclination = np.degrees(np.arctan2(trunk_vec[:, 0], trunk_vec[:, 1]))
     trunk_inclination[~np.isfinite(trunk_vec).all(axis=-1)] = np.nan
@@ -337,7 +375,7 @@ def calculate_kinematics(
     for field in ANGLE_FIELDS:
         coverage = float(np.mean(np.isfinite(values[field])))
         if coverage >= minimum_velocity_coverage:
-            values[field.replace("_deg", "_velocity_deg_s")] = derivative(values[field], fps)
+            values[field.replace("_deg", "_velocity_deg_s")] = derivative(values[field], fps, FILTERED_MIN_RUN)
         else:
             values[field.replace("_deg", "_velocity_deg_s")] = np.full_like(values[field], np.nan)
             warnings.append(
@@ -351,7 +389,7 @@ def calculate_kinematics(
     }
     for name, source in velocity_sources.items():
         coverage = float(np.mean(np.isfinite(source).all(axis=-1)))
-        values[name] = derivative(source, fps) if coverage >= minimum_velocity_coverage else np.full_like(source, np.nan)
+        values[name] = derivative(source, fps, FILTERED_MIN_RUN) if coverage >= minimum_velocity_coverage else np.full_like(source, np.nan)
         if coverage < minimum_velocity_coverage:
             warnings.append(f"{name}: {coverage:.0%} finite coverage is below the velocity reporting threshold.")
     values["shoulder_velocity_arm_lengths_s"] = values["shoulder_velocity_px_s"] / arm_length
@@ -365,7 +403,7 @@ def calculate_kinematics(
             np.unwrap(np.radians(values["shoulder_wrist_orientation_deg"][first:last]))
         )
     values["shoulder_wrist_angular_velocity_deg_s"] = derivative(
-        values["shoulder_wrist_orientation_deg"], fps
+        values["shoulder_wrist_orientation_deg"], fps, FILTERED_MIN_RUN
     )
     if bag_coords is not None:
         bag = np.asarray(bag_coords, float)

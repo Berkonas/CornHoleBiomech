@@ -16,9 +16,12 @@ adds the front camera (front_view.py) and writes ``two_view.json`` next to ``res
 * ``frontal`` — frontal-plane body measures at release (front_view.frontal_metrics).
 * ``flight_3d`` — the bag's flight in 3D from both cameras (flight3d.py): sideways release position, sideways
   velocity and launch angle, the 3D path for the animation; its projection replaces ``front_path`` when measured.
-* ``explanation`` — one plain sentence for the coach, built only from measured parts: distance (from the
-  side physics) and direction (from the front camera), each with the measured body or release value that
-  went with it. Associations, not causes: words like "came with" are used, never "because".
+* ``attribution`` — the miss split into measured parts that add up to it (release position, aim and slide
+  drift left/right; carry and slide short/long against the athlete's usual), each with its noise, the parts
+  named, and the release drivers against the athlete's usual (attribution.py, METHODS_AND_MATH §5.5).
+* ``explanation`` — one plain sentence for the coach built from the attribution: the result, the signed miss,
+  the largest named part and, only outside the athlete's normal spread, one next-throw cue. Associations, not
+  causes: never "because".
 
 Methods: docs/METHODS_AND_MATH.md §5.3 ("Combined result: where it ended and why").
 """
@@ -35,7 +38,7 @@ from . import front_view as fv
 from .regulation import INCH_M, Board
 from .serialization import json_ready, write_json
 
-TWO_VIEW_VERSION = "two_view_v5_knocked_confirm"   # bump when the front landing / tracking logic changes
+TWO_VIEW_VERSION = "two_view_v8_front_body"   # bump when the front landing / tracking / sentence logic changes
 TAKE_LINK_FILENAME = "take_link.json"
 LATERAL_ON_LINE_IN = 3.0          # within ±3 in of the hole centre line sideways = "on line" (the hole radius)
 DISTANCE_ON_TARGET_IN = 3.0
@@ -335,8 +338,16 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     landing = fv.landing_from_front(frames, front_fps, corners, release_front, contact_front, reference,
                                     hfov_deg=link.get("front_hfov_pooled"))
     landing = resolve_knocked_bag(landing, phase)
+    # The front camera's own first-contact frame: the side contact mapped to the front clip is the nearest front
+    # frame in time, which on a 30 fps camera can still show the bag in the air (observed − mapped: +1 frame on
+    # 34 of 86 library throws). Front-view events and the front path end use the observed frame.
+    observed = (landing.get("contact") or {}).get("frame") if isinstance(landing.get("contact"), dict) else None
+    record["frames"]["contact_front_mapped"] = contact_front_from_side
+    if observed is not None:
+        record["frames"]["contact_front"] = contact_front = int(observed)
+    record["frames"]["contact_front_source"] = "front camera" if observed is not None else "side camera mapped"
     record["front_landing"] = landing
-    if contact_front is None and (landing.get("contact") or {}).get("frame") is not None:
+    if contact_front_from_side is None and (landing.get("contact") or {}).get("frame") is not None:
         # First contact found by the front camera only: express it in side frames for the replay too.
         contact_front = int(landing["contact"]["frame"])
         side_count = int((link.get("side_clip") or {}).get("frame_count") or 0)
@@ -393,10 +404,19 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
                                "where the athlete stood and the aim are not measured on this take; left/right on the "
                                "board is approximate. Click the four deck corners to fix it.")
     if pose_frames and release_front is not None:
+        roll = fv.camera_roll_deg(at_release)
         record["frontal"] = fv.frontal_metrics(pose_frames, release_front, front_fps, throwing_side, camera, release_distance,
-                                               roll_deg=fv.camera_roll_deg(at_release))
+                                               roll_deg=roll)
+        # Frontal-plane time series around release (time 0 = release_front) and the swing measures built on it; the
+        # forward swing starts at the side camera's peak backswing mapped to the front clip (§5.2).
+        swing_front = side_to_front_frame(events.get("peak_backswing"), side_fps, link)
+        record["front_kinematics"] = fv.front_kinematics(pose_frames, release_front, front_fps, throwing_side,
+                                                         roll_deg=roll, forward_swing_frame=swing_front)
+        record["frontal"].update(fv.swing_measures(record["front_kinematics"]))
     else:
         record["frontal"] = {}
+        record["front_kinematics"] = {"status": "unavailable", "view": fv.FRONT_VIEW_LABEL,
+                                      "reason": "Needs the front camera's body tracking and the release frame."}
         record["notes"].append("Frontal-plane body measures need the front camera's body tracking at release.")
     # 3. Fuse the landing; 4. heading; 5. result and miss; 6. sync check; 7. replay path.
     final_camera = camera
@@ -452,7 +472,8 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     record["deck_corners_px"] = corners[release_front if release_front is not None and 0 <= release_front < len(corners) else 0].tolist()
     record["deck_corners_by_frame_px"] = corners.round(1).tolist()
     record["front_size"] = [w, h]
-    record["explanation"] = explain(record, results)
+    record["attribution"] = attribution_for_record(out, record, results, release_distance)
+    record["explanation"] = explain(record, results, record["attribution"])
     record["board_phase"] = board_phase_with_front(record, results)
     record["auto_outcome"] = outcome_from_two_view(record)
     side_count = int((link.get("side_clip") or {}).get("frame_count")
@@ -724,9 +745,10 @@ FRONT_LAG_MIN_THROWS = 8       # throws with both contacts seen before a set-up'
 FRONT_LAG_MAX_S = 0.10         # 3 front frames: beyond that it is not exposure/readout lag but a sync or tracking fault
 FRONT_LAG_MAX_IQR_S = 0.07     # about 2 front frames of spread between throws
 LAG_COMPATIBLE_VERSIONS = {"two_view_v2", "two_view_v3_front_lag", "two_view_v4_landing_guards",
-                           "two_view_v5_knocked_confirm"}   # same front tracker
+                           "two_view_v5_knocked_confirm", "two_view_v6_attribution",
+                           "two_view_v7_front_contact", "two_view_v8_front_body"}   # same front tracker
 # (v4 only leaves the hole interior out of the deck track and bags out of the deck alignment; the first on-deck
-# frame used for the lag is unchanged on the library: see METHODS_AND_MATH §5.1)
+# frame used for the lag is unchanged on the library: see METHODS_AND_MATH §5.1; v6 only adds the attribution)
 
 
 def pool_front_lag(analysis_dirs: list[Path]) -> dict[str, Any]:
@@ -821,77 +843,45 @@ def front_flight_path(frames: list[np.ndarray], release_front: int | None, conta
 # The coach sentence
 
 
-def _side(value_in: float) -> str:
-    return "right" if value_in > 0 else "left"
+def explain(record: dict[str, Any], results: dict[str, Any], attribution: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+    """One plain coach sentence for the throw (sentence v2, built from the miss attribution, attribution.py):
 
+    ``[Result]: [N in short/long], [N in left/right]. [Largest named part]. [Next-throw cue].``
 
-def explain(record: dict[str, Any], results: dict[str, Any]) -> dict[str, Any]:
-    """One plain sentence (plus the parts it was built from).
-
-    Made throws get no correction (outcome first). For a miss or a board bag:
-    * distance part: ``N in short/long`` at rest, with the measured release speed;
-    * direction part: ``N in left/right`` with the measured aim (heading) and, only when they point the same
-      way as the miss, the frontal measures that go with it: the hand finishing across the body (sends the bag
-      towards the non-throwing side) or swinging out (towards the throwing side), at least 0.25 shoulder widths
-      (about twice their noise); or standing at least 15 cm off the centre line on the side of the miss.
-      Trunk side lean is a steady personal trait for most athletes, so it is compared across throws on the
-      athlete summary, not named per throw. Associations, not causes: never "because".
+    Outcome first: a made throw gets "In the hole. Nothing to change." A part is named only when it is
+    measured, above its noise and points the same way as the miss; the cue comes only outside the athlete's
+    normal spread. Body measures are not named per throw (they are athlete-level associations). Never
+    "because", "caused", "fault" or "should". Keys the app reads are kept: ``sentence``, ``kind`` (made /
+    close / miss / unknown) and ``parts``; ``cue``, ``tier`` and ``version`` are new. Without ``attribution``
+    it is computed from this record alone (no athlete usual).
     """
-    result = record.get("result") or {}
-    miss = record.get("miss") or {}
-    heading = record.get("heading") or {}
-    frontal = record.get("frontal") or {}
-    side = results.get("throwing_side") or "right"
-    throwing_sign = 1.0 if side == "right" else -1.0      # + = the thrower's right
-    parts: list[dict[str, Any]] = []
-    if result.get("category") == "throughHole":
-        return {"sentence": "In the hole — nothing to correct on this throw.", "parts": [], "kind": "made"}
-    if result.get("category") is None and result.get("reason"):
-        return {"sentence": f"{result['reason']} Check the video.", "parts": [], "kind": "unknown"}
-    sentence_bits: list[str] = []
-    long = miss.get("short_long_in")
-    right = miss.get("left_right_in")
-    if long is not None and abs(long) >= DISTANCE_ON_TARGET_IN:
-        word = "long" if long > 0 else "short"
-        bit = f"{abs(long):.0f} in {word}"
-        v = _summary(results, "bag_release_speed_m_s")
-        parts.append({"axis": "distance", "inches": long, "word": word})
-        if v is not None:
-            bit += f" (release {v:.1f} m/s)"
-        sentence_bits.append(bit)
-    if right is not None and abs(right) >= LATERAL_ON_LINE_IN:
-        word = _side(right)
-        bit = f"{abs(right):.0f} in {word}"
-        detail = []
-        if heading.get("deg") is not None and abs(heading["deg"]) >= 0.3:
-            detail.append(f"aimed {abs(heading['deg']):.1f}° {_side(heading['deg'])}")
-        arm = (frontal.get("arm_across_body_sw") or {}).get("value")
-        if arm is not None and abs(arm) >= 0.25:
-            pushes = -throwing_sign if arm > 0 else throwing_sign      # across → non-throwing side
-            if np.sign(pushes) == np.sign(right):
-                detail.append("hand finished across the body" if arm > 0 else "hand swung out away from the body")
-        stance = (frontal.get("stance_offset_m") or {}).get("value")
-        if stance is not None and abs(stance) >= 0.15 and np.sign(stance) == np.sign(right):
-            detail.append(f"stood {abs(stance) * 100:.0f} cm {_side(stance)} of the centre line")
-        if detail:
-            bit += " — " + ", ".join(detail)
-        parts.append({"axis": "direction", "inches": right, "word": word, "details": detail})
-        sentence_bits.append(bit)
-    if not sentence_bits:
-        if result.get("category") == "offBoard":
-            aim = (f" — aimed {abs(heading['deg']):.1f}° {_side(heading['deg'])}"
-                   if heading.get("deg") is not None and abs(heading["deg"]) >= 0.3 else "")
-            seen = ((record.get("landing") or {}).get("rest") or {}).get("on") == "floor"
-            where = ("it stopped on the floor, but how far could not be measured on this take" if seen
-                     else "where it stopped was out of the front camera's view")
-            return {"sentence": f"Off the board{aim}; {where}.", "parts": parts, "kind": "miss"}
-        if result.get("category") == "onBoard":
-            return {"sentence": "On the board close to the hole — distance and line were both within 3 in.",
-                    "parts": parts, "kind": "close"}
-        return {"sentence": "Where the bag ended could not be measured in both directions.", "parts": parts,
-                "kind": "unknown"}
-    lead = {"onBoard": "On the board", "offBoard": "Off the board"}.get(result.get("category") or "", "Ended")
-    return {"sentence": f"{lead}: " + "; ".join(sentence_bits) + ".", "parts": parts, "kind": "miss"}
+    from .attribution import attribute, explanation_from_attribution
+    if attribution is None:
+        attribution = attribute(record, results, release_distance_m=_summary(results, "release_to_board_front_m"))
+    return explanation_from_attribution(attribution)
+
+
+def attribution_for_record(out: Path, record: dict[str, Any], results: dict[str, Any],
+                           release_distance_m: float | None) -> dict[str, Any]:
+    """The miss attribution (attribution.py) against the athlete's other analysed throws. An add-on: a failure
+    gives ``unavailable`` with the reason and never stops the two-view analysis."""
+    from .attribution import ATTRIBUTION_VERSION, attribute, build_sentence, sibling_records
+    try:
+        return attribute(record, results, siblings=sibling_records(out), release_distance_m=release_distance_m)
+    except Exception as error:  # noqa: BLE001 - the two-view result stands without it
+        reason = f"The miss attribution could not be computed ({type(error).__name__})."
+        miss = record.get("miss") or {}
+        block = {"version": ATTRIBUTION_VERSION, "status": "unavailable", "reason": reason, "reasons": [reason],
+                 "result": (record.get("result") or {}).get("category"),
+                 "lateral": {"miss_in": miss.get("left_right_in"), "reference": None, "components": [], "residual_in": None},
+                 "depth": {"miss_in": miss.get("short_long_in"), "reference": None, "components": [], "residual_in": None},
+                 "drivers": [], "usual": None, "within_usual_spread": None, "tier": "geometry"}
+        # The outcome sentence still goes out (result and signed miss), with nothing named and no cue.
+        block["sentence"], _ = build_sentence({**block, "status": "partial"})
+        block["cue"] = None
+        return block
+
 
 AUTO_OUTCOME_NOTE = "Recorded automatically from the front camera; check the video and change it if it is wrong."
 

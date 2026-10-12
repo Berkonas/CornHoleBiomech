@@ -103,6 +103,7 @@ struct OutcomeEditor: View {
     }
 
     private func save(importNext: Bool = false) {
+        outcome.source = TrialOutcome.personSource
         do { try store.saveOutcome(outcome, for: trial) }
         catch { store.errorMessage = error.localizedDescription; return }
         isSaving = true

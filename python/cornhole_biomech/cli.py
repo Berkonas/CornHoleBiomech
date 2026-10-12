@@ -134,6 +134,12 @@ def parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--project", required=True)
     dashboard.add_argument("--athlete-id", required=True)
     dashboard.set_defaults(handler=handle_athlete_dashboard)
+    report_pdf = commands.add_parser("athlete-report-pdf",
+                                     help="Write a printable PDF report of one athlete from saved analyses (no video)")
+    report_pdf.add_argument("--library", required=True)
+    report_pdf.add_argument("--athlete-id", required=True)
+    report_pdf.add_argument("--output", required=True)
+    report_pdf.set_defaults(handler=handle_athlete_report_pdf)
 
     frames = commands.add_parser("annotation-frames", help="Export blinded frames for manual tracking validation")
     frames.add_argument("video")
@@ -451,6 +457,12 @@ def handle_athlete_dashboard(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("Analyze at least one throw for this athlete first.")
     generate_insights(root, dashboard_base_trial(root, trials)["id"], export_report=False)
     return {"athlete_id": args.athlete_id, "dashboard": str(root / "dashboards" / f"{args.athlete_id}.json")}
+
+
+def handle_athlete_report_pdf(args: argparse.Namespace) -> dict[str, Any]:
+    """Printable athlete report (pdf_report.py): reads saved analyses only and writes one PDF."""
+    from .pdf_report import athlete_report_pdf
+    return athlete_report_pdf(args.library, args.athlete_id, args.output)
 
 
 def handle_probe(args: argparse.Namespace) -> dict[str, Any]:

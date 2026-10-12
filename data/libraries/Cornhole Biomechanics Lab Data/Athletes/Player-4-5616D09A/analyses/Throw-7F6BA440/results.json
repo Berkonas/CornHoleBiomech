@@ -92,6 +92,7 @@
         "vertical_m_s": 5.054232911564724,
         "vertical_px_s": 1062.561369622859
       },
+      "metric_model": "gravity_constrained_linear_throw_plane",
       "physical_units": {
         "calibration": {
           "frame_index": null,
@@ -134,6 +135,23 @@
         184
       ],
       "status": "estimated",
+      "throw_plane_fit": {
+        "angle_deg": 39.75300281321069,
+        "fit_rmse_m": 0.017106943200041084,
+        "forward_m_s": 6.268603440905712,
+        "hfov_deg": 57.530517578125,
+        "model": "gravity_constrained_linear_throw_plane",
+        "sample_count": 9,
+        "speed_m_s": 8.153662348141914,
+        "standard_error": {
+          "angle_deg": 0.7761685484259343,
+          "forward_m_s": 0.06877434242746548,
+          "speed_m_s": 0.0994906605249396,
+          "vertical_m_s": 0.1317908592136854
+        },
+        "status": "measured",
+        "vertical_m_s": 5.214098252638914
+      },
       "uncertainty_note": "Standard errors come from the fit residuals (tracking noise within this window) and exclude release-frame choice, camera motion and scale error; they are a lower bound on total uncertainty.",
       "velocity": {
         "angle_deg": 46.13915406927704,
@@ -2016,13 +2034,13 @@
           "regulation board geometry"
         ],
         "interval": [
-          -6.194655376482759,
-          10.493526613557966
+          -3.853009901015486,
+          13.103377869482973
         ],
         "reason": "Drag-free flight model.",
         "state": "estimated",
         "unit": "%",
-        "value": 2.087836928806741
+        "value": 4.501292782152699
       },
       "force_direction_at_peak_deg": {
         "assumptions": [
@@ -2178,13 +2196,13 @@
           "bag mass"
         ],
         "interval": [
-          12.843337694654318,
-          16.29096202196695
+          13.094761622989079,
+          16.58833857859478
         ],
         "reason": null,
         "state": "measured",
         "unit": "J",
-        "value": 14.575871389169606
+        "value": 14.842319159879521
       },
       "mean_net_force_on_bag_n": {
         "assumptions": [
@@ -2240,13 +2258,13 @@
           "g"
         ],
         "interval": [
-          15.3139361803917,
-          19.1125585315706
+          15.557271388329273,
+          19.388888027768754
         ],
         "reason": null,
         "state": "measured",
         "unit": "J",
-        "value": 17.188750837942493
+        "value": 17.455198608652406
       },
       "momentum_kg_m_s": {
         "assumptions": [
@@ -2259,16 +2277,16 @@
           "bag mass"
         ],
         "interval": [
-          3.3764882491024104,
-          3.8170837383059064
+          3.41093425536555,
+          3.8507059355263884
         ],
         "reason": null,
         "state": "measured",
         "unit": "kg\u00b7m/s",
-        "value": 3.6078246347279856,
+        "value": 3.6406509188504335,
         "vector_kg_m_s": [
-          2.8148751680854107,
-          2.256740211687259
+          2.7989627117982243,
+          2.3281208840800423
         ]
       },
       "peak_net_force_on_bag_n": {
@@ -2379,13 +2397,13 @@
           "regulation board geometry"
         ],
         "interval": [
-          -12.253550020942209,
-          22.627829325380485
+          -7.661904507208508,
+          28.42412979851261
         ],
         "reason": "Drag-free flight model.",
         "state": "estimated",
         "unit": "in",
-        "value": 4.327679511331645
+        "value": 9.39142641122788
       },
       "release_angle_deg": {
         "assumptions": [
@@ -2396,13 +2414,13 @@
           "bag flight fit"
         ],
         "interval": [
-          37.13046319915252,
-          40.364037844403946
+          38.2243188566909,
+          41.33443421503779
         ],
         "reason": null,
         "state": "measured",
         "unit": "\u00b0",
-        "value": 38.719829866578145
+        "value": 39.75300281321069
       },
       "release_height_m": {
         "assumptions": [
@@ -2437,13 +2455,13 @@
           "metric scale"
         ],
         "interval": [
-          7.619584012773805,
-          8.573864039031518
+          7.6935628089391965,
+          8.653770864533913
         ],
         "reason": null,
         "state": "measured",
         "unit": "m/s",
-        "value": 8.080144056263734
+        "value": 8.153662348141914
       },
       "shoulder_angle_at_release_deg": {
         "assumptions": [],
@@ -2507,13 +2525,13 @@
           "regulation board geometry"
         ],
         "interval": [
-          -2.383189512845748,
-          6.052878850584906
+          -1.4427150468205558,
+          6.911306719034011
         ],
         "reason": "Drag-free flight model.",
         "state": "estimated",
         "unit": "%",
-        "value": 1.7373927010902124
+        "value": 2.6630642336076926
       },
       "timing_sensitivity_in_per_10ms": {
         "assumptions": [],
@@ -2527,7 +2545,7 @@
           "hand-path tangential acceleration, direction rotation rate and velocity at release"
         ],
         "interval": null,
-        "reason": "The hand path at release points 54\u00b0 but the bag left at 39\u00b0 (difference +15\u00b0, > 10\u00b0), so the hand's rates cannot stand in for the bag's.",
+        "reason": "The hand path at release points 54\u00b0 but the bag left at 40\u00b0 (difference +14\u00b0, > 10\u00b0), so the hand's rates cannot stand in for the bag's.",
         "state": "unavailable",
         "unit": "in / 10 ms",
         "value": null
@@ -3252,8 +3270,9 @@
       "noise_floor": 3.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "\u00b0",
-      "value": 38.719829866578145
+      "value": 39.75300281321069
     },
     "bag_release_height_m": {
       "definition": "Bag centre above the lowest foot point at release.",
@@ -3265,6 +3284,7 @@
       "noise_floor": 0.03,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "m",
       "value": 0.782529815317168
     },
@@ -3278,6 +3298,7 @@
       "noise_floor": 0.05,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "arm lengths",
       "value": 1.1938024185104696
     },
@@ -3291,8 +3312,9 @@
       "noise_floor": 0.15,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "m/s",
-      "value": 8.080144056263734
+      "value": 8.153662348141914
     },
     "elbow_angle_deg_at_release": {
       "definition": "2D projected shoulder\u2013elbow\u2013wrist angle; 180\u00b0 = straight as seen by the camera.",
@@ -3304,6 +3326,7 @@
       "noise_floor": 10.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "advanced",
       "unit": "\u00b0",
       "value": 159.74023101736532
     },
@@ -3319,6 +3342,7 @@
         "Exploratory: a derivative of a 2D angle, sensitive to landmark noise."
       ],
       "status": "caution",
+      "tier": "advanced",
       "unit": "ms",
       "value": -166.83350016683352
     },
@@ -3334,6 +3358,7 @@
         "Exploratory: a derivative of a 2D angle, sensitive to landmark noise."
       ],
       "status": "caution",
+      "tier": "advanced",
       "unit": "\u00b0/s",
       "value": 114.83713017666348
     },
@@ -3347,6 +3372,7 @@
       "noise_floor": 5.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "profile",
       "unit": "\u00b0",
       "value": -60.21615546419916
     },
@@ -3360,6 +3386,7 @@
       "noise_floor": 0.035,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "s",
       "value": 0.4838171504838172
     },
@@ -3373,6 +3400,7 @@
       "noise_floor": 5.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "advanced",
       "unit": "\u00b0",
       "value": 50.94457473097561
     },
@@ -3386,6 +3414,7 @@
       "noise_floor": 0.15,
       "reasons": [],
       "status": "reliable",
+      "tier": "per_throw",
       "unit": "back \u00f7 forward",
       "value": 1.7241379310344827
     },
@@ -3399,6 +3428,7 @@
       "noise_floor": 5.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "profile",
       "unit": "\u00b0",
       "value": 2.9797754847761784
     },
@@ -3412,6 +3442,7 @@
       "noise_floor": 5.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "advanced",
       "unit": "\u00b0",
       "value": 50.70050660958281
     },
@@ -3425,6 +3456,7 @@
       "noise_floor": 0.3,
       "reasons": [],
       "status": "reliable",
+      "tier": "profile",
       "unit": "arm lengths/s",
       "value": 10.572502419515102
     },
@@ -3438,6 +3470,7 @@
       "noise_floor": 35.0,
       "reasons": [],
       "status": "reliable",
+      "tier": "profile",
       "unit": "ms",
       "value": -50.050050050050054
     },
@@ -3451,6 +3484,7 @@
       "noise_floor": 0.3,
       "reasons": [],
       "status": "reliable",
+      "tier": "advanced",
       "unit": "arm lengths/s",
       "value": 9.895793254455741
     }
@@ -3471,7 +3505,7 @@
   },
   "event_frames": {
     "forward_swing": 148,
-    "motion_end": 300,
+    "motion_end": 301,
     "motion_start": 98,
     "peak_backswing": 147,
     "peak_elbow_extension": 166,
@@ -3492,10 +3526,10 @@
     },
     "motion_end": {
       "automatic_confidence": 1.0,
-      "automatic_frame": 300,
+      "automatic_frame": 301,
       "automatic_method": "filtered_shoulder_relative_wrist_heuristic_v4_peak_plus_delay",
       "confirmed_by": null,
-      "effective_frame": 300,
+      "effective_frame": 301,
       "manual_frame": null,
       "name": "motion_end",
       "suppressed_reason": null
@@ -5384,7 +5418,7 @@
       "release": {
         "confirmed_by": "automatic_physics",
         "grade": "GOOD",
-        "launch_angle_se_deg": 0.8069793719695727,
+        "launch_angle_se_deg": 0.7761685484259343,
         "launch_fit_samples": 9,
         "reason": null,
         "release_onset_status": "no_in_hand_points",
@@ -5493,35 +5527,35 @@
     "arm_motion_mean_flexion_deg": 7.224606317725035,
     "arm_motion_radius_cv_ratio": 0.02683449098946909,
     "arm_to_trunk_deg_at_release": 134.97573916582496,
-    "arm_to_trunk_deg_mean": 107.72315322697906,
-    "arm_to_trunk_deg_rom": 118.42034600742403,
-    "arm_to_trunk_velocity_deg_s_mean": 10.588345962353499,
-    "arm_to_trunk_velocity_deg_s_peak_abs": 571.3720264474658,
+    "arm_to_trunk_deg_mean": 129.61570121673242,
+    "arm_to_trunk_deg_rom": 180.00483419109705,
+    "arm_to_trunk_velocity_deg_s_mean": 21.3256624242026,
+    "arm_to_trunk_velocity_deg_s_peak_abs": 571.3720264474663,
     "bag_flight_apparent_gravity_m_s2": 10.329314304166024,
     "bag_release_acceleration_magnitude_arm_lengths_s2": 45.41790305849704,
     "bag_release_acceleration_magnitude_m_s2": 25.4367838996291,
     "bag_release_acceleration_magnitude_px_s2": 5347.625329522661,
-    "bag_release_angle_deg": 38.719829866578145,
-    "bag_release_angle_se_deg": 0.8069793719695727,
+    "bag_release_angle_deg": 39.75300281321069,
+    "bag_release_angle_se_deg": 0.7761685484259343,
     "bag_release_forward_acceleration_arm_lengths_s2": 13.446323153675214,
     "bag_release_forward_acceleration_m_s2": 7.530757548715727,
     "bag_release_forward_acceleration_px_s2": 1583.2060364594054,
     "bag_release_forward_velocity_arm_lengths_s": 11.256352955083878,
-    "bag_release_forward_velocity_m_s": 6.3042412426580015,
+    "bag_release_forward_velocity_m_s": 6.268603440905712,
     "bag_release_forward_velocity_px_s": 1325.353090456963,
     "bag_release_height_arm_lengths": 1.3972231486770998,
     "bag_release_height_m": 0.782529815317168,
     "bag_release_position_forward_arm_lengths": 1.1938024185104696,
     "bag_release_position_vertical_arm_lengths": -0.9372025112483141,
     "bag_release_speed_arm_lengths_s": 14.427264110673534,
-    "bag_release_speed_m_s": 8.080144056263734,
+    "bag_release_speed_m_s": 8.153662348141914,
     "bag_release_speed_px_s": 1698.7046472529087,
-    "bag_release_speed_se_m_s": 0.10231323415181891,
+    "bag_release_speed_se_m_s": 0.0994906605249396,
     "bag_release_vertical_acceleration_arm_lengths_s2": -43.38182006184125,
     "bag_release_vertical_acceleration_m_s2": -24.296453772081456,
     "bag_release_vertical_acceleration_px_s2": -5107.891474088975,
     "bag_release_vertical_velocity_arm_lengths_s": 9.024437260555532,
-    "bag_release_vertical_velocity_m_s": 5.054232911564724,
+    "bag_release_vertical_velocity_m_s": 5.214098252638914,
     "bag_release_vertical_velocity_px_s": 1062.561369622859,
     "bag_time_of_flight_seconds": 1.0343677010343677,
     "bag_trajectory_apex_rise_m": 1.0072194736596565,
@@ -5541,59 +5575,59 @@
     "chain_elbow_angle_at_release_deg": 159.74023101736532,
     "chain_elbow_peak_extension_velocity_deg_s": 114.83713017666348,
     "chain_elbow_peak_time_rel_release_ms": -166.83350016683352,
-    "chain_energy_match_percent": 2.087836928806741,
+    "chain_energy_match_percent": 4.501292782152699,
     "chain_force_direction_at_peak_deg": 126.56851827166938,
     "chain_hand_acceleration_at_release_m_s2": 72.86638722216026,
     "chain_hand_direction_rotation_rate_deg_s": 521.8153028394797,
     "chain_hand_speed_at_release_m_s": 7.535472838561965,
     "chain_hand_tangential_acceleration_at_release_m_s2": -24.48745501340056,
     "chain_hand_velocity_angle_at_release_deg": 54.11667081254725,
-    "chain_kinetic_energy_j": 14.575871389169606,
+    "chain_kinetic_energy_j": 14.842319159879521,
     "chain_mean_net_force_on_bag_n": 15.418006742881632,
     "chain_measured_along_error_in": -28.974587198499222,
-    "chain_mechanical_energy_j": 17.188750837942493,
-    "chain_momentum_kg_m_s": 3.6078246347279856,
+    "chain_mechanical_energy_j": 17.455198608652406,
+    "chain_momentum_kg_m_s": 3.6406509188504335,
     "chain_peak_net_force_on_bag_n": 35.928597128516756,
     "chain_peak_power_on_bag_w": 92.42513690784064,
     "chain_peak_sequence": null,
     "chain_potential_energy_j": 2.612879448772886,
-    "chain_predicted_along_error_in": 4.327679511331645,
-    "chain_release_angle_deg": 38.719829866578145,
+    "chain_predicted_along_error_in": 9.39142641122788,
+    "chain_release_angle_deg": 39.75300281321069,
     "chain_release_height_m": 0.596722455695834,
-    "chain_release_speed_m_s": 8.080144056263734,
+    "chain_release_speed_m_s": 8.153662348141914,
     "chain_shoulder_angle_at_release_deg": 134.97573916582496,
     "chain_shoulder_peak_angular_velocity_deg_s": 469.58683039891844,
     "chain_shoulder_peak_time_rel_release_ms": -66.73340006673341,
-    "chain_speed_margin_over_minimum_percent": 1.7373927010902124,
+    "chain_speed_margin_over_minimum_percent": 2.6630642336076926,
     "chain_timing_sensitivity_in_per_10ms": null,
     "chain_wrist_peak_speed_time_rel_release_ms": -50.050050050050054,
     "elbow_angle_deg_at_release": 159.74023101736532,
     "elbow_angle_deg_max": 179.97995790489517,
-    "elbow_angle_deg_mean": 151.32942868396054,
+    "elbow_angle_deg_mean": 151.20992718483265,
     "elbow_angle_deg_min": 101.1950368693505,
     "elbow_angle_deg_rom": 78.78492103554467,
-    "elbow_angle_velocity_deg_s_mean": -1.214974348451225,
+    "elbow_angle_velocity_deg_s_mean": -0.7825038040309625,
     "elbow_angle_velocity_deg_s_peak_abs": 400.2247323980494,
     "elbow_extension_change_forward_swing_deg": -12.515276942038014,
     "elbow_extension_deficit_deg_at_release": 20.259768982634682,
-    "elbow_extension_deficit_deg_mean": 28.670571316039442,
+    "elbow_extension_deficit_deg_mean": 28.79007281516734,
     "elbow_peak_extension_time_rel_release_ms": -166.83350016683352,
     "elbow_peak_extension_velocity_deg_s": 114.83713017666348,
-    "forearm_orientation_deg_mean": -7.302523926512683,
+    "forearm_orientation_deg_mean": -7.489169399842993,
     "forearm_orientation_deg_rom": 220.4569116036411,
-    "forearm_orientation_velocity_deg_s_mean": -16.378941265444908,
+    "forearm_orientation_velocity_deg_s_mean": -16.885363796820208,
     "forearm_orientation_velocity_deg_s_peak_abs": 604.3475330753345,
     "hand_to_bag_speed_ratio": 1.4579189095505227,
     "landing_along_error_m": -0.7359545148418802,
-    "launch_direction_difference_deg": -11.980676743004665,
-    "movement_duration_seconds": 3.3700367033700367,
-    "release_timing_cycle": 0.38613861386138615,
+    "launch_direction_difference_deg": -10.947503796372118,
+    "movement_duration_seconds": 3.3867200533867203,
+    "release_timing_cycle": 0.3842364532019704,
     "release_to_board_front_m": 5.785619437593127,
     "shoulder_bag_radius_at_release_arm_lengths": 1.5158168559405083,
     "shoulder_peak_speed_arm_lengths_s": 2.1835634201951404,
-    "shoulder_translation_net_arm_lengths": 0.42407705832196935,
-    "shoulder_translation_path_length_arm_lengths": 2.5321786073980874,
-    "shoulder_translation_straightness": 0.16747517615186122,
+    "shoulder_translation_net_arm_lengths": 0.4259247986416167,
+    "shoulder_translation_path_length_arm_lengths": 2.534427784258309,
+    "shoulder_translation_straightness": 0.1680556065898173,
     "shoulder_wrist_angular_net_change_forward_swing_deg": 111.16073019517478,
     "shoulder_wrist_angular_sweep_forward_swing_deg": 111.16073019517478,
     "shoulder_wrist_peak_angular_velocity_forward_swing_deg_s": 502.20374262523893,
@@ -5613,13 +5647,13 @@
     "swing_tempo_ratio": 1.7241379310344827,
     "swing_total_hand_speed_at_release_m_s": 5.499053447233205,
     "trunk_inclination_deg_at_release": 2.9797754847761784,
-    "trunk_inclination_deg_mean": -4.937793090580494,
+    "trunk_inclination_deg_mean": -4.962589557914966,
     "trunk_inclination_deg_rom": 13.728741038492297,
-    "trunk_inclination_velocity_deg_s_mean": -3.670689033918798,
+    "trunk_inclination_velocity_deg_s_mean": -3.657794823351417,
     "trunk_inclination_velocity_deg_s_peak_abs": 64.67014026100657,
-    "upper_arm_orientation_deg_mean": -34.33895419100857,
+    "upper_arm_orientation_deg_mean": -34.65311165881747,
     "upper_arm_orientation_deg_rom": 183.59152275117322,
-    "upper_arm_orientation_velocity_deg_s_mean": -17.593915613896137,
+    "upper_arm_orientation_velocity_deg_s_mean": -17.66786760085117,
     "upper_arm_orientation_velocity_deg_s_peak_abs": 574.4649748167668,
     "wrist_direction_at_release_deg": 50.70050660958281,
     "wrist_forward_swing_path_coverage": 1.0,
@@ -5633,14 +5667,14 @@
     "wrist_forward_swing_path_total_abs_turn_deg": 130.4112370866236,
     "wrist_global_peak_speed_arm_lengths_s": 10.572207745041045,
     "wrist_path_coverage": 1.0,
-    "wrist_path_curvature_rad_per_arm_length": 4.666071124633931,
-    "wrist_path_length_arm_lengths": 7.5741198965408625,
-    "wrist_path_mean_abs_turn_deg": 10.074189248739922,
-    "wrist_path_net_displacement_arm_lengths": 0.8694935911898022,
-    "wrist_path_rms_fitted_line_deviation_arm_lengths": 0.3872332386391678,
-    "wrist_path_sample_count": 203,
-    "wrist_path_straightness_ratio": 0.11479797033407196,
-    "wrist_path_total_abs_turn_deg": 2024.9120389967243,
+    "wrist_path_curvature_rad_per_arm_length": 4.657426413634376,
+    "wrist_path_length_arm_lengths": 7.598789494048424,
+    "wrist_path_mean_abs_turn_deg": 10.038334850592792,
+    "wrist_path_net_displacement_arm_lengths": 0.893938086083607,
+    "wrist_path_rms_fitted_line_deviation_arm_lengths": 0.38749503941862706,
+    "wrist_path_sample_count": 204,
+    "wrist_path_straightness_ratio": 0.1176421700829801,
+    "wrist_path_total_abs_turn_deg": 2027.7436398197437,
     "wrist_peak_speed_arm_lengths_s": 10.572502419515102,
     "wrist_peak_speed_m_s": 5.921243413134602,
     "wrist_peak_speed_time_rel_release_ms": -50.050050050050054,
@@ -5650,335 +5684,335 @@
   },
   "swing_curve_deg": [
     [
-      118.66866253922302,
+      241.331337460777,
       172.25550795940333
     ],
     [
-      118.68523334074612,
+      241.3147666592539,
       172.27605033802692
     ],
     [
-      118.70180414226922,
+      241.2981958577308,
       172.2965927166505
     ],
     [
-      118.71837494379233,
+      241.2816250562077,
       172.3171350952741
     ],
     [
-      118.75789667804762,
+      241.24210332195238,
       172.3558745251525
     ],
     [
-      118.82801965594581,
+      241.1719803440542,
       172.4188766900373
     ],
     [
-      118.89814263384402,
+      241.101857366156,
       172.48187885492214
     ],
     [
-      118.96826561174221,
+      241.0317343882578,
       172.54488101980698
     ],
     [
-      119.08917536576199,
+      240.91082463423803,
       172.63223557545777
     ],
     [
-      119.2185495824687,
+      240.7814504175313,
       172.7236488629029
     ],
     [
-      119.34792379917542,
+      240.65207620082458,
       172.81506215034804
     ],
     [
-      119.49541507923715,
+      240.50458492076282,
       172.91049019260882
     ],
     [
-      119.68819901768646,
+      240.31180098231354,
       173.0159551219087
     ],
     [
-      119.88098295613572,
+      240.11901704386426,
       173.12142005120856
     ],
     [
-      120.07376689458503,
+      239.92623310541498,
       173.22688498050843
     ],
     [
-      120.3141296382547,
+      239.6858703617453,
       173.33313820881554
     ],
     [
-      120.57352390401253,
+      239.42647609598748,
       173.43970675672554
     ],
     [
-      120.83291816977037,
+      239.16708183022965,
       173.54627530463554
     ],
     [
-      121.10230207643144,
+      238.89769792356856,
       173.65138160128802
     ],
     [
-      121.43162382851204,
+      238.56837617148796,
       173.74771439039534
     ],
     [
-      121.76094558059263,
+      238.23905441940735,
       173.8440471795027
     ],
     [
-      122.09026733267324,
+      237.90973266732675,
       173.94037996861002
     ],
     [
-      122.46208476339629,
+      237.5379152366037,
       174.02461205670178
     ],
     [
-      122.86577395310118,
+      237.13422604689882,
       174.09976861903183
     ],
     [
-      123.26946314280609,
+      236.73053685719393,
       174.1749251813619
     ],
     [
-      123.67315233251098,
+      236.32684766748903,
       174.25008174369196
     ],
     [
-      124.15693676799219,
+      235.84306323200784,
       174.2923766306776
     ],
     [
-      124.64072120347339,
+      235.3592787965266,
       174.33467151766325
     ],
     [
-      125.1245056389546,
+      234.8754943610454,
       174.3769664046489
     ],
     [
-      125.64498867740632,
+      234.3550113225937,
       174.4003130354967
     ],
     [
-      126.21440318648538,
+      233.78559681351462,
       174.39839532482736
     ],
     [
-      126.78381769556445,
+      233.21618230443556,
       174.39647761415804
     ],
     [
-      127.35323220464352,
+      232.64676779535648,
       174.3945599034887
     ],
     [
-      127.99781634519395,
+      232.00218365480606,
       174.3491207157158
     ],
     [
-      128.65492875765628,
+      231.34507124234375,
       174.29642794842562
     ],
     [
-      129.3120411701186,
+      230.68795882988144,
       174.24373518113543
     ],
     [
-      129.99276674517816,
+      230.00723325482187,
       174.17786789770923
     ],
     [
-      130.73252522673087,
+      229.26747477326916,
       174.07906432394293
     ],
     [
-      131.4722837082835,
+      228.5277162917165,
       173.98026075017665
     ],
     [
-      132.21204218983627,
+      227.78795781016373,
       173.88145717641035
     ],
     [
-      133.00119347052927,
+      226.99880652947073,
       173.76459177674192
     ],
     [
-      133.81010187087847,
+      226.18989812912153,
       173.64050164671264
     ],
     [
-      134.6190102712277,
+      225.3809897287723,
       173.51641151668335
     ],
     [
-      135.43511093618284,
+      224.56488906381716,
       173.3940284457659
     ],
     [
-      136.29436518877367,
+      223.70563481122633,
       173.28188772951955
     ],
     [
-      137.1536194413645,
+      222.8463805586355,
       173.16974701327317
     ],
     [
-      138.0128736939553,
+      221.9871263060447,
       173.0576062970268
     ],
     [
-      138.89135115881115,
+      221.10864884118885,
       172.97987216187497
     ],
     [
-      139.7842460328657,
+      220.2157539671343,
       172.927942962544
     ],
     [
-      140.67714090692027,
+      219.32285909307973,
       172.87601376321302
     ],
     [
-      141.57003578097485,
+      218.42996421902515,
       172.82408456388205
     ],
     [
-      142.49104142097877,
+      217.50895857902123,
       172.881592124635
     ],
     [
-      143.41204706098273,
+      216.5879529390173,
       172.93909968538796
     ],
     [
-      144.33305270098666,
+      215.66694729901337,
       172.9966072461409
     ],
     [
-      145.27153344393696,
+      214.72846655606307,
       173.11691759648122
     ],
     [
-      146.2333143241491,
+      213.7666856758509,
       173.32096499960466
     ],
     [
-      147.19509520436122,
+      212.80490479563878,
       173.5250124027281
     ],
     [
-      148.15687608457336,
+      211.84312391542664,
       173.72905980585153
     ],
     [
-      149.18156040617478,
+      210.81843959382522,
       174.06847988404
     ],
     [
-      150.21672863467438,
+      209.78327136532562,
       174.43046207473927
     ],
     [
-      151.251896863174,
+      208.748103136826,
       174.79244426543855
     ],
     [
-      152.32163424258286,
+      207.67836575741714,
       175.19288363516793
     ],
     [
-      153.47779449926472,
+      206.52220550073528,
       175.68946595247257
     ],
     [
-      154.6339547559465,
+      205.3660452440535,
       176.1860482697772
     ],
     [
-      155.7901150126285,
+      204.2098849873715,
       176.6826305870819
     ],
     [
-      157.06952041726618,
+      202.93047958273382,
       177.23615680901074
     ],
     [
-      158.39822388108638,
+      201.60177611891362,
       177.8124605927894
     ],
     [
-      159.72692734490658,
+      200.27307265509342,
       178.38876437656802
     ],
     [
-      161.0860770322326,
+      198.9139229677674,
       178.88785327849487
     ],
     [
-      162.6279040605934,
+      197.3720959394066,
       178.9236528893111
     ],
     [
-      164.16973108895422,
+      195.83026891104578,
       178.95945250012727
     ],
     [
-      165.71155811731504,
+      194.28844188268496,
       178.99525211094345
     ],
     [
-      167.38344659055002,
+      192.61655340945,
       178.6921257711344
     ],
     [
-      169.15288114744058,
+      190.84711885255942,
       178.13480496835643
     ],
     [
-      170.92231570433117,
+      189.07768429566886,
       177.57748416557843
     ],
     [
-      172.69175026122176,
+      187.30824973877827,
       177.02016336280045
     ],
     [
-      174.6671779856688,
+      185.33282201433124,
       176.49639062560507
     ],
     [
-      176.64260571011582,
+      183.35739428988418,
       175.9726178884097
     ],
     [
-      178.61803343456285,
+      181.38196656543715,
       175.44884515121436
     ],
     [
-      178.89706221354135,
+      179.34260748583833,
       174.91999572538631
     ],
     [
-      176.9142257318953,
+      177.21800659937048,
       174.38437738138137
     ],
     [
-      174.93138925024923,
+      175.09340571290267,
       173.84875903737642
     ],
     [
-      172.94855276860315,
+      172.96880482643482,
       173.31314069337148
     ],
     [

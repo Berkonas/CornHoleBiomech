@@ -47,7 +47,7 @@ Only one analysis may run at a time. Full-library runs have crashed the Mac befo
 - **Missing stays missing.** Report `unavailable` with a reason. Never fill a gap with zero or a guess.
 - Every metric carries a status (`measured` / `estimated` / `unavailable`), a GOOD/WARNING/POOR grade, and an uncertainty where possible.
 - Any new threshold, gate or filter cut-off needs justification in `docs/` (a reference or pilot evidence).
-- Associations are not causes. Coaching wording must match the evidence gate (≥ 5 throws per group, Cliff's δ ≥ 0.474, difference > measurement noise).
+- Associations are not causes. Coaching wording must match the evidence gate (≥ 5 throws per group, |δ| ≥ the Bonferroni critical δ and never below 0.474, difference > measurement noise; with 24–32 tests that needs about 7–8 throws per group even for perfect separation, see `performance.minimum_claim_group`).
 - Outcome first: a made throw gets no corrections. Advice for misses comes from where the bag actually stopped (signed short/long).
 - When a method, metric or threshold changes, update the matching doc (usually `METHODS_AND_MATH.md` or `METRICS.md`) in the same change.
 - Python and Swift must agree. Swift reads engine outputs, so check `tests/swift_contract.py` and the replay/schema tests when changing output fields.

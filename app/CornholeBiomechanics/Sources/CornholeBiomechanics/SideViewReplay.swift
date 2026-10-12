@@ -234,6 +234,8 @@ struct SideViewReplay: View {
     let frame: Int
     var showModel = true
     var showTrail = true
+    /// Ghost: the athlete's usual first contact, inches up the deck (attribution carry usual); nil = not shown.
+    var usualContactV: Double? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -251,6 +253,7 @@ struct SideViewReplay: View {
             }
             drawFloor(context, size: size, fit: fit)
             drawBoard(context, fit: fit, dark: colorScheme == .dark)
+            drawUsualLanding(context, fit: fit)
 
             // Bag: dashed drag-free model, the full path faint, the travelled path strong; dotted where not tracked.
             if showModel && !scene.model.isEmpty {
@@ -355,6 +358,20 @@ struct SideViewReplay: View {
         context.stroke(hole, with: .color(.primary), style: StrokeStyle(lineWidth: 4, lineCap: .butt))
         context.draw(Text("Board front \(number(distance, digits: 2)) m from the release").font(.caption2).foregroundStyle(.secondary),
                      at: CGPoint(x: screen(distance + run, 0).x, y: fit.floor + 21), anchor: .topTrailing)
+    }
+
+    /// The athlete's usual first contact on the deck, as a faint hollow ghost (council §5: the explanation is the
+    /// difference from it). Not drawn without the measured board distance.
+    private func drawUsualLanding(_ context: GraphicsContext, fit: (scale: Double, left: Double, floor: Double)) {
+        guard let v = usualContactV, let distance = scene.boardDistance, v >= 0, v <= 48 else { return }
+        let board = SideScene.board
+        let along = v * 0.0254
+        let p = CGPoint(x: fit.left + (distance + along * cos(board.angle)) * fit.scale,
+                        y: fit.floor - (board.frontHeight + along * sin(board.angle)) * fit.scale)
+        let ring = Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12))
+        context.stroke(ring, with: .color(.secondary.opacity(0.8)), style: StrokeStyle(lineWidth: 1.4, dash: [2, 2]))
+        context.draw(Text("usual landing").font(.caption2).foregroundStyle(.secondary),
+                     at: CGPoint(x: p.x, y: p.y + 9), anchor: .top)
     }
 
     /// Release, first contact and where the bag ended; faded until the replay reaches them.

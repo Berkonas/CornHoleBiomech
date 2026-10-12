@@ -525,6 +525,53 @@ def _metrics_metadata(summaries: dict[str, Any], camera_view: str) -> dict[str, 
     return result
 
 
+def _release_frame_board_model(auto_flight: dict[str, Any] | None, board_scale: dict[str, Any],
+                               camera_to_release: dict[str, Any] | None) -> tuple[Any, str | None]:
+    """The board's throw-plane model (`board.BoardModel`) in the flight's release-frame pixels, or (None, reason).
+
+    The board is solved at the field of view the metric scale actually used (`board_scale["hfov_deg"]`),
+    never silently at the nominal one. Points camera-steadied into the release frame (`camera_to_release`)
+    match the board's pixels only when the board payload's `reference_frame` is that same release frame.
+    """
+    from .board import solve_board
+    board = (auto_flight or {}).get("board") or {}
+    if board.get("status") != "found" or not board.get("corners_px"):
+        return None, "Board not located, so points cannot be mapped into the throw plane."
+    hfov = board_scale.get("hfov_deg")
+    if hfov is None:
+        return None, f"No field of view for the board pose ({board_scale.get('reason') or 'scale unavailable'})."
+    if not camera_to_release:
+        return None, "No camera-steadying transforms to bring points into the board's frame."
+    reference, release = board.get("reference_frame"), auto_flight.get("release_frame")
+    if reference is None or reference != release:
+        return None, (f"The board is in frame {reference}'s pixels but points are steadied into the flight's "
+                      f"release frame {release}; nothing is mapped across frames.")
+    size = (int(auto_flight.get("width") or 1920), int(auto_flight.get("height") or 1080))
+    try:
+        return solve_board(np.asarray(board["corners_px"], float), size, hfov_deg=float(hfov)), None
+    except ValueError:
+        return None, f"The board's pose could not be solved at {hfov:.1f}°."
+
+
+def _plane_launch(auto_flight: dict[str, Any] | None, board_scale: dict[str, Any],
+                  camera_to_release: dict[str, Any] | None, launch_points: np.ndarray, release_frame: int | None,
+                  fps: float, projectile_config: dict[str, Any]) -> dict[str, Any]:
+    """The gravity-constrained launch fitted in the board's throw plane (`bag.plane_launch_fit`), with a status.
+
+    `launch_points` are the release-frame pixels the pixel fit used (impact and interpolation removed).
+    """
+    from .bag import plane_launch_fit
+    model, reason = _release_frame_board_model(auto_flight, board_scale, camera_to_release)
+    if model is None:
+        return {"status": "unavailable", "reason": reason}
+    fit = plane_launch_fit(launch_points, release_frame, fps, model.to_plane,
+                           window_seconds=float(projectile_config["release_fit_window_seconds"]),
+                           minimum_points=int(projectile_config["minimum_velocity_points"]))
+    if fit is None:
+        return {"status": "unavailable", "reason": "Too few bag samples after release for the throw-plane fit."}
+    return {"status": "measured", "hfov_deg": board_scale.get("hfov_deg"), **fit}
+
+
 def _throw_plane_joints(auto_flight: dict[str, Any] | None, board_scale: dict[str, Any], filtered: np.ndarray,
                         landmarks: tuple[str, ...], side: str,
                         camera_to_release: dict[str, Any] | None) -> tuple[dict[str, np.ndarray] | None, Any, str | None]:
@@ -537,24 +584,9 @@ def _throw_plane_joints(auto_flight: dict[str, Any] | None, board_scale: dict[st
     (joints or None, BoardModel or None, reason when None).
     """
     from .bag_filter import stabilize_points
-    from .board import solve_board
-    board = (auto_flight or {}).get("board") or {}
-    if board.get("status") != "found" or not board.get("corners_px"):
-        return None, None, "Board not located, so joints cannot be mapped into the throw plane."
-    hfov = board_scale.get("hfov_deg")
-    if hfov is None:
-        return None, None, f"No field of view for the board pose ({board_scale.get('reason') or 'scale unavailable'})."
-    if not camera_to_release:
-        return None, None, "No camera-steadying transforms to bring the pose into the board's frame."
-    reference, release = board.get("reference_frame"), auto_flight.get("release_frame")
-    if reference is None or reference != release:
-        return None, None, (f"The board is in frame {reference}'s pixels but the pose is steadied into the flight's "
-                            f"release frame {release}; joints are not mapped across frames.")
-    size = (int(auto_flight.get("width") or 1920), int(auto_flight.get("height") or 1080))
-    try:
-        model = solve_board(np.asarray(board["corners_px"], float), size, hfov_deg=float(hfov))
-    except ValueError:
-        return None, None, f"The board's pose could not be solved at {hfov:.1f}°."
+    model, reason = _release_frame_board_model(auto_flight, board_scale, camera_to_release)
+    if model is None:
+        return None, None, reason
     joints: dict[str, np.ndarray] = {}
     for joint in ("shoulder", "elbow", "wrist"):
         steady = stabilize_points(filtered[:, landmarks.index(f"{side}_{joint}")], camera_to_release)
@@ -1276,6 +1308,18 @@ def analyze_trial(
         physical_velocity = projectile.get("physical_units", {}).get("velocity", {})
         if constrained:
             physical_velocity = {k: constrained[k] for k in ("forward_m_s", "vertical_m_s", "speed_m_s")}
+            # Board-plane scale: fit in plane metres instead of pixels ÷ one horizontal scale, which the
+            # plane's homography shears (CALCULATION_AUDIT.md §D2). Pixel-unit values above stay as fitted.
+            plane = (_plane_launch(auto_flight if auto_accepted else None, board_scale, camera_to_release,
+                                   launch_points, release_frame, video.fps, projectile_config)
+                     if calibration is not None and calibration.plane == "board_throw_plane" else None)
+            projectile["throw_plane_fit"] = plane
+            if plane and plane.get("status") == "measured":
+                projectile["metric_model"] = plane["model"]   # primary_model stays the pixel fit (px values)
+                physical_velocity = {k: plane[k] for k in ("forward_m_s", "vertical_m_s", "speed_m_s")}
+                summaries["bag_release_angle_deg"] = plane["angle_deg"]
+                summaries["bag_release_angle_se_deg"] = plane["standard_error"]["angle_deg"]
+                summaries["bag_release_speed_se_m_s"] = plane["standard_error"]["speed_m_s"]
         for source, destination in (
             ("forward_m_s", "bag_release_forward_velocity_m_s"),
             ("vertical_m_s", "bag_release_vertical_velocity_m_s"),
@@ -1742,6 +1786,8 @@ TWO_VIEW_ROW_KEYS = {
     "front_shoulder_tilt_deg": ("frontal", "shoulder_tilt_deg"),
     "front_release_offset_m": ("frontal", "release_point_offset_m"),
     "front_stance_offset_m": ("frontal", "stance_offset_m"),
+    "front_hand_path_range_sw": ("frontal", "hand_path_range_sw"),
+    "front_trunk_lean_change_deg": ("frontal", "trunk_lean_change_deg"),
 }
 
 

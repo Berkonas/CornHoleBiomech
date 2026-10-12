@@ -784,8 +784,30 @@ def track_bag_on_deck(frames: Sequence[np.ndarray], homographies: Sequence[np.nd
         f = point["frame"]
         deck = to_deck(homographies[f], np.array([point["bottom_px"]]))[0]
         path.append({"frame": f, "px": point["px"], "bottom_px": point["bottom_px"],
-                     "deck_in": [float(deck[0]), float(deck[1])]})
+                     "deck_in": [float(deck[0]), float(deck[1])], **({"turn": True} if point.get("turn") else {})})
     return path
+
+
+def slide_turned_on_deck(path: list[dict[str, Any]]) -> bool:
+    """A sharp turn (front_track ``turn``) while the bag is sliding on the deck: the sign that the track passed to a
+    knocked bag. The landing itself (falling, then sliding) and a bag dropping off the deck's edge also turn, so the
+    heading window must lie wholly after the front camera's first contact (points tagged "deck") and the next three
+    points must still be on the deck. On the library this kept the one real knock of four flags and cleared three
+    bags that landed and slid off the side (checked on the frames, VALIDATION_PLAN.md)."""
+    from .front_track import DECK_TURN_SPAN
+    return any(p.get("turn") and i >= DECK_TURN_SPAN
+               and all(q.get("phase") == "deck" for q in path[i - DECK_TURN_SPAN:i + DECK_TURN_SPAN + 1])
+               and len(path[i + 1:i + 4]) == 3 and all(point_in_deck(q["deck_in"], 0.0) for q in path[i + 1:i + 4])
+               for i, p in enumerate(path))
+
+
+def tag_path_phases(path: list[dict[str, Any]], contact_frame: int | None) -> None:
+    """Mark each deck-track point ``phase``: "air" before the front camera's first-contact frame, "deck" from it.
+    Without a measured contact the points are left untagged (the replay then cannot split them)."""
+    if contact_frame is None:
+        return
+    for point in path:
+        point["phase"] = "air" if point["frame"] < contact_frame else "deck"
 
 
 UNDER_BOARD_FROM_M = 0.45      # floor under the deck from 0.45 m behind the front edge ...
@@ -965,6 +987,11 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
             contact = near
     result["contact"] = None if contact is None else {"frame": contact["frame"], "x_in": contact["deck_in"][0],
                                                       "y_in_front": contact["deck_in"][1], "px": contact["px"]}
+    # The deck track starts ~0.15 s before the side camera's contact to catch the last flight steps, so its first
+    # 1–4 points are the bag still in the air (85 of 86 library throws). Each point says which it is, so the replay
+    # draws the slide only from the front camera's own first contact (drawn from the track's start, the slide
+    # colour appeared 67–100 ms before the bag touched the deck).
+    tag_path_phases(path, None if contact is None else contact["frame"])
     under_path = under.reshape(-1, 1, 2).astype(np.float32)
     floor_gate = _floor_gate(c_after, (w, h), hfov_deg)
     deck_cx = float(c_after[:, 0].mean())
@@ -1059,6 +1086,14 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
         else:
             in_under = []
         result["ambiguous"] = True
+    # Two new bags on the deck, or a tracked slide that turns sharply while another bag moved: the track may have
+    # passed from the thrown bag to the one it knocked (it stops, the other slides on), so the rest, an "off" or a
+    # "hole" read from it could describe the wrong bag. Flagged for a person rather than chosen silently.
+    turned = path_starts_at_contact and slide_turned_on_deck(path)
+    if not result.get("ambiguous") and (len(on_deck) >= 2 or (turned and (removed or len(on_deck) + len(in_under) + len(elsewhere) >= 2))):
+        result["ambiguous"] = True
+        result["identity_unsure"] = "two_new_bags_on_deck" if len(on_deck) >= 2 else "tracked_slide_turned"
+        result.setdefault("notes", []).append("Another bag moved on the board; which one is the thrown bag needs your eye.")
     # With no bag seen under the board, the hole is still the answer when the bag was tracked from its first
     # contact on the deck into the hole and nothing new lies elsewhere.
     tracked_into_hole = path_starts_at_contact and result["contact"] is not None and \
@@ -1109,6 +1144,17 @@ def _mean_joint(pose_frames, frame: int, name: str, half_window: int = 1) -> np.
     return np.mean(points, axis=0) if points else None
 
 
+FRONT_VIEW_LABEL = "front view 2D (frontal plane image)"
+
+
+def _frontal_item(value: float | None, unit: str, label: str, reason: str | None = None, status: str = "measured"
+                  ) -> dict[str, Any]:
+    """One frontal measure: value/unit/label/status/reason; ``unavailable`` with the reason when the value is missing."""
+    ok = value is not None and bool(np.isfinite(value))
+    return {"value": float(value) if ok else None, "unit": unit, "label": label,
+            "status": status if ok else "unavailable", "reason": None if ok else reason, "view": FRONT_VIEW_LABEL}
+
+
 def camera_roll_deg(corners_px: np.ndarray) -> float:
     """The front camera's roll: the board's back edge is level, so its slope in the image is the roll."""
     c = np.asarray(corners_px, float)
@@ -1144,9 +1190,7 @@ def frontal_metrics(pose_frames: Sequence[dict[str, Any]], release_frame: int, f
                                                "status": "measured", "reason": None}}
 
     def put(key: str, value: float | None, unit: str, label: str, reason: str | None = None, status: str = "measured"):
-        out[key] = {"value": None if value is None or not np.isfinite(value) else float(value), "unit": unit,
-                    "label": label, "status": status if value is not None and np.isfinite(value) else "unavailable",
-                    "reason": reason if value is None or not np.isfinite(value) else None}
+        out[key] = _frontal_item(value, unit, label, reason, status)
 
     f = int(release_frame)
     ls, rs = _mean_joint(pose_frames, f, "left_shoulder"), _mean_joint(pose_frames, f, "right_shoulder")
@@ -1218,6 +1262,189 @@ def frontal_metrics(pose_frames: Sequence[dict[str, Any]], release_frame: int, f
         why = no_camera if pose is None else "Ankles not seen clearly."
         put("stance_offset_m", None, "m", "Feet midpoint from the board's centre line", why)
         put("stance_width_m", None, "m", "Sideways distance between the ankles", why)
+    return out
+
+
+# ------------------------------------------------------------------------------------------------
+# Frontal-plane time series around release (front-camera pose), and the swing measures built on it.
+# Method, constants and reliability evidence: docs/METHODS_AND_MATH.md §5.2 ("Frontal-plane body over the throw").
+
+FRONT_KIN_WINDOW_S = (-1.4, 0.4)          # series window around release (time 0 = release_front)
+FRONT_SETUP_WINDOW_S = (-1.4, -1.2)       # set-up: hips still on every athlete (SD ≤ 0.01 sw), before the swing starts
+FRONT_KIN_CUTOFF_HZ = 6.0                 # zero-phase Butterworth, as the side pipeline (§1.4, §3.6)
+FRONT_FORWARD_SWING_FALLBACK_S = 0.5      # forward-swing start without a mapped side peak-backswing
+FRONT_MIN_SWING_COVERAGE = 0.8            # share of forward-swing frames with a wrist, needed for the hand-path range
+FRONT_MIN_SHOULDER_WIDTH_PX = 3.0
+FRONT_WRIST_CLEAR_CONFIDENCE = 0.5          # below it the wrist is a guess behind the body (forward swing)
+FRONT_MAX_UNCLEAR_SHARE = 0.2               # more forward-swing frames unclear than this: the range is estimated
+
+
+def _joint_tracks(pose_frames: Sequence[dict[str, Any]], names: Sequence[str], roll_deg: float
+                  ) -> dict[str, np.ndarray]:
+    """Per-joint (n, 2) image positions over the whole clip, NaN where missing or below FRONT_POSE_MIN_CONFIDENCE,
+    rotated by −roll so image x is level with the board's back edge."""
+    r = math.radians(roll_deg)
+    c, s = math.cos(r), math.sin(r)
+    tracks = {}
+    for name in names:
+        xy = np.full((len(pose_frames), 2), np.nan)
+        for f in range(len(pose_frames)):
+            p = _joint(pose_frames, f, name)
+            if p is not None:
+                xy[f] = (p[0] * c + p[1] * s, -p[0] * s + p[1] * c)      # undo a clockwise roll (y down)
+        tracks[name] = xy
+    return tracks
+
+
+def front_kinematics(pose_frames: Sequence[dict[str, Any]], release_frame: int | None, fps: float, throwing_side: str,
+                     roll_deg: float = 0.0, forward_swing_frame: int | None = None,
+                     forward_swing_source: str | None = None) -> dict[str, Any]:
+    """Frontal-plane time series from the front camera's 2D pose, synchronised to the side camera's release.
+
+    ``t_s`` = (front frame − release_front) / fps over FRONT_KIN_WINDOW_S. Joint positions (confidence ≥
+    FRONT_POSE_MIN_CONFIDENCE, roll removed) are low-passed zero-phase at 6 Hz on each finite run long enough to
+    filter (shorter runs stay raw); gaps are never interpolated, so a missing frame is null in every series that
+    needs it. One ruler for the whole series: the median shoulder width in the set-up window (else over the window).
+
+    * ``wrist_across_sw`` — throwing wrist sideways from the throwing shoulder, + towards the midline (as
+      ``arm_across_body_sw``).
+    * ``trunk_lean_deg`` — hip centre → shoulder centre against vertical, + towards the throwing arm (as
+      ``trunk_side_lean_deg``).
+    * ``hip_sway_sw`` — hip centre sideways from its set-up position (median over FRONT_SETUP_WINDOW_S), + towards
+      the throwing arm.
+
+    ``forward_swing_frame`` (front frame) starts the forward swing for the hand-path range; without it the start is
+    FRONT_FORWARD_SWING_FALLBACK_S before release. Image measures only: the throwing arm swings towards this camera,
+    so no elbow or shoulder joint angle is derived from it.
+    """
+    base = {"view": FRONT_VIEW_LABEL, "time_zero": "release (side camera, mapped to the front clip)",
+            "units": {"t_s": "s", "wrist_across_sw": "shoulder widths", "trunk_lean_deg": "°", "hip_sway_sw": "shoulder widths"},
+            "signs": {"wrist_across_sw": "+ towards the midline", "trunk_lean_deg": "+ towards the throwing arm",
+                      "hip_sway_sw": "+ towards the throwing arm"}}
+    if release_frame is None or not pose_frames or fps <= 0:
+        return {**base, "status": "unavailable", "reason": "Needs the front camera's body tracking and the release frame."}
+    from .filtering import lowpass_zero_phase
+    t_side = throwing_side
+    o_side = "left" if throwing_side == "right" else "right"
+    # The thrower's right is the image's left (the camera faces the thrower). For a right-hander the other shoulder
+    # (the midline direction) is image +x and the throwing arm's side is image −x; mirrored for a left-hander.
+    towards_mid = 1.0 if throwing_side == "right" else -1.0
+    names = (f"{t_side}_wrist", f"{t_side}_shoulder", f"{o_side}_shoulder", f"{t_side}_hip", f"{o_side}_hip")
+    raw = _joint_tracks(pose_frames, names, roll_deg)
+    stacked = np.concatenate([raw[n] for n in names], axis=1)
+    filtered, cutoff, notes = lowpass_zero_phase(stacked, fps, FRONT_KIN_CUTOFF_HZ)
+    tracks = {n: filtered[:, 2 * i: 2 * i + 2] for i, n in enumerate(names)}
+    rf = int(release_frame)
+    f0, f1 = rf + int(round(FRONT_KIN_WINDOW_S[0] * fps)), rf + int(round(FRONT_KIN_WINDOW_S[1] * fps))
+    frames = np.arange(f0, f1 + 1)
+    inside = (frames >= 0) & (frames < len(pose_frames))
+
+    def window(name: str) -> np.ndarray:
+        out = np.full((len(frames), 2), np.nan)
+        out[inside] = tracks[name][frames[inside]]
+        return out
+
+    wrist, sh_t, sh_o = window(names[0]), window(names[1]), window(names[2])
+    hip_t, hip_o = window(names[3]), window(names[4])
+    t = (frames - rf) / fps
+    setup = (t >= FRONT_SETUP_WINDOW_S[0] - 1e-9) & (t <= FRONT_SETUP_WINDOW_S[1] + 1e-9)
+    widths = np.linalg.norm(sh_t - sh_o, axis=1)
+    scale_source = "set-up"
+    width = float(np.nanmedian(widths[setup])) if np.isfinite(widths[setup]).any() else np.nan
+    if not np.isfinite(width):
+        width = float(np.nanmedian(widths)) if np.isfinite(widths).any() else np.nan
+        scale_source = "whole window (set-up shoulders not seen)"
+    if not np.isfinite(width) or width < FRONT_MIN_SHOULDER_WIDTH_PX:
+        width, scale_source = np.nan, None
+    sc, hc = (sh_t + sh_o) / 2, (hip_t + hip_o) / 2
+    trunk = sc - hc
+    lean = -towards_mid * np.degrees(np.arctan2(trunk[:, 0], -trunk[:, 1]))
+    # (same sign rule as frontal_metrics: + = top of the trunk towards the throwing arm)
+    wrist_across = towards_mid * (wrist[:, 0] - sh_t[:, 0]) / width
+    hip_setup = float(np.nanmedian(hc[setup, 0])) if np.isfinite(hc[setup, 0]).any() else np.nan
+    hip_sway = -towards_mid * (hc[:, 0] - hip_setup) / width
+    lean_setup = float(np.nanmedian(lean[setup])) if np.isfinite(lean[setup]).any() else None
+    # Forward swing: from the mapped side peak-backswing, or a fixed time before release.
+    if forward_swing_frame is not None and f0 <= int(forward_swing_frame) < rf:
+        swing_start, swing_source = int(forward_swing_frame), forward_swing_source or "side peak backswing"
+    else:
+        swing_start = rf - int(round(FRONT_FORWARD_SWING_FALLBACK_S * fps))
+        swing_source = f"fixed {FRONT_FORWARD_SWING_FALLBACK_S:.1f} s before release (no side peak backswing)"
+
+    # Wrist seen but not clearly during the forward swing: behind the body the model still places it (on the hip
+    # line, confidence 0.35–0.45 on Player 3) while a visible wrist scores 0.6–0.85.
+    hidden = []
+    for f in range(max(0, swing_start), min(rf, len(pose_frames) - 1) + 1):
+        point = (pose_frames[f] or {}).get(names[0])
+        conf = None if point is None else point[2]
+        if _joint(pose_frames, f, names[0]) is not None:
+            hidden.append(conf is not None and conf < FRONT_WRIST_CLEAR_CONFIDENCE)
+    hidden_share = float(np.mean(hidden)) if hidden else None
+
+    def rounded(values: np.ndarray, digits: int) -> list[float | None]:
+        return [None if not np.isfinite(v) else round(float(v), digits) for v in values]
+
+    unfiltered = sum(1 for n in notes if "too short" in n)
+    return {**base, "status": "measured" if np.isfinite(wrist_across).any() or np.isfinite(lean).any() else "unavailable",
+            "reason": None if np.isfinite(wrist_across).any() or np.isfinite(lean).any()
+            else "The front camera did not see the athlete clearly around release.",
+            "release_frame": rf, "fps": float(fps),
+            "t_s": [round(float(v), 3) for v in t],
+            "wrist_across_sw": rounded(wrist_across, 3), "trunk_lean_deg": rounded(lean, 1), "hip_sway_sw": rounded(hip_sway, 3),
+            "setup_window_s": list(FRONT_SETUP_WINDOW_S),
+            "setup_trunk_lean_deg": None if lean_setup is None else round(lean_setup, 1),
+            "shoulder_width_px": None if not np.isfinite(width) else round(width, 1), "scale_source": scale_source,
+            "forward_swing_start_s": round((swing_start - rf) / fps, 3), "forward_swing_source": swing_source,
+            "forward_swing_wrist_unclear_share": None if hidden_share is None else round(hidden_share, 2),
+            "filter": {"type": "zero-phase Butterworth (4th order)", "cutoff_hz": float(cutoff),
+                       "short_runs_left_raw": int(unfiltered)},
+            "camera_roll_deg": round(float(roll_deg), 2)}
+
+
+def swing_measures(kinematics: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Scalar measures from ``front_kinematics`` for the ``frontal`` block (value/unit/label/status/reason/view).
+
+    Kept after the reliability check on the library (METHODS_AND_MATH §5.2): ``hand_path_range_sw`` (sideways range
+    of the throwing wrist during the forward swing) and ``trunk_lean_change_deg`` (trunk lean at release minus the
+    set-up lean). ``hip_sway_sw`` is in the time series only (see the docs for why it is not a scalar).
+    """
+    missing = kinematics.get("reason") or "The front camera did not see these joints clearly."
+    out = {}
+    t = np.asarray(kinematics.get("t_s") or [], float)
+
+    def series(key: str) -> np.ndarray:
+        return np.array([np.nan if v is None else v for v in kinematics.get(key) or []], float)
+
+    at_release = np.flatnonzero(np.isclose(t, 0.0, atol=1e-6))
+    wrist, lean = series("wrist_across_sw"), series("trunk_lean_deg")
+    start = kinematics.get("forward_swing_start_s")
+    source = kinematics.get("forward_swing_source") or ""
+    range_value, range_reason = None, missing
+    if len(t) and start is not None and len(at_release) and len(wrist) == len(t):
+        span = (t >= start - 1e-6) & (t <= 1e-6)
+        seen = np.isfinite(wrist[span])
+        if span.sum() >= 3 and seen.mean() >= FRONT_MIN_SWING_COVERAGE:
+            range_value = float(np.nanmax(wrist[span]) - np.nanmin(wrist[span]))
+        else:
+            range_reason = (f"The throwing wrist was seen in {int(seen.sum())} of {int(span.sum())} forward-swing frames "
+                            f"(needs {FRONT_MIN_SWING_COVERAGE:.0%}).")
+    unclear = kinematics.get("forward_swing_wrist_unclear_share")
+    estimated = range_value is not None and unclear is not None and unclear > FRONT_MAX_UNCLEAR_SHARE
+    item = _frontal_item(range_value, "shoulder widths",
+                         "Hand path sideways range in the forward swing (front view 2D)", range_reason,
+                         status="estimated" if estimated else "measured")
+    if estimated:
+        item["reason"] = (f"The hand was partly hidden behind the body in {unclear:.0%} of the forward swing "
+                          "(pose confidence below 0.5), so part of the path is the model's guess.")
+    item["forward_swing_source"] = source
+    out["hand_path_range_sw"] = item
+    setup_lean = kinematics.get("setup_trunk_lean_deg")
+    change = None
+    if setup_lean is not None and len(at_release) and len(lean) == len(t) and np.isfinite(lean[at_release[0]]):
+        change = float(lean[at_release[0]] - setup_lean)
+    out["trunk_lean_change_deg"] = _frontal_item(
+        change, "°", "Trunk side lean change from set-up to release (+ towards throwing arm, front view 2D)",
+        None if change is not None else "The trunk was not seen clearly at set-up and at release.")
     return out
 
 

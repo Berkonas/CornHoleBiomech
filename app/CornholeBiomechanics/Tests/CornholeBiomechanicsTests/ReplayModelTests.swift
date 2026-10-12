@@ -61,3 +61,27 @@ final class ReplayModelTests: XCTestCase {
         XCTAssertEqual(number(-0.6, digits: 0), "-1")
     }
 }
+
+final class FrontContactTimingTests: XCTestCase {
+    func testFrameClockSeeksIntoTheFrameAndMapsBackToIt() {
+        for fps in [29.97, 30.0, 59.94, 60.0] {
+            for frame in [0, 1, 121, 122, 123, 899] {
+                let seconds = FrameClock.time(of: frame, fps: fps).seconds
+                XCTAssertEqual(FrameClock.frame(at: seconds, fps: fps, count: 10_000), frame, "fps \(fps) frame \(frame)")
+            }
+        }
+        XCTAssertNil(FrameClock.frame(at: .nan, fps: 30, count: 10))
+        XCTAssertEqual(FrameClock.frame(at: 99, fps: 30, count: 10), 9)
+    }
+
+    func testDeckTrackBeforeFirstContactIsDrawnAsFlightNotSlide() {
+        typealias P = TwoViewDocument.FrontPathPoint
+        let untagged = (120...126).map { P(frame: $0, px: [0, 0], deck_in: nil, phase: nil) }
+        let byFrame = FrontReplayOverlay.splitAtContact(untagged, contactFrame: 123)
+        XCTAssertEqual(byFrame.air.map(\.frame), [120, 121, 122, 123])     // joins the slide at the contact point
+        XCTAssertEqual(byFrame.deck.map(\.frame), [123, 124, 125, 126])
+        let tagged = (120...123).map { P(frame: $0, px: [0, 0], deck_in: nil, phase: $0 < 122 ? "air" : "deck") }
+        XCTAssertEqual(FrontReplayOverlay.splitAtContact(tagged, contactFrame: nil).deck.map(\.frame), [122, 123])
+        XCTAssertEqual(FrontReplayOverlay.splitAtContact(untagged, contactFrame: nil).deck.count, untagged.count)
+    }
+}

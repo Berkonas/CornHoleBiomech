@@ -15,10 +15,10 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - arm motion flexion sd deg: 8.1848501380245
 - arm motion mean flexion deg: 9.115732783724551
 - arm motion radius cv ratio: 0.0512085065192621
-- arm to trunk deg at release: 92.74263209582298
-- arm to trunk deg mean: 116.1964331582828
-- arm to trunk deg rom: 133.9803891611944
-- arm to trunk velocity deg s mean: 16.240658416842656
+- arm to trunk deg at release: 92.74263209582296
+- arm to trunk deg mean: 119.54950233867383
+- arm to trunk deg rom: 157.06134851101493
+- arm to trunk velocity deg s mean: 15.922459706903801
 - arm to trunk velocity deg s peak abs: 500.3377013641144
 - bag flight apparent gravity m s2: unavailable
 - bag release acceleration magnitude arm lengths s2: 26.372193090445766
@@ -84,7 +84,7 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - chain release angle deg: 44.03905645640755
 - chain release height m: 0.9981526735470453
 - chain release speed m s: 7.46205318866829
-- chain shoulder angle at release deg: 92.74263209582298
+- chain shoulder angle at release deg: 92.74263209582296
 - chain shoulder peak angular velocity deg s: 500.3377013641144
 - chain shoulder peak time rel release ms: 0.0
 - chain speed margin over minimum percent: -3.423380802579845
@@ -92,31 +92,31 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - chain wrist peak speed time rel release ms: -66.73340006673341
 - elbow angle deg at release: 158.98770779177218
 - elbow angle deg max: 179.72366598771362
-- elbow angle deg mean: 149.17389255497272
-- elbow angle deg min: 99.0096011744983
-- elbow angle deg rom: 80.71406481321532
-- elbow angle velocity deg s mean: -10.568851242514851
+- elbow angle deg mean: 148.91937856387216
+- elbow angle deg min: 98.78012231706002
+- elbow angle deg rom: 80.9435436706536
+- elbow angle velocity deg s mean: -11.026240100941484
 - elbow angle velocity deg s peak abs: 327.9675258010598
 - elbow extension change forward swing deg: -16.6325618771223
 - elbow extension deficit deg at release: 21.01229220822782
-- elbow extension deficit deg mean: 30.82610744502728
+- elbow extension deficit deg mean: 31.080621436127846
 - elbow peak extension time rel release ms: 50.050050050050054
 - elbow peak extension velocity deg s: 132.106460026006
-- forearm orientation deg mean: -7.881439999285795
+- forearm orientation deg mean: -7.81672481758915
 - forearm orientation deg rom: 168.13243609718805
-- forearm orientation velocity deg s mean: -0.48411992853378916
+- forearm orientation velocity deg s mean: 0.09625232149173574
 - forearm orientation velocity deg s peak abs: 610.210170405066
 - hand to bag speed ratio: 1.5154845134412733
 - landing along error m: -0.43878781833653524
 - launch direction difference deg: -35.96202375184063
-- movement duration seconds: 3.2699366032699366
-- release timing cycle: 0.28061224489795916
+- movement duration seconds: 3.2866199532866203
+- release timing cycle: 0.27918781725888325
 - release to board front m: 5.811036010157668
 - shoulder bag radius at release arm lengths: 1.6958957386540725
 - shoulder peak speed arm lengths s: 1.9299337115531998
-- shoulder translation net arm lengths: 0.28391286152371303
-- shoulder translation path length arm lengths: 2.546503213250839
-- shoulder translation straightness: 0.11149126380299079
+- shoulder translation net arm lengths: 0.28163860333636753
+- shoulder translation path length arm lengths: 2.552272459419647
+- shoulder translation straightness: 0.11034817317286275
 - shoulder wrist angular net change forward swing deg: 125.58101368607379
 - shoulder wrist angular sweep forward swing deg: 125.58101368607379
 - shoulder wrist peak angular velocity forward swing deg s: 534.2870858190581
@@ -136,13 +136,13 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - swing tempo ratio: 1.4782608695652173
 - swing total hand speed at release m s: 4.931450577711082
 - trunk inclination deg at release: 19.64818168585673
-- trunk inclination deg mean: 8.949131406949803
+- trunk inclination deg mean: 8.897556050738526
 - trunk inclination deg rom: 34.553113985453294
-- trunk inclination velocity deg s mean: -5.187687245794019
+- trunk inclination velocity deg s mean: -4.992471927454059
 - trunk inclination velocity deg s peak abs: 70.66512421887242
-- upper arm orientation deg mean: -38.254973854808924
+- upper arm orientation deg mean: -38.44705838941236
 - upper arm orientation deg rom: 155.640558426681
-- upper arm orientation velocity deg s mean: -11.05297117104864
+- upper arm orientation velocity deg s mean: -10.929987779449746
 - upper arm orientation velocity deg s peak abs: 468.22702642530993
 - wrist direction at release deg: 80.00108020824818
 - wrist forward swing path coverage: 1.0
@@ -156,14 +156,14 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - wrist forward swing path total abs turn deg: 126.5076183696312
 - wrist global peak speed arm lengths s: 11.672740919118828
 - wrist path coverage: 1.0
-- wrist path curvature rad per arm length: 4.78651346126364
-- wrist path length arm lengths: 6.887386445235521
-- wrist path mean abs turn deg: 9.686385679973183
-- wrist path net displacement arm lengths: 0.4154370553962401
-- wrist path rms fitted line deviation arm lengths: 0.2615139317236049
-- wrist path sample count: 197
-- wrist path straightness ratio: 0.06031853427995557
-- wrist path total abs turn deg: 1888.8452075947707
+- wrist path curvature rad per arm length: 4.787828530221542
+- wrist path length arm lengths: 6.912213654688722
+- wrist path mean abs turn deg: 9.674361309135719
+- wrist path net displacement arm lengths: 0.4018102907422142
+- wrist path rms fitted line deviation arm lengths: 0.2613498760787663
+- wrist path sample count: 198
+- wrist path straightness ratio: 0.05813047900648391
+- wrist path total abs turn deg: 1896.1748165906008
 - wrist peak speed arm lengths s: 11.681062810988854
 - wrist peak speed m s: 5.943948904978251
 - wrist peak speed time rel release ms: -66.73340006673341
