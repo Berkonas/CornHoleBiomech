@@ -232,3 +232,42 @@ named part has a named driver (speed with carry, launch direction with aim); oth
 **Status.** `measured`; `estimated` when the rest, contact, launch direction or release speed used is estimated;
 `partial` when the rest is known in one direction or none (an off-board bag the cameras could not place), with
 `reasons`; `unavailable` when there is no hole / board / off result.
+
+## Metric review (2026-10-12)
+
+Which coach metrics carry information a coach can act on, measured on the 92-throw library (4 athletes, cached
+results; no re-analysis). *Usable* = share of throws with a value that is not withheld. *SD within* = root-mean-square
+of each athlete's throw-to-throw SD; *SD between* = SD of the athletes' means; *ICC* ≈ between² / (between² + within²),
+a rough share of the variation that is athlete-to-athlete (4 athletes: treat as indicative only). *Within / noise* ≥ 1
+means one throw's difference from usual can exceed what the measurement resolves.
+
+| Metric | Usable | SD within | SD between | Noise floor | ICC | Within / noise | Use |
+|---|---|---|---|---|---|---|---|
+| Release speed (m/s) | 96 % | 0.32 | 0.04 | 0.15 | 0.01 | 2.1 | per throw |
+| Release angle (°) | 97 % | 4.3 | 3.4 | 3.0 | 0.38 | 1.4 | per throw |
+| Release height (m) | 96 % (46 % caution) | 0.09 | 0.06 | 0.03 | 0.31 | 2.9 | per throw |
+| Release point (arm lengths) | 97 % | 0.11 | 0.13 | 0.05 | 0.59 | 2.1 | per throw |
+| Forward swing time (s) | 97 % | 0.050 | 0.065 | 0.035 | 0.62 | 1.4 | per throw |
+| Tempo (back ÷ forward) | 93 % | 0.31 | 0.27 | 0.15 | 0.42 | 2.1 | per throw |
+| Peak wrist speed (arm lengths/s) | 85 % | 0.43 | 0.74 | 0.3 | 0.75 | 1.4 | athlete profile |
+| Peak wrist speed timing (ms) | 83 % | 20 | 23 | 35 | 0.59 | 0.6 | athlete profile |
+| Backswing (°) | 100 % | 4.3 | 20.3 | 5 | 0.96 | 0.9 | athlete profile |
+| Trunk lean at release (°) | 97 % | 2.4 | 7.2 | 5 | 0.90 | 0.5 | athlete profile |
+| Elbow angle at release (°) | 67 % | 2.4 | 4.5 | 10 | 0.77 | 0.2 | advanced |
+| Arm angle at release (°) | 68 % | 6.7 | 6.7 | 5 | 0.50 | 1.3 | advanced |
+| Hand direction at release (°) | 68 % | 6.8 | 8.9 | 5 | 0.64 | 1.4 | advanced |
+| Wrist speed at release (arm lengths/s) | 68 % | 0.53 | 1.05 | 0.3 | 0.80 | 1.8 | advanced |
+| Peak elbow extension speed (°/s) | 70 % | 29 | 54 | 150 | 0.78 | 0.2 | advanced (exploratory) |
+| Elbow extension timing (ms) | 68 % | 114 | 98 | 50 | 0.42 | 2.3 | advanced (exploratory) |
+
+Decisions:
+- **Per throw** (`reliability.METRIC_TIERS`): the release values, release point, forward swing time and tempo. These
+  can differ from the athlete's usual by more than their noise on a single throw, and the release values connect to the
+  bag's flight through the drag-free model (§5.5).
+- **Athlete profile**: backswing, trunk lean, peak wrist speed and its timing describe *how this athlete throws*
+  (large between-athlete differences, ICC 0.6–0.96) but barely change from throw to throw, so they are not used to
+  explain a single miss. Release speed is the reverse: almost all of its variation is within athletes (ICC ≈ 0).
+- **Advanced**: elbow and arm angles at release are withheld on about a third of throws (foreshortened arm, release-frame
+  sensitivity), and the elbow angle varies far less than its 10° noise floor, so it left the headline body tiles
+  (replaced by forward swing time) and stays in *All measurements*.
+- No composite "technique score" is computed: none of these has been validated against an outcome on this sample.

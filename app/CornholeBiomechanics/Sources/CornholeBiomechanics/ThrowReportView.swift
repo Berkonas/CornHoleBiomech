@@ -496,7 +496,9 @@ struct ThrowReportContent: View {
         ("bag_release_speed_m_s", "Release speed", "m/s"), ("bag_release_angle_deg", "Release angle", "°"),
         ("bag_release_height_m", "Release height", "m")]
     static let bodyKeys: [(key: String, label: String, unit: String)] = [
-        ("elbow_angle_deg_at_release", "Elbow angle at release", "°"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°"),
+        // Elbow angle at release left the headline (METRICS.md "Metric review"): it varies 2.4° from throw to throw
+        // against a 10° noise floor and is usable on 67 % of throws; it stays under All measurements.
+        ("swing_forward_duration_s", "Forward swing time", "s"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°"),
         ("wrist_peak_speed_arm_lengths_s", "Peak wrist speed", "arm lengths/s"), ("swing_backswing_angle_deg", "Backswing", "°"),
         ("swing_tempo_ratio", "Tempo", "back ÷ forward")]
     static var headlineKeys: [(key: String, label: String, unit: String)] { releaseKeys + bodyKeys }
@@ -868,6 +870,10 @@ struct ThrowReportContent: View {
                     TableColumn("Uncertainty") { row in
                         Text(uncertainty(row).map { "± \(number($0.value, digits: $0.value >= 10 ? 0 : $0.value < 1 ? 2 : 1)) (\($0.kind == .standardError ? "SE" : "noise"))" } ?? "—")
                             .monospacedDigit().foregroundStyle(.secondary)
+                    }.width(min: 90, ideal: 110)
+                    TableColumn("Use") { row in
+                        Text(row.tierText).foregroundStyle(row.tier == "advanced" ? .secondary : .primary)
+                            .help("Per throw: one throw's change can be resolved. Athlete profile: describes how this athlete throws; it varies less than its noise from throw to throw. Advanced: often unavailable or exploratory.")
                     }.width(min: 90, ideal: 110)
                     TableColumn("Status") { row in
                         HStack(spacing: Space.xs) { ReliabilityGlyph(status: row.status); Text(row.statusText) }

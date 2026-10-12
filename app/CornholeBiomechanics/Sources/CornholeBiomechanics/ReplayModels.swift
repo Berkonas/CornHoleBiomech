@@ -98,6 +98,8 @@ struct CoachMetricRow: Decodable, Identifiable {
     var reasons: [String]
     var value: Double?
     var exploratory: Bool?
+    /// "per_throw", "profile" or "advanced" (reliability.METRIC_TIERS; nil in older analyses).
+    var tier: String? = nil
     /// Smallest change the measurement can resolve (same unit as `value`).
     var noise_floor: Double?
 
@@ -114,6 +116,15 @@ struct CoachMetricRow: Decodable, Identifiable {
     var usableValue: Double? {
         guard !Self.unusableStatuses.contains(status), let value, value.isFinite else { return nil }
         return value
+    }
+
+    var tierText: String {
+        switch tier {
+        case "per_throw": "Per throw"
+        case "profile": "Athlete profile"
+        case "advanced": "Advanced"
+        default: "—"
+        }
     }
 
     var statusText: String {
