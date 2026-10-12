@@ -148,7 +148,7 @@ The Monte-Carlo landmark noise is white noise passed through the 6 Hz filter (�
 
 **G1. Cliff's δ and Hedges' g. Correct.** Test G1 checks known values: δ = 1 and δ = 0, and g with J = 1 − 3/(4(n₁ + n₂) − 9).
 
-**G2. Critical δ. Correct formula, small-n limitation.** The null variance (n_a + n_b + 1)/(3 n_a n_b) is correct. At the smallest allowed groups (5 + 5, one test), exact enumeration of all 252 rank splits shows that 14 (5.6 %) reach δ_crit = 0.75, against a nominal 5 %. Bonferroni across variables and the 0.474 floor keep the family-wise rate near nominal.
+**G2. Critical δ. Correct formula, small-n limitation.** The null variance (n_a + n_b + 1)/(3 n_a n_b) is correct. At the smallest allowed groups (5 + 5, one test), exact enumeration of all 252 rank splits shows that 14 (5.6 %) reach δ_crit = 0.75, against a nominal 5 %. Bonferroni across variables and the 0.474 floor keep the family-wise rate near nominal. Follow-up (2026-10-12): with the real family size (2 tests per variable, 24–32 tests) 5 + 5 can never reach δ_crit (1.18); the coach message now names the group size actually needed (`minimum_claim_group`).
 
 **Other statistical limitations:**
 - Throws from one session are treated as independent, so warm-up, fatigue and drift are ignored.

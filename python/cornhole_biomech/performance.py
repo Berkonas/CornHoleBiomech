@@ -177,6 +177,15 @@ def critical_delta(n1: int, n2: int, comparisons: int, alpha: float = 0.05) -> f
     return max(LARGE_EFFECT, z * np.sqrt((n1 + n2 + 1) / (3 * n1 * n2)))
 
 
+def minimum_claim_group(comparisons: int, alpha: float = 0.05) -> int:
+    """Smallest equal group size at which even a perfect separation (|δ| = 1) clears ``critical_delta``: with
+    24–32 tests it is 7, so promising a comparison at 5 + 5 would be wrong (δ ≥ 1.18 needed there)."""
+    n = MIN_CLAIM_PER_GROUP
+    while n < 200 and critical_delta(n, n, comparisons, alpha) >= 1.0:
+        n += 1
+    return n
+
+
 def _deviation_from_scored_center(scored: np.ndarray, miss: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """|value − median of scored throws|; each scored throw uses the median of the OTHER scored throws."""
     loo = np.array([abs(v - np.median(np.delete(scored, i))) for i, v in enumerate(scored)]) if len(scored) > 1 else np.array([])
@@ -284,9 +293,11 @@ def performance_summary(rows: list[dict[str, Any]], labels: dict[str, str]) -> d
             sentences.append(f"{v.label} was more spread out on misses (SD {_fmt(a['miss']['sd'], v)} vs "
                              f"{_fmt(a['scored']['sd'], v)}{_unit(v.unit)}).")
     if not sentences:
-        if n_scored < MIN_CLAIM_PER_GROUP or counts["miss"] < MIN_CLAIM_PER_GROUP:
+        needed = minimum_claim_group(2 * len(variables))
+        if n_scored < needed or counts["miss"] < needed:
             sentences.append(f"Not enough scored throws ({n_scored}) or misses ({counts['miss']}) yet to compare "
-                             f"them; aim for at least {MIN_CLAIM_PER_GROUP} of each.")
+                             f"them; with {len(variables)} release measures checked, a difference can only show "
+                             f"from about {needed} of each.")
         else:
             sentences.append(f"No measured release variable clearly separated scored throws from misses in these "
                              f"{n_known} throws.")

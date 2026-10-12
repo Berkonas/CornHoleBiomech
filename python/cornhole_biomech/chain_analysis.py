@@ -31,11 +31,15 @@ BODY_RELEASE_PAIRS = (
 # The bag is in the hand at release, so hand speed vs release speed is near-tautological
 # (mostly shared measurement geometry, not an independent movement finding).
 NEAR_TAUTOLOGICAL_PAIRS = {"chain_hand_speed_at_release_m_s"}
+# Peak elbow-extension velocity is not tested against outcome: it changed by up to 100 % across filter cut-offs
+# (CALCULATION_AUDIT §B2), so it stays exploratory and out of the Bonferroni family.
 OUTCOME_VARIABLES = (
     "chain_release_speed_m_s", "chain_release_angle_deg", "chain_release_height_m", "chain_energy_match_percent",
-    "chain_timing_sensitivity_in_per_10ms", "chain_elbow_peak_extension_velocity_deg_s",
-    "chain_shoulder_peak_angular_velocity_deg_s",
+    "chain_timing_sensitivity_in_per_10ms", "chain_shoulder_peak_angular_velocity_deg_s",
 )
+# Measurement noise floors (reliability.py) where one is established: a scored-vs-miss median difference below it is
+# not reported as a difference, whatever δ says (the project's three-part gate).
+OUTCOME_NOISE_FLOORS = {"chain_release_speed_m_s": 0.15, "chain_release_angle_deg": 3.0, "chain_release_height_m": 0.03}
 LABELS = {
     "chain_elbow_peak_extension_velocity_deg_s": "peak elbow extension velocity",
     "chain_shoulder_peak_angular_velocity_deg_s": "peak shoulder angular velocity",
@@ -239,8 +243,11 @@ def outcome_links(rows, seed: int = 0) -> list[dict[str, Any]]:
         if len(scored) >= MIN_PER_GROUP and len(miss) >= MIN_PER_GROUP:
             delta = cliffs_delta(scored, miss)
             threshold = critical_delta(len(scored), len(miss), comparisons=len(OUTCOME_VARIABLES))
-            distinguishes = bool(abs(delta) >= threshold)
-            item.update(cliffs_delta=delta, critical_delta=threshold, distinguishes=distinguishes)
+            floor = OUTCOME_NOISE_FLOORS.get(key)
+            below_floor = floor is not None and abs(float(np.median(scored) - np.median(miss))) < floor
+            distinguishes = bool(abs(delta) >= threshold and not below_floor)
+            item.update(cliffs_delta=delta, critical_delta=threshold, distinguishes=distinguishes,
+                        noise_floor=floor, below_noise_floor=below_floor)
             if distinguishes:
                 direction = "higher" if delta > 0 else "lower"
                 item["outcome_sentence"] = (f"Scored throws were associated with {direction} {LABELS[key]} than "

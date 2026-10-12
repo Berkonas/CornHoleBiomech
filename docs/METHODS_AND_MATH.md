@@ -318,7 +318,7 @@ Produced in Python (`verdict.py`) from tested math, never in the Swift views. Tw
 
 **Scoring** (`zones.sports_stats`): per-bag values 3 (hole), 1 (board), 0 (off/foul); unknown results are excluded, never treated as misses. $\text{PPR} = 4\times$ mean points per bag (gross, no cancellation); In % / On % / Off % are shares of known outcomes. These are per-bag values, not the cancellation score of a round.
 
-**Scored vs miss** (`performance.py`), within one athlete, over a fixed, pre-specified list of release/body variables: per group $n$, median, quartiles, SD, CV (ratio-scale only); Cliff's δ (Eq. 3.13.3) and Hedges' $g$. A variable "differed" only when **all** hold: ≥ 5 throws per group; $\lvert\delta\rvert \ge \delta_{\text{crit}}$, where $\delta_{\text{crit}}$ is the larger of 0.474 ("large") and a Bonferroni chance level across all tests (Eq. 3.13.4); and the median difference exceeds the noise floor. A second test catches two-sided misses (too high *and* too low): misses' distance from the scored median vs scored throws' leave-one-out distance.
+**Scored vs miss** (`performance.py`), within one athlete, over a fixed, pre-specified list of release/body variables: per group $n$, median, quartiles, SD, CV (ratio-scale only); Cliff's δ (Eq. 3.13.3) and Hedges' $g$. A variable "differed" only when **all** hold: ≥ 5 throws per group; $\lvert\delta\rvert \ge \delta_{\text{crit}}$, where $\delta_{\text{crit}}$ is the larger of 0.474 ("large") and a Bonferroni chance level across all tests (Eq. 3.13.4); and the median difference exceeds the noise floor. In practice the Bonferroni term dominates: each variable is tested twice (shift and spread), so with 12–16 variables ($k$ = 24–32) $\delta_{\text{crit}} \approx 1.18$ at 5 + 5 (no claim is possible), 0.81 at 10 + 10 and 0.74 at 12 + 12; even a perfect separation needs about 7–8 throws per group (`minimum_claim_group`), and the coach message says so. Power is low at these sizes: for a true δ ≈ 0.6 a 20–24-throw athlete gets a finding 12–22 % of the time (simulation in the 2026-10-12 review), so "no clear difference" is not evidence of no difference. The scored-vs-miss outcome links in `chain_analysis.py` apply the same noise floors (speed 0.15 m/s, angle 3°, height 0.03 m) and leave out the exploratory peak elbow-extension velocity. A second test catches two-sided misses (too high *and* too low): misses' distance from the scored median vs scored throws' leave-one-out distance.
 
 **Coaching priority gate — five checks** (`coaching.py`). A variable becomes a priority only if it is:
 
@@ -1003,7 +1003,7 @@ Body measures are no longer named per throw (design council decision §4: they a
 
 **Athlete level.** `front_heading_deg`, `front_arm_across_body_sw`, `front_trunk_side_lean_deg` and
 `front_release_offset_m` join the scored-vs-miss and relationship analyses (§2.4) with the noise floors
-above, under the same evidence gate (≥ 5 throws per group, Cliff's δ ≥ 0.474, difference > noise).
+above, under the same evidence gate (≥ 5 throws per group, |δ| ≥ the Bonferroni critical δ and ≥ 0.474, difference > noise).
 
 **Limits.** The front camera sees the deck at a grazing angle, so along-board distance from it alone is
 coarse (that is why y comes from the side). A bag that lands far off the board, outside the front view, is

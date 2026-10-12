@@ -164,7 +164,7 @@ the command line, use `scripts/add_takes_to_library.py`, then `scripts/analyze_l
 - **What differed:** which release variable, if any, separated scored throws (1 or 3 points) from misses (0).
 - **Next practice:** which typical scored throws to review.
 
-The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when there are at least 5 throws in each group, the effect is large (Cliff's δ ≥ 0.474), and it exceeds that variable's measurement noise. The dot plots below the summary show every throw.
+The comparison uses a short, pre-chosen list of variables: release angle, speed, height and forward position, elbow angle and trunk lean at release, and throw duration. A difference is only reported when the effect clears a chance level corrected for every variable tested (never below a large Cliff's δ of 0.474) and exceeds that variable's measurement noise. With the full variable list that takes about 7–8 throws in each group, and the summary says how many are needed. The dot plots below the summary show every throw.
 
 **This throw** shows the release angle with its tracking uncertainty, plus the release speed and release height. **Swing** shows the arm angle at release, peak arm swing speed, backswing, tempo (backswing ÷ forward-swing time) and the pendulum drive ratio. The drive ratio is measured arm speed ÷ what gravity alone would give; above 1 means the arm is actively driven.
 
