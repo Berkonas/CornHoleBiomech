@@ -413,3 +413,27 @@ def test_a_failed_attribution_still_gives_the_outcome_sentence(tmp_path, monkeyp
     block = tv.attribution_for_record(tmp_path, record, _results(), RELEASE_M)
     assert block["status"] == "unavailable" and "ValueError" in block["reason"]
     assert block["sentence"] == "Board: 12 in short, on line. No single measured part stands out." and block["cue"] is None
+
+
+def test_sibling_records_skip_throws_from_another_method_version(tmp_path):
+    analyses = tmp_path / "analyses"
+    for name, version in (("Throw-A", "v2"), ("Throw-B", "v2"), ("Throw-C", "v1"), ("Throw-D", None)):
+        folder = analyses / name
+        folder.mkdir(parents=True)
+        (folder / "two_view.json").write_text(json.dumps({"status": "measured"}))
+        (folder / "results.json").write_text("{}")
+        if version is not None:
+            (folder / "manifest.json").write_text(json.dumps({"method_version": version}))
+    assert len(at.sibling_records(analyses / "Throw-A")) == 1          # B only: C is v1, D has no manifest
+    assert len(at.sibling_records(analyses / "Throw-D")) == 3          # no own manifest: nothing excluded
+
+
+def test_carry_sensitivity_is_the_deck_contact_derivative_not_the_flat_ground_one():
+    """Drag-free flight onto the 10.8° deck at the pilot median release (d 5.68 m, h 1.0 m, 40.6°, 7.49 m/s):
+    ≈ 1.33 m of first contact per m/s (flat ground would give 2R/v ≈ 1.8), so 0.15 m/s ≈ 7.9 in, not 10.6 in."""
+    s = at.carry_sensitivity(7.49, 40.6, 1.0, 5.68)
+    assert abs(s["m_per_m_s"] - 1.33) < 0.02
+    assert 7.0 < 0.15 * s["m_per_m_s"] / INCH_M < 9.0
+    flat = at.carry_sensitivity(7.0, 28.0, 1.0, 5.0)["m_per_deg"]           # flatter release: angle matters more
+    assert flat is not None and abs(flat) > 3 * abs(s["m_per_deg"])
+    assert at.carry_sensitivity(None, 40.0, 1.0, 5.68) == {"m_per_m_s": None, "m_per_deg": None}

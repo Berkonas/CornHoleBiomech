@@ -1166,9 +1166,13 @@ line) and the release position not at all. Noise $\sigma_p$: release position 1.
 slide drift 1 in, carry and slide 2 in each.
 
 **Drivers.** Release speed against the usual is named only next to a named carry, at $|\Delta v| \ge 0.15$ m/s and with
-its sign; its size in carry is $\Delta v \cdot 1.8$ m per m/s (research brief §0: ≈ 0.18 m per 0.1 m/s near 40–45°,
-drag-free). The release angle is never named for carry ($\partial R/\partial\theta \approx 0.03$ m/°, so its 3° noise
-floor is ≈ 3.5 in, inside the carry's own noise). Launch direction is named only next to a named aim, at
+its sign; its size in carry is $\Delta v \cdot \partial s/\partial v$, where $s$ is the drag-free first contact along
+the 10.8° deck for this throw's own release speed, angle, height and release distance (`attribution.carry_sensitivity`,
+central differences of `zones.landing`). At the pilot median release (5.68 m, 1.00 m, 40.6°, 7.49 m/s) this is
+≈ 1.33 m per m/s; the flat-ground $2R/v \approx 1.8$ used before overstated it by about 35 %. When an input is missing,
+1.3 m per m/s is used. The release angle is not named for carry: near 37–45° one degree moves first contact only about
+±2 cm, but at flatter releases (24–32°) it is 5–7 cm per degree, so its implied carry is shown from the same per-throw
+sensitivity. The usual excludes throws analysed with another method version (manifest `method_version`). Launch direction is named only next to a named aim, at
 $|\Delta\psi| \ge 0.5°$ with its sign.
 
 **Bandwidth gate.** The athlete's usual centre and spread are the median and the robust SD ($1.4826 \times$ MAD) of where

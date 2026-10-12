@@ -194,7 +194,7 @@ release and is not used.
 | Aim vs the hole (no usual) | √(aim² + release position²) | the launch line's crossing of the deck combines both |
 | Slide drift | 1 in | two deck-homography x positions, ±0.5 in each (√2 × 0.5 ≈ 0.7 in, rounded up for the bag centre's wobble) |
 | Carry, slide | 2 in each | side board phase along the deck (METHODS §1.9: about 1 in per sample; council §4: ±2 in). Both are differences from the athlete's median by the same method, so a steady mapping offset (two along-deck mappings differ by a median ≈ 3 in) cancels |
-| Release speed | 0.15 m/s | `bag_release_speed_m_s` floor (`reliability.py`). Brief §0: ∂R/∂v ≈ 0.18 m per 0.1 m/s near 40–45°, so the floor alone is ≈ 10 in of carry (`implied_in`) |
+| Release speed | 0.15 m/s | `bag_release_speed_m_s` floor (`reliability.py`). Per-throw ∂(deck contact)/∂v ≈ 1.33 m per m/s at the pilot median release, so the floor alone is ≈ 8 in of carry (`implied_in`, `attribution.carry_sensitivity`) |
 | Release angle | 3° | `bag_release_angle_deg` floor. ∂R/∂θ ≈ 0.03 m/° near 40–45° (brief §0): 3° ≈ 3.5 in, under twice the carry's noise, so the angle is **never** named for carry |
 | Launch direction | 0.5° | as aim |
 

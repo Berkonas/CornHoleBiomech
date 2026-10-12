@@ -77,8 +77,13 @@ MAX_NAMED = 2
 AXIS_MIN_MISS_IN = HOLE_R_IN      # an axis already within the hole radius needs no explanation
 MOST_SHARE = 0.6                  # "Most of the …" from 60 %, "About half of the …" from 40 %
 
-# --- Physics (research brief §0, drag-free, near 40–45°) -----------------------------------------------------
-CARRY_M_PER_M_S = 1.8             # ≈ 0.18 m more carry per 0.1 m/s more release speed
+# --- Physics (drag-free flight onto the 10.8° deck, zones.landing) ---------------------------------------------
+# First contact along the deck per m/s of release speed is computed per throw (carry_sensitivity). 1.8 m per m/s
+# is the flat-ground 2R/v; the raised, tilted deck at the athletes' ~5.7 m release distance gives ≈ 1.3
+# (pilot median d 5.68 m, h 1.00 m, θ 40.6°, v 7.49 m/s), used only when the throw's own values are missing.
+CARRY_M_PER_M_S = 1.3
+SENSITIVITY_STEP_M_S = 0.05
+SENSITIVITY_STEP_DEG = 0.5
 
 BANNED_WORDS = ("because", "caused", "fault", "should")
 _BANNED = re.compile(r"\b(" + "|".join(BANNED_WORDS) + r")\b", re.IGNORECASE)
@@ -125,6 +130,30 @@ def _median_sd(values: Iterable[float | None]) -> tuple[float | None, float | No
 
 # ------------------------------------------------------------------------------------------------
 # What one throw measured (used for this throw and, the same way, for its siblings)
+
+
+def carry_sensitivity(speed: float | None, angle: float | None, height: float | None,
+                      distance: float | None) -> dict[str, float | None]:
+    """∂(first contact along the deck)/∂v in m per m/s and /∂θ in m per degree for this throw's release (central
+    differences of the drag-free deck contact, zones.landing). None when an input is missing or a step leaves
+    the deck."""
+    from .zones import landing
+    out: dict[str, float | None] = {"m_per_m_s": None, "m_per_deg": None}
+    if None in (speed, angle, height, distance) or speed <= 0 or distance <= 0:
+        return out
+    board = Board()
+
+    def along(v: float, a: float) -> float | None:
+        hit = landing(v, a, height, distance, board)
+        return hit["along_m"] if hit["kind"] == "board" else None
+
+    hi, lo = along(speed + SENSITIVITY_STEP_M_S, angle), along(speed - SENSITIVITY_STEP_M_S, angle)
+    if hi is not None and lo is not None:
+        out["m_per_m_s"] = (hi - lo) / (2 * SENSITIVITY_STEP_M_S)
+    hi, lo = along(speed, angle + SENSITIVITY_STEP_DEG), along(speed, angle - SENSITIVITY_STEP_DEG)
+    if hi is not None and lo is not None:
+        out["m_per_deg"] = (hi - lo) / (2 * SENSITIVITY_STEP_DEG)
+    return out
 
 
 def _release_value(results: dict[str, Any], key: str) -> tuple[float | None, str | None]:
@@ -185,8 +214,11 @@ def throw_measures(record: dict[str, Any], results: dict[str, Any],
     run = None if run0 is None else run0 + y_touch * INCH_M * math.cos(Board().angle)
     speed, speed_status = _release_value(results, "bag_release_speed_m_s")
     angle, angle_status = _release_value(results, "bag_release_angle_deg")
+    height, _ = _release_value(results, "bag_release_height_m")
+    distance = run0 if run0 is not None else _num((results.get("summaries") or {}).get("release_to_board_front_m"))
     m.update(x0_m=x0, psi_deg=psi, run_m=run, direction_source=source, direction_status=status,
-             speed=speed, speed_status=speed_status, angle=angle, angle_status=angle_status)
+             speed=speed, speed_status=speed_status, angle=angle, angle_status=angle_status,
+             sensitivity=carry_sensitivity(speed, angle, height, distance))
     m["release_position_in"] = None if x0 is None else x0 / INCH_M
     m["aim_in"] = None if psi is None or run is None else run * math.tan(math.radians(psi)) / INCH_M
     m["slide_drift_in"] = None if m["x_c"] is None or m["x_r"] is None else m["x_r"] - m["x_c"]
@@ -199,16 +231,31 @@ def throw_measures(record: dict[str, Any], results: dict[str, Any],
 # The athlete's usual (other analysed two-camera throws)
 
 
+def _method_signature_of(folder: Path) -> str | None:
+    from .pipeline import method_signature
+    try:
+        manifest = json.loads((folder / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return method_signature(manifest) if isinstance(manifest, dict) else None
+
+
 def sibling_records(analysis_dir: str | Path) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """(two_view record, results) of the athlete's other analysed two-camera throws: the sibling analysis
     folders, as ``two_view.athlete_release_distance`` finds them, whose front camera was analysed. The throw
-    itself is excluded."""
+    itself is excluded, and so is a throw analysed with another method version than this one (manifest.json,
+    ``pipeline.method_signature``): a method change such as the throw-plane launch fit moves release speed by up to
+    0.10 m/s, which must not read as a change of movement (CALCULATION_AUDIT.md). Without this throw's manifest
+    nothing is excluded on that ground."""
     here = Path(analysis_dir)
     pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     if not here.parent.is_dir():
         return pairs
+    mine = _method_signature_of(here)
     for folder in sorted(p for p in here.parent.iterdir() if p.is_dir()):
         if folder.resolve() == here.resolve():
+            continue
+        if mine is not None and _method_signature_of(folder) != mine:
             continue
         try:
             record = json.loads((folder / "two_view.json").read_text())
@@ -406,12 +453,17 @@ def _drivers(me: dict[str, Any], usual: dict[str, Any], lateral: list[dict[str, 
                     "implied_in": _r(implied(delta)) if implied is not None and delta is not None else None,
                     "named": bool(not within and delta is not None and named and named(delta))})
 
+    sens = me.get("sensitivity") or {}
+    per_speed = sens.get("m_per_m_s") if sens.get("m_per_m_s") is not None else CARRY_M_PER_M_S
     add("release_speed", "Release speed", me["speed"], usual["speed"], RELEASE_SPEED_NOISE_M_S, "m/s", me["speed_status"],
-        implied=lambda d: d * CARRY_M_PER_M_S / INCH_M,
+        implied=lambda d: d * per_speed / INCH_M,
         named=lambda d: (carry.get("named") and carry.get("basis") == "usual" and carry.get("in") is not None
                          and abs(d) >= RELEASE_SPEED_NOISE_M_S and _sign(d) == _sign(carry["in"])))
-    # Never named: near 40–45° one degree moves the carry ≈ 0.03 m (≈ 1 in), under the carry's own noise.
-    add("release_angle", "Release angle", me["angle"], usual["angle"], RELEASE_ANGLE_NOISE_DEG, "°", me["angle_status"])
+    # Not named: near 37–45° one degree moves first contact only ≈ ±2 cm, but at flatter releases (24–32°) it is
+    # 5–7 cm per degree, so the implied carry is shown whenever this throw's own sensitivity is known.
+    per_deg = sens.get("m_per_deg")
+    add("release_angle", "Release angle", me["angle"], usual["angle"], RELEASE_ANGLE_NOISE_DEG, "°", me["angle_status"],
+        implied=(lambda d: d * per_deg / INCH_M) if per_deg is not None else None)
     usual_psi = usual["psi_deg"] if me["direction_source"] is not None else None
     add("launch_direction", "Launch direction", me["psi_deg"], usual_psi, LAUNCH_DIRECTION_NOISE_DEG, "°",
         me["direction_status"],
