@@ -243,17 +243,25 @@ struct ReviewInboxView: View {
         let glance = glances.glance(trial.id)
         guard let fps = glance?.frontFPS, fps > 0 else { return InboxClipRequest(url: url, start: nil, end: nil, still: nil) }
         let clipEnd = glance?.frontFrameCount.map { Double($0) / fps }
-        let rest = glance?.restFront.map { Double($0) / fps }
-        let contact = glance?.contactFront.map { Double($0) / fps }
-        // About two seconds around the landing and the rest: from just before first contact to just after rest.
-        var start = max(0, (contact ?? rest ?? 0) - 0.4)
-        var end = (rest ?? contact.map { $0 + 1 } ?? start + 2) + 0.8
-        if end - start < 2 { end = start + 2 }
-        if let clipEnd {
-            end = min(end, clipEnd)
-            if end - start < 2 { start = max(0, end - 2) }
-        }
-        return InboxClipRequest(url: url, start: start, end: end, still: rest ?? contact)
+        let window = Self.clipWindow(fps: fps, frameCount: glance?.frontFrameCount, release: glance?.releaseFront,
+                                     contact: glance?.contactFront, rest: glance?.restFront)
+        return InboxClipRequest(url: url, start: window.start, end: window.end, still: window.still)
+    }
+
+    /// The whole throw, not just the landing: from half a second before release (the swing and the bag leaving the
+    /// hand) to a second after the bag stopped. Starting just before first contact, as before, cut the clip mid-flight.
+    /// Without a release frame the clip starts 1.2 s before first contact (a flight is about 0.9–1.2 s).
+    static func clipWindow(fps: Double, frameCount: Int?, release: Int?, contact: Int?, rest: Int?)
+        -> (start: Double?, end: Double?, still: Double?) {
+        guard fps > 0 else { return (nil, nil, nil) }
+        let t = { (frame: Int?) in frame.map { Double($0) / fps } }
+        let clipEnd = t(frameCount)
+        let releaseT = t(release), contactT = t(contact), restT = t(rest)
+        guard releaseT != nil || contactT != nil || restT != nil else { return (nil, nil, nil) }
+        let start = max(0, (releaseT.map { $0 - 0.5 }) ?? ((contactT ?? restT ?? 0) - 1.2))
+        var end = max(restT ?? 0, (contactT ?? releaseT.map { $0 + 1.0 } ?? start) + 1.5) + 1.0
+        if let clipEnd { end = min(end, clipEnd) }
+        return (start, max(end, start + 1), restT ?? contactT)
     }
 }
 
