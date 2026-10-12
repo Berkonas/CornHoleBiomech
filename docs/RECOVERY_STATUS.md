@@ -43,3 +43,30 @@ Each status cites what was checked. "Reported" claims that could not be confirme
 | Landing tracking improvements | Partially implemented | to be reviewed in Phase 2 |
 | Scientific validation plan | Not started | no plan document found |
 | Merge of `berk/coach-feedback` into `main` | Not started | — |
+
+## Progress on 2026-10-12
+
+Each change below has targeted tests; the full suites pass (644 Python, 87 Swift). No video was processed.
+
+| Change | Commit |
+|---|---|
+| Plane-fit release speed and angle wired into the pipeline when the board plane is the scale | `e7d8534f` |
+| A person's result is never reverted by re-analysis (explicit `source`); Off clears a camera rest point; outcome.json uses the current outcome | `1170ea66` |
+| Miss attribution: per-throw deck-contact carry sensitivity (≈ 1.33, not 1.8 m per m/s); no pooling across method versions | `1002c3f6` |
+| Front camera: a deck track that turns onto a knocked bag, or two new bags on the deck, needs confirmation | `797e8ad0` |
+| 3D flight: timing offset no longer added to the side contact time; fits pinned at a bound are `estimated` | `e57a93d2` |
+| Sound sync scores every lag exactly; front clip rate from the frame spacing | `551bc442` |
+| Shoulder angle: foreshortened frames missing, continuous across the cut; no velocity on unfiltered short runs | `477b4d99` |
+| Statistics: coach message states the group size a difference really needs; outcome links respect noise floors | `ece4f1b0` |
+| App: result edits and Add Athlete during the queue; stale analyses kept out of the inbox; atomic engine writes | `8049c46f` |
+
+The Desktop launcher points to `dist/`, rebuilt from `8049c46f` on 2026-10-12 and signature-verified.
+
+### Still open
+
+- **GitHub push and PR: blocked.** Command-line git has no GitHub credentials, so the commits above are local only.
+- **Copyrighted books in history** (commit `01e3c8ed`) and the athletes' consent for public videos: owner decision.
+- Side camera board phase can re-acquire a knocked bag's vacated spot (`board_phase.py`, found by reading the code, not yet reproduced).
+- App: outcome change history and undo, take ↔ report navigation (previous/next bag), dashed drawing of estimated launch lines in the top view, report files loaded off the main thread.
+- Slide-friction SE gate is optimistic near its threshold; serial dependence within a session is not modelled.
+- Validation plan for the real-video run: not written yet.
