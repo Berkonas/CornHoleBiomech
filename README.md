@@ -146,6 +146,8 @@ Recordings, athlete libraries (`data/libraries/`), project references (`research
 
 ## Documentation
 
+Preparing the course report or presentation? Start with the **[Presentation and report guide](docs/PRESENTATION_AND_REPORT_GUIDE.md)** ([PDF](docs/PRESENTATION_AND_REPORT_GUIDE.pdf)).
+
 | Start here | Science | Validation |
 |---|---|---|
 | [App guide](docs/APP_GUIDE.md) | [Methods & Mathematics](docs/METHODS_AND_MATH.md) | [Verification](docs/VERIFICATION.md) |
