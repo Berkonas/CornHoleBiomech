@@ -92,6 +92,8 @@ struct ThrowAttribution: Decodable, Equatable {
 
     struct FourPart: Decodable, Equatable {
         var observed: String?
+        /// The observation without the result and miss the headline sentence already states (first contact, slide).
+        var observed_detail: String?
         /// "flight", "after_landing", "both" or nil.
         var phase: String?
         var evidence: [String]?
@@ -198,9 +200,11 @@ struct FourPartExplanation: View {
     let parts: ThrowAttribution.FourPart
 
     var body: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.m, verticalSpacing: Space.xs) {
-            row("Observed", parts.observed.map { [$0] } ?? [], phase: phaseText)
-            if let evidence = parts.evidence, !evidence.isEmpty { row("Measured", evidence) }
+        Divider()
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.m, verticalSpacing: Space.s) {
+            // The headline sentence above already gives the result and the miss; only what it leaves out is repeated.
+            row("Observed", [parts.observed_detail ?? parts.observed].compactMap { $0 }, phase: phaseText)
+            if let evidence = parts.evidence, !evidence.isEmpty { row("Measured", evidence, bulleted: evidence.count > 1) }
             if let text = parts.possible_explanation { row("Possible reason", [text]) }
             if let text = parts.suggestion { row("To review", [text]) }
         }
@@ -219,12 +223,12 @@ struct FourPartExplanation: View {
         }
     }
 
-    private func row(_ title: String, _ lines: [String], phase: String? = nil) -> some View {
+    private func row(_ title: String, _ lines: [String], phase: String? = nil, bulleted: Bool = false) -> some View {
         GridRow {
             Text(title).font(.callout.weight(.semibold)).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    Text(bulleted ? "•  " + line : line).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
                 if let phase { Text("Miss made \(phase)").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             }

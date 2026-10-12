@@ -477,3 +477,15 @@ def test_front_view_body_difference_is_evidence_not_a_named_part():
 def test_near_miss_inside_the_hole_radius_is_not_explained():
     att = at.attribute(_record(contact=(13.0, 20.0), rest=(14.0, 37.0)), _results(), release_distance_m=RELEASE_M)
     assert "near miss" in att["explanation"]["possible_explanation"] and att["explanation"]["suggestion"] is None
+
+
+def test_offsetting_release_changes_are_reported_not_called_unchanged():
+    """A short carry while release speed was faster and the angle flatter than usual: the explanation must report
+    both changes and their net drag-free carry, and no 'throw harder' cue contradicts the faster release."""
+    record = _record(contact=(12.0, 18.0), rest=(12.0, 27.0))
+    att = at.attribute(record, _results(speed=9.25, angle=34.0), siblings=_siblings(), release_distance_m=RELEASE_M)
+    e = att["explanation"]
+    assert "release speed (about" in e["possible_explanation"] and "does not account for it" in e["possible_explanation"]
+    assert "did not differ beyond their noise" not in e["possible_explanation"]
+    assert att["cue"] is None and "harder" not in att["sentence"]
+    assert e["observed_detail"].startswith("First contact")

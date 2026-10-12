@@ -65,6 +65,9 @@ final class VisualQATests: XCTestCase {
                                        launchFit: LaunchFitSummary.load(results: dir.appendingPathComponent("results.json")),
                                        history: history, analysisURL: dir)
             data.manifest = ManifestInfo.load(dir.appendingPathComponent("manifest.json"))
+            // Two-camera throws: the front camera's result, explanation, landing and body measures.
+            data.twoView = TwoViewDocument.load(dir)
+            data.boardPhase = BoardPhase.load(results: dir.appendingPathComponent("results.json"))
             data.derive()
             var stale = data; stale.staleReason = "corrections_changed"
             try render(ThrowReportContent(trial: trial, athleteName: "Player 1", data: stale, videoURL: nil, videoAvailable: false,

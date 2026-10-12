@@ -639,6 +639,11 @@ def build_sentence(att: dict[str, Any]) -> tuple[str, str | None]:
     sentence += f" {opener} {word} came from {_part_phrase(part, drivers)}."
     gate = (att.get("inside_spread") or {}).get(axis)
     cue = _cue(part) if gate is not True else None
+    speed = drivers.get("release_speed") or {}
+    if (cue and part["key"] == "carry" and speed.get("delta") is not None and speed.get("noise")
+            and abs(speed["delta"]) >= speed["noise"] and _sign(speed["delta"]) != _sign(part["test_in"])):
+        # "Throw harder" after a release measured faster than usual (or the reverse) would contradict the evidence.
+        cue = None
     if cue:
         sentence += f" {cue}"
     base = f"{lead}: {_depth_text(my)}, {_lateral_text(mx)}."
@@ -698,8 +703,8 @@ def explanation_parts(att: dict[str, Any]) -> dict[str, Any]:
 
     ``phase`` separates a miss made in the flight (release position, aim, carry) from one made after landing (the
     slide), which have different coaching implications. Nothing here claims a cause: one throw is an observation."""
-    out: dict[str, Any] = {"observed": None, "phase": None, "evidence": [], "possible_explanation": None,
-                           "suggestion": None, "basis": None}
+    out: dict[str, Any] = {"observed": None, "observed_detail": None, "phase": None, "evidence": [],
+                           "possible_explanation": None, "suggestion": None, "basis": None}
     result = att.get("result")
     if result is None or att.get("status") == "unavailable":
         out["observed"] = str(att.get("reason") or "There is no result for this throw yet.")
@@ -722,6 +727,7 @@ def explanation_parts(att: dict[str, Any]) -> dict[str, Any]:
     if slide.get("in") is not None and depth.get("reference") == "hole":
         observed += f", then it slid {_inches(slide['in'])} in"
     out["observed"] = observed + "."
+    out["observed_detail"] = observed.split(". ", 1)[1] + "." if ". " in observed else None
     usual = att.get("usual") or {}
     out["basis"] = (f"Compared with this athlete's {usual.get('throws')} other analysed throws (same method version)."
                     if usual.get("spread_lateral_in") is not None else
@@ -791,9 +797,23 @@ def explanation_parts(att: dict[str, Any]) -> dict[str, Any]:
                                            f"{_inches(speed['implied_in'])} in.")
             out["suggestion"] = "Compare swing length and tempo with scored throws (release speed, side view)."
         else:
-            out["possible_explanation"] = (f"The bag landed {_inches(test)} in {'longer' if test > 0 else 'shorter'} "
-                                           "than usual, but release speed and angle did not differ beyond their noise, "
-                                           "so the measured release does not account for it.")
+            moved = [d for d in (drivers.get("release_speed"), drivers.get("release_angle"))
+                     if d and d.get("delta") is not None and d.get("noise") and abs(d["delta"]) >= d["noise"]
+                     and d.get("implied_in") is not None]
+            landed = f"The bag landed {_inches(test)} in {'longer' if test > 0 else 'shorter'} than usual"
+            if moved:
+                net = sum(d["implied_in"] for d in moved)
+                parts = " and ".join(f"{d['label'].lower()} (about {_inches(d['implied_in'])} in "
+                                     f"{'more' if d['implied_in'] > 0 else 'less'})" for d in moved)
+                agrees = _sign(net) == _sign(test) and abs(net) >= 0.5 * abs(test)
+                out["possible_explanation"] = (
+                    f"{landed}. The release changed in {parts}, net about {_inches(net)} in "
+                    f"{'more' if net > 0 else 'less'} carry in a drag-free flight"
+                    + ("; that points the same way and could account for much of it." if agrees else
+                       "; that does not account for it, so the measured release does not explain this carry."))
+            else:
+                out["possible_explanation"] = (f"{landed}, but release speed and angle did not differ beyond their "
+                                               "noise, so the measured release does not account for it.")
             out["suggestion"] = "Check the release frame and bag flight in the side view before drawing a conclusion."
     elif key in AFTER_LANDING_PARTS:
         out["possible_explanation"] = ("The difference arose after landing (the slide), not in the flight; no release "
