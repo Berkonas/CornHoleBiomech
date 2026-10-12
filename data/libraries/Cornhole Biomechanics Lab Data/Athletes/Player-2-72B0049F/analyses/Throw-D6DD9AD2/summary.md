@@ -15,11 +15,11 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - arm motion flexion sd deg: 8.338444255765312
 - arm motion mean flexion deg: 9.56723115253615
 - arm motion radius cv ratio: 0.025982277795991833
-- arm to trunk deg at release: 104.60860872868234
-- arm to trunk deg mean: 146.08616080342375
-- arm to trunk deg rom: 133.29712479984806
-- arm to trunk velocity deg s mean: 5.284815135301994
-- arm to trunk velocity deg s peak abs: 452.1332164588211
+- arm to trunk deg at release: 104.60860872868233
+- arm to trunk deg mean: 151.30080913306904
+- arm to trunk deg rom: 155.66209140986552
+- arm to trunk velocity deg s mean: 4.7252674665272965
+- arm to trunk velocity deg s peak abs: 452.1332164588194
 - bag flight apparent gravity m s2: unavailable
 - bag release acceleration magnitude arm lengths s2: 20.393262320970788
 - bag release acceleration magnitude m s2: 10.512152604328383
@@ -84,39 +84,39 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - chain release angle deg: 40.56733619451684
 - chain release height m: 0.983107071718885
 - chain release speed m s: 7.294262549931131
-- chain shoulder angle at release deg: 104.60860872868234
-- chain shoulder peak angular velocity deg s: 452.1332164588211
+- chain shoulder angle at release deg: 104.60860872868233
+- chain shoulder peak angular velocity deg s: 452.1332164588194
 - chain shoulder peak time rel release ms: -116.78345011678346
 - chain speed margin over minimum percent: -5.942856164860411
 - chain timing sensitivity in per 10ms: unavailable
 - chain wrist peak speed time rel release ms: -50.050050050050054
 - elbow angle deg at release: 149.7035795731205
 - elbow angle deg max: 177.53424438229914
-- elbow angle deg mean: 144.55616741541374
-- elbow angle deg min: 117.5124857194361
-- elbow angle deg rom: 60.021758662863036
-- elbow angle velocity deg s mean: -4.694385244862527
+- elbow angle deg mean: 144.413088448541
+- elbow angle deg min: 117.22808474272243
+- elbow angle deg rom: 60.306159639576705
+- elbow angle velocity deg s mean: -4.708024003352716
 - elbow angle velocity deg s peak abs: 213.57393665598454
 - elbow extension change forward swing deg: -27.080176313099486
 - elbow extension deficit deg at release: 30.296420426879507
-- elbow extension deficit deg mean: 35.44383258458627
+- elbow extension deficit deg mean: 35.58691155145899
 - elbow peak extension time rel release ms: unavailable
 - elbow peak extension velocity deg s: unavailable
-- forearm orientation deg mean: -34.23265506788345
+- forearm orientation deg mean: -34.072929178157246
 - forearm orientation deg rom: 184.78484175038722
-- forearm orientation velocity deg s mean: -0.24382346856265558
+- forearm orientation velocity deg s mean: 0.3695941435188311
 - forearm orientation velocity deg s peak abs: 644.0715709991163
 - hand to bag speed ratio: 1.3750723397604736
 - landing along error m: -0.7007441597306925
 - launch direction difference deg: -38.39199541569765
-- movement duration seconds: 3.1531531531531534
-- release timing cycle: 0.2962962962962963
+- movement duration seconds: 3.1698365031698366
+- release timing cycle: 0.29473684210526313
 - release to board front m: 5.842888386953594
 - shoulder bag radius at release arm lengths: 1.6241428601702865
 - shoulder peak speed arm lengths s: 1.5307596965175536
-- shoulder translation net arm lengths: 0.1833502956803109
-- shoulder translation path length arm lengths: 1.6584327680731632
-- shoulder translation straightness: 0.11055636333894618
+- shoulder translation net arm lengths: 0.18832889542644693
+- shoulder translation path length arm lengths: 1.663457169605394
+- shoulder translation straightness: 0.11321535586703588
 - shoulder wrist angular net change forward swing deg: 106.59530099645625
 - shoulder wrist angular sweep forward swing deg: 106.59530099645625
 - shoulder wrist peak angular velocity forward swing deg s: 540.3776355031624
@@ -136,13 +136,13 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - swing tempo ratio: 1.5217391304347827
 - swing total hand speed at release m s: 5.324588133769429
 - trunk inclination deg at release: 12.974245182306904
-- trunk inclination deg mean: 8.413467210180713
-- trunk inclination deg rom: 18.394050368422512
-- trunk inclination velocity deg s mean: -0.34660642187680984
+- trunk inclination deg mean: 8.35903159654721
+- trunk inclination deg rom: 18.551190077373217
+- trunk inclination velocity deg s mean: -0.3868376066934062
 - trunk inclination velocity deg s peak abs: 76.00214967761593
-- upper arm orientation deg mean: -69.67648765246972
+- upper arm orientation deg mean: -69.65984072961623
 - upper arm orientation deg rom: 150.61115481188074
-- upper arm orientation velocity deg s mean: -4.938208713425179
+- upper arm orientation velocity deg s mean: -4.338429859833882
 - upper arm orientation velocity deg s peak abs: 438.89410870505435
 - wrist direction at release deg: 78.95933161021449
 - wrist forward swing path coverage: 1.0
@@ -156,14 +156,14 @@ This report describes projected 2D measurements, not true 3D anatomical rotation
 - wrist forward swing path total abs turn deg: 113.14789808521553
 - wrist global peak speed arm lengths s: 11.005217042872545
 - wrist path coverage: 1.0
-- wrist path curvature rad per arm length: 3.65274199111932
-- wrist path length arm lengths: 7.996068055520855
-- wrist path mean abs turn deg: 8.901439863016982
-- wrist path net displacement arm lengths: 0.14874926040583158
-- wrist path rms fitted line deviation arm lengths: 0.2683616162067297
-- wrist path sample count: 190
-- wrist path straightness ratio: 0.018602800698166673
-- wrist path total abs turn deg: 1673.4706942471926
+- wrist path curvature rad per arm length: 3.6450746038167545
+- wrist path length arm lengths: 8.021687602203
+- wrist path mean abs turn deg: 8.864066273043205
+- wrist path net displacement arm lengths: 0.126237470037427
+- wrist path rms fitted line deviation arm lengths: 0.26816996191915055
+- wrist path sample count: 191
+- wrist path straightness ratio: 0.015737021471985312
+- wrist path total abs turn deg: 1675.3085256051659
 - wrist peak speed arm lengths s: 11.003715241582036
 - wrist peak speed m s: 5.672105424502681
 - wrist peak speed time rel release ms: -50.050050050050054

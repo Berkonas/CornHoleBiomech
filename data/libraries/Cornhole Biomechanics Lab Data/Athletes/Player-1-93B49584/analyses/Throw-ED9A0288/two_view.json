@@ -8,6 +8,188 @@
     "shape_rejected_frames": 0,
     "status": "measured"
   },
+  "attribution": {
+    "body_evidence": [
+      {
+        "beyond_noise": false,
+        "delta": 0.02,
+        "key": "arm_across_body_sw",
+        "label": "Hand across the body at release",
+        "noise": 0.15,
+        "unit": "shoulder widths",
+        "usual": 0.131,
+        "value": 0.151
+      },
+      {
+        "beyond_noise": false,
+        "delta": -1.697,
+        "key": "trunk_side_lean_deg",
+        "label": "Trunk side lean at release",
+        "noise": 6.0,
+        "unit": "\u00b0",
+        "usual": 10.463,
+        "value": 8.766
+      }
+    ],
+    "cue": null,
+    "depth": {
+      "components": [
+        {
+          "in": -1.02,
+          "key": "usual_spot",
+          "label": "Your usual spot",
+          "named": false,
+          "noise_in": null,
+          "reference": true,
+          "usual_in": -1.02,
+          "vs_usual_in": null
+        },
+        {
+          "basis": "usual",
+          "in": 1.42,
+          "key": "carry",
+          "label": "Carry (where it landed)",
+          "named": false,
+          "noise_in": 2.0,
+          "test_in": 1.42,
+          "test_noise_in": 2.0,
+          "usual_in": -17.43,
+          "vs_usual_in": 1.42
+        },
+        {
+          "basis": "usual",
+          "in": 7.42,
+          "key": "slide",
+          "label": "Slide",
+          "named": true,
+          "noise_in": 2.0,
+          "share": 0.95,
+          "test_in": 7.42,
+          "test_noise_in": 2.0,
+          "usual_in": 16.4,
+          "vs_usual_in": 7.42
+        }
+      ],
+      "miss_in": 7.82,
+      "reference": "usual",
+      "residual_in": 0.0
+    },
+    "drivers": [
+      {
+        "delta": 0.178,
+        "implied_in": 9.55,
+        "key": "release_speed",
+        "label": "Release speed",
+        "named": false,
+        "noise": 0.15,
+        "status": "measured",
+        "unit": "m/s",
+        "usual": 7.486,
+        "value": 7.663
+      },
+      {
+        "delta": -1.647,
+        "implied_in": 0.21,
+        "key": "release_angle",
+        "label": "Release angle",
+        "named": false,
+        "noise": 3.0,
+        "status": "measured",
+        "unit": "\u00b0",
+        "usual": 44.44,
+        "value": 42.793
+      },
+      {
+        "delta": null,
+        "implied_in": null,
+        "key": "launch_direction",
+        "label": "Launch direction",
+        "named": false,
+        "noise": 0.5,
+        "status": null,
+        "unit": "\u00b0",
+        "usual": null,
+        "value": null
+      }
+    ],
+    "explanation": {
+      "basis": "Compared with this athlete's 27 other analysed throws (same method version).",
+      "evidence": [
+        "The slide (it slid 7 in further than usual).",
+        "Release speed +0.18 m/s against usual (noise 0.15 m/s); on its own, in a drag-free flight, about 10 in more carry."
+      ],
+      "observed": "Stopped on the board, 8 in long and 6 in left of the hole. First contact 1 in past the usual spot.",
+      "phase": "after_landing",
+      "possible_explanation": "The difference arose after landing (the slide), not in the flight; no release measure accounts for a single throw's slide.",
+      "suggestion": "Watch the landing in the side view (bag flat or on edge, spin) and compare with throws that stayed."
+    },
+    "inside_spread": {
+      "depth": false,
+      "lateral": false
+    },
+    "lateral": {
+      "components": [
+        {
+          "in": null,
+          "key": "release_position",
+          "label": "Release position",
+          "named": false,
+          "noise_in": 1.18,
+          "source": null,
+          "usual_in": null,
+          "vs_usual_in": null
+        },
+        {
+          "angle_deg": null,
+          "distance_m": null,
+          "in": null,
+          "key": "aim",
+          "label": "Aim (launch direction)",
+          "named": false,
+          "noise_in": null,
+          "source": null,
+          "usual_in": null,
+          "vs_usual_in": null
+        },
+        {
+          "basis": "absolute",
+          "in": 0.08,
+          "key": "slide_drift",
+          "label": "Slide drift",
+          "named": false,
+          "noise_in": 1.0,
+          "test_in": 0.08,
+          "test_noise_in": 1.0,
+          "usual_in": 1.73,
+          "vs_usual_in": -1.65
+        }
+      ],
+      "miss_in": -6.01,
+      "reference": "centre_line",
+      "residual_in": null
+    },
+    "reason": "The release position and launch direction were not measured on this throw (no accepted 3D flight and no release hand in the front camera).",
+    "reasons": [
+      "The release position and launch direction were not measured on this throw (no accepted 3D flight and no release hand in the front camera)."
+    ],
+    "rest_on": "board",
+    "result": "onBoard",
+    "sentence": "Board: 8 in long, 6 in left. Most of the long came from the slide (it slid 7 in further than usual).",
+    "status": "estimated",
+    "tier": "geometry",
+    "usual": {
+      "centre_depth_in": 0.0,
+      "centre_lateral_in": 2.5,
+      "located": 26,
+      "reason": null,
+      "source": "this athlete's other throws",
+      "spread_depth_in": 2.93,
+      "spread_lateral_in": 3.71,
+      "throws": 27
+    },
+    "version": "attribution_v2",
+    "within_usual_spread": false
+  },
   "auto_outcome": null,
   "board_phase": {
     "drained": false,
@@ -16,7 +198,7 @@
       "from_hole_in": 7.817379277991691,
       "kind": "rest",
       "note": "The bag stopped on the board and was still there when the clip ended.",
-      "right_of_centre_in": -6.020167137744578,
+      "right_of_centre_in": -6.014166823966141,
       "u_in": 7.412213761406354,
       "v_in": 46.81737927799169,
       "x": 1802.2678010975778,
@@ -1212,25 +1394,25 @@
     }
   },
   "camera": {
-    "corner_residual_px": 3.3569637771396033,
+    "corner_residual_px": 3.3576932201091947,
     "corners_suspect": true,
     "cross_check": {
-      "difference_m": 0.0375618637698063,
-      "front_release_height_m": 0.9314047000314839,
+      "difference_m": 0.19212732673394417,
+      "front_release_height_m": 1.0859701629956218,
       "side_release_height_m": 0.8938428362616776
     },
     "deck_shape_hfov": {
-      "hfov_deg": 78.42600013587679,
+      "hfov_deg": 78.432476556358,
       "reason": null,
-      "residual_px": 0.07174993605692342,
+      "residual_px": 0.0717390323668233,
       "status": "measured",
-      "uncertainty_deg": 3.4850285685156113
+      "uncertainty_deg": 3.5085018609353398
     },
     "hfov_deg": 66.09364662328686,
     "position_m": [
-      -0.13666938183975327,
-      3.9559302198495447,
-      1.2199564118116837
+      -0.13662954201291116,
+      3.9561463111966617,
+      1.2200282247053156
     ],
     "reason": null,
     "source": "session median of the deck-shape field of view",
@@ -4354,59 +4536,343 @@
   ],
   "deck_corners_px": [
     [
-      655.6643214630835,
-      470.34235407604956
+      655.6437405417252,
+      470.35247071421327
     ],
     [
-      517.3735432019436,
-      470.3398396248383
+      517.3622966751701,
+      470.3515378509399
     ],
     [
-      465.6419425797169,
-      509.30554092689886
+      465.6392806127878,
+      509.3158421709723
     ],
     [
-      679.0513309305225,
-      509.3094212109047
+      679.0342641893631,
+      509.31728175923047
     ]
   ],
   "explanation": {
+    "cue": null,
+    "four_part": {
+      "basis": "Compared with this athlete's 27 other analysed throws (same method version).",
+      "evidence": [
+        "The slide (it slid 7 in further than usual).",
+        "Release speed +0.18 m/s against usual (noise 0.15 m/s); on its own, in a drag-free flight, about 10 in more carry."
+      ],
+      "observed": "Stopped on the board, 8 in long and 6 in left of the hole. First contact 1 in past the usual spot.",
+      "phase": "after_landing",
+      "possible_explanation": "The difference arose after landing (the slide), not in the flight; no release measure accounts for a single throw's slide.",
+      "suggestion": "Watch the landing in the side view (bag flat or on edge, spin) and compare with throws that stayed."
+    },
     "kind": "miss",
     "parts": [
       {
         "axis": "distance",
-        "inches": 7.817379277991691,
+        "inches": 7.82,
         "word": "long"
       },
       {
         "axis": "direction",
-        "details": [],
-        "inches": -6.020167137744578,
+        "inches": -6.01,
         "word": "left"
       }
     ],
-    "sentence": "On the board: 8 in long (release 7.6 m/s); 6 in left."
+    "sentence": "Board: 8 in long, 6 in left. Most of the long came from the slide (it slid 7 in further than usual).",
+    "tier": "geometry",
+    "version": "sentence_v2"
+  },
+  "flight_3d": {
+    "frame": "x along the throw from the release point (m), y sideways from the board's centre line (m, + thrower's right), z height above the floor (m); t from release (s, side camera clock)",
+    "method_version": "flight3d_v2",
+    "reason": "The front camera's board corners look misplaced on this take, so its position is not known well enough to place the bag sideways.",
+    "status": "unavailable"
   },
   "frames": {
-    "contact_front": 119,
+    "contact_front": 120,
+    "contact_front_mapped": 119,
+    "contact_front_source": "front camera",
     "contact_side": 236,
     "front_fps": 30.0,
     "front_frame_count": 173,
-    "front_lag_s": 0.016943825545976086,
-    "release_front": 85,
+    "front_lag_s": 0.025323622903420422,
+    "release_front": 86,
     "release_side": 169,
     "side_fps": 59.94
+  },
+  "front_kinematics": {
+    "camera_roll_deg": 0.0,
+    "filter": {
+      "cutoff_hz": 6.0,
+      "short_runs_left_raw": 0,
+      "type": "zero-phase Butterworth (4th order)"
+    },
+    "forward_swing_source": "side peak backswing",
+    "forward_swing_start_s": -0.367,
+    "forward_swing_wrist_unclear_share": 0.0,
+    "fps": 30.0,
+    "hip_sway_sw": [
+      -0.004,
+      -0.003,
+      -0.001,
+      -0.0,
+      0.001,
+      0.002,
+      0.005,
+      0.006,
+      0.006,
+      0.004,
+      0.002,
+      0.004,
+      0.01,
+      0.016,
+      0.022,
+      0.028,
+      0.035,
+      0.045,
+      0.054,
+      0.06,
+      0.063,
+      0.067,
+      0.072,
+      0.078,
+      0.082,
+      0.082,
+      0.078,
+      0.071,
+      0.061,
+      0.049,
+      0.037,
+      0.029,
+      0.027,
+      0.029,
+      0.033,
+      0.035,
+      0.037,
+      0.04,
+      0.041,
+      0.039,
+      0.035,
+      0.038,
+      0.053,
+      0.072,
+      0.085,
+      0.086,
+      0.082,
+      0.083,
+      0.09,
+      0.097,
+      0.099,
+      0.095,
+      0.09,
+      0.085,
+      0.078
+    ],
+    "reason": null,
+    "release_frame": 86,
+    "scale_source": "set-up",
+    "setup_trunk_lean_deg": -1.0,
+    "setup_window_s": [
+      -1.4,
+      -1.2
+    ],
+    "shoulder_width_px": 32.0,
+    "signs": {
+      "hip_sway_sw": "+ towards the throwing arm",
+      "trunk_lean_deg": "+ towards the throwing arm",
+      "wrist_across_sw": "+ towards the midline"
+    },
+    "status": "measured",
+    "t_s": [
+      -1.4,
+      -1.367,
+      -1.333,
+      -1.3,
+      -1.267,
+      -1.233,
+      -1.2,
+      -1.167,
+      -1.133,
+      -1.1,
+      -1.067,
+      -1.033,
+      -1.0,
+      -0.967,
+      -0.933,
+      -0.9,
+      -0.867,
+      -0.833,
+      -0.8,
+      -0.767,
+      -0.733,
+      -0.7,
+      -0.667,
+      -0.633,
+      -0.6,
+      -0.567,
+      -0.533,
+      -0.5,
+      -0.467,
+      -0.433,
+      -0.4,
+      -0.367,
+      -0.333,
+      -0.3,
+      -0.267,
+      -0.233,
+      -0.2,
+      -0.167,
+      -0.133,
+      -0.1,
+      -0.067,
+      -0.033,
+      0.0,
+      0.033,
+      0.067,
+      0.1,
+      0.133,
+      0.167,
+      0.2,
+      0.233,
+      0.267,
+      0.3,
+      0.333,
+      0.367,
+      0.4
+    ],
+    "time_zero": "release (side camera, mapped to the front clip)",
+    "trunk_lean_deg": [
+      -1.0,
+      -1.1,
+      -1.2,
+      -1.2,
+      -1.0,
+      -0.9,
+      -0.7,
+      -0.6,
+      -0.3,
+      0.2,
+      0.8,
+      1.3,
+      1.5,
+      1.7,
+      1.8,
+      1.9,
+      2.0,
+      2.0,
+      2.1,
+      2.6,
+      3.2,
+      3.9,
+      4.4,
+      4.9,
+      5.6,
+      6.4,
+      7.3,
+      8.1,
+      9.0,
+      10.0,
+      11.0,
+      11.7,
+      11.9,
+      11.5,
+      10.9,
+      10.4,
+      10.1,
+      9.6,
+      9.0,
+      8.4,
+      8.1,
+      8.3,
+      8.8,
+      9.0,
+      9.0,
+      8.6,
+      7.9,
+      7.0,
+      5.8,
+      4.7,
+      3.9,
+      3.6,
+      3.4,
+      3.1,
+      2.7
+    ],
+    "units": {
+      "hip_sway_sw": "shoulder widths",
+      "t_s": "s",
+      "trunk_lean_deg": "\u00b0",
+      "wrist_across_sw": "shoulder widths"
+    },
+    "view": "front view 2D (frontal plane image)",
+    "wrist_across_sw": [
+      -0.025,
+      -0.012,
+      0.001,
+      0.014,
+      0.032,
+      0.06,
+      0.093,
+      0.123,
+      0.145,
+      0.16,
+      0.167,
+      0.167,
+      0.157,
+      0.136,
+      0.105,
+      0.069,
+      0.038,
+      0.013,
+      -0.011,
+      -0.042,
+      -0.086,
+      -0.135,
+      -0.176,
+      -0.198,
+      -0.199,
+      -0.19,
+      -0.181,
+      -0.169,
+      -0.15,
+      -0.125,
+      -0.1,
+      -0.082,
+      -0.069,
+      -0.057,
+      -0.044,
+      -0.031,
+      -0.025,
+      -0.028,
+      -0.036,
+      -0.032,
+      0.005,
+      0.078,
+      0.149,
+      0.179,
+      0.157,
+      0.107,
+      0.054,
+      0.007,
+      -0.031,
+      -0.052,
+      -0.055,
+      -0.055,
+      -0.068,
+      -0.091,
+      -0.108
+    ]
   },
   "front_landing": {
     "candidates": [
       {
-        "area_fraction": 4.73,
-        "area_px": 1723.0,
+        "area_fraction": 4.71,
+        "area_px": 1714.0,
         "bag_colour_fraction": 0.96,
         "kind": "deck",
         "px": [
-          626.6,
-          511.2
+          626.5,
+          511.3
         ],
         "vs_empty": 25.4
       }
@@ -4458,6 +4924,7 @@
           -5197.1756754973785
         ],
         "frame": 118,
+        "phase": "air",
         "px": [
           614.7264573991031,
           385.82959641255604
@@ -4473,6 +4940,7 @@
           -21.93873519789552
         ],
         "frame": 119,
+        "phase": "air",
         "px": [
           616.3720930232558,
           447.21860465116276
@@ -4488,6 +4956,7 @@
           24.924583581477425
         ],
         "frame": 120,
+        "phase": "deck",
         "px": [
           616.632911392405,
           476.9746835443038
@@ -4503,6 +4972,7 @@
           42.10224066729333
         ],
         "frame": 121,
+        "phase": "deck",
         "px": [
           621.3181818181819,
           481.18939393939394
@@ -4518,6 +4988,7 @@
           45.605425611770634
         ],
         "frame": 122,
+        "phase": "deck",
         "px": [
           623.3379310344827,
           485.3586206896552
@@ -4533,6 +5004,7 @@
           45.61350144085973
         ],
         "frame": 123,
+        "phase": "deck",
         "px": [
           623.5617529880478,
           489.71314741035854
@@ -4548,6 +5020,7 @@
           43.90846075959624
         ],
         "frame": 124,
+        "phase": "deck",
         "px": [
           624.0731707317074,
           491.4065040650407
@@ -4563,6 +5036,7 @@
           45.62983753999348
         ],
         "frame": 125,
+        "phase": "deck",
         "px": [
           625.6070175438597,
           493.7964912280702
@@ -4578,6 +5052,7 @@
           45.62882931537701
         ],
         "frame": 126,
+        "phase": "deck",
         "px": [
           626.9175627240144,
           496.0358422939068
@@ -4593,6 +5068,7 @@
           45.627890885370576
         ],
         "frame": 127,
+        "phase": "deck",
         "px": [
           625.496062992126,
           497.38582677165357
@@ -4608,6 +5084,7 @@
           45.627520137929714
         ],
         "frame": 128,
+        "phase": "deck",
         "px": [
           624.5225225225225,
           498.7567567567568
@@ -4623,6 +5100,7 @@
           45.62679201560439
         ],
         "frame": 129,
+        "phase": "deck",
         "px": [
           624.65625,
           499.71875
@@ -4638,6 +5116,7 @@
           45.625977721753166
         ],
         "frame": 130,
+        "phase": "deck",
         "px": [
           623.8115183246073,
           500.29319371727746
@@ -4653,6 +5132,7 @@
           45.6223548385262
         ],
         "frame": 131,
+        "phase": "deck",
         "px": [
           623.9465240641712,
           500.8770053475936
@@ -4668,6 +5148,7 @@
           48.8619880983019
         ],
         "frame": 132,
+        "phase": "deck",
         "px": [
           624.4162436548223,
           501.61421319796955
@@ -4683,6 +5164,7 @@
           51.87887230009499
         ],
         "frame": 133,
+        "phase": "deck",
         "px": [
           624.2714932126697,
           503.6018099547511
@@ -4698,6 +5180,7 @@
           56.03549213836054
         ],
         "frame": 134,
+        "phase": "deck",
         "px": [
           624.4375,
           506.1953125
@@ -4713,6 +5196,7 @@
           59.80204678541621
         ],
         "frame": 135,
+        "phase": "deck",
         "px": [
           624.1180327868852,
           508.71475409836063
@@ -4726,13 +5210,13 @@
       "along_in_per_px": 1.1558972834209627
     },
     "rest": {
-      "area_fraction": 4.73,
+      "area_fraction": 4.71,
       "px": [
-        626.5502031340685,
-        511.2222867092281
+        626.5070011668612,
+        511.3191365227538
       ],
-      "x_in": 5.979832862255422,
-      "y_in_front": 49.82008335226066
+      "x_in": 5.985833176033859,
+      "y_in_front": 49.894140881451676
     },
     "rest_basis": "new bag on the deck",
     "status": "measured",
@@ -4740,24 +5224,17 @@
   },
   "front_path": [
     {
-      "frame": 85,
-      "px": [
-        593.3777777777777,
-        224.8
-      ]
-    },
-    {
       "frame": 86,
       "px": [
-        595.48,
-        207.04
+        595.3725490196078,
+        207.09803921568627
       ]
     },
     {
       "frame": 87,
       "px": [
-        594.8571428571429,
-        188.57142857142858
+        594.8363636363637,
+        188.47272727272727
       ]
     },
     {
@@ -4770,8 +5247,8 @@
     {
       "frame": 89,
       "px": [
-        594.9333333333333,
-        165.2
+        595.1914893617021,
+        164.7659574468085
       ]
     },
     {
@@ -4931,60 +5408,61 @@
     {
       "frame": 112,
       "px": [
-        607.75,
-        146.6590909090909
+        607.8426966292135,
+        146.8314606741573
       ]
     },
     {
       "frame": 113,
       "px": [
-        608.2522522522522,
-        171.56756756756758
+        608.3035714285714,
+        171.51785714285714
       ]
     },
     {
       "frame": 114,
       "px": [
-        610.7209302325581,
-        205.11627906976744
+        610.452380952381,
+        204.92857142857142
       ]
     },
     {
       "frame": 115,
       "px": [
-        610.6290322580645,
-        242.0
+        610.5040650406504,
+        241.9349593495935
       ]
     },
     {
       "frame": 116,
       "px": [
-        611.9016393442623,
-        284.327868852459
+        612.0,
+        284.258064516129
       ]
     },
     {
       "frame": 117,
       "px": [
-        612.9775280898876,
-        333.13483146067415
+        612.9944134078212,
+        333.08379888268155
       ]
     },
     {
       "frame": 118,
       "px": [
-        614.8411214953271,
-        386.2429906542056
+        614.7850467289719,
+        386.32710280373834
       ]
     },
     {
       "frame": 119,
       "px": [
-        616.6439024390244,
-        447.7560975609756
+        616.5631067961165,
+        447.70873786407765
       ]
     }
   ],
+  "front_path_source": "front_track",
   "front_size": [
     1280,
     720
@@ -4995,56 +5473,80 @@
       "reason": null,
       "status": "measured",
       "unit": "shoulder widths",
-      "value": 0.08990555368551723
+      "value": 0.1510087378608831,
+      "view": "front view 2D (frontal plane image)"
     },
     "camera_roll_deg": {
       "label": "Front camera roll (corrected)",
       "reason": null,
       "status": "measured",
       "unit": "\u00b0",
-      "value": 0.0010417718664611202
+      "value": 0.00038652422866636613
     },
     "follow_through_across_sw": {
       "label": "Hand across the body 0.15 s after release (+ towards the midline)",
       "reason": null,
       "status": "measured",
       "unit": "shoulder widths",
-      "value": 0.11425577684020245
+      "value": 0.06364410619192722,
+      "view": "front view 2D (frontal plane image)"
+    },
+    "hand_path_range_sw": {
+      "forward_swing_source": "side peak backswing",
+      "label": "Hand path sideways range in the forward swing (front view 2D)",
+      "reason": null,
+      "status": "measured",
+      "unit": "shoulder widths",
+      "value": 0.23099999999999998,
+      "view": "front view 2D (frontal plane image)"
     },
     "release_point_offset_m": {
       "label": "Release hand's distance from the board's centre line",
       "reason": "The board's corners in the front camera look misplaced on this take, so positions on the floor are not measured; click the four deck corners to fix it.",
       "status": "unavailable",
       "unit": "m",
-      "value": null
+      "value": null,
+      "view": "front view 2D (frontal plane image)"
     },
     "shoulder_tilt_deg": {
       "label": "Shoulder tilt at release (+ throwing shoulder lower)",
       "reason": null,
       "status": "measured",
       "unit": "\u00b0",
-      "value": 9.53135218734742
+      "value": 3.0445493323438604,
+      "view": "front view 2D (frontal plane image)"
     },
     "stance_offset_m": {
       "label": "Feet midpoint from the board's centre line",
       "reason": "The board's corners in the front camera look misplaced on this take, so positions on the floor are not measured; click the four deck corners to fix it.",
       "status": "unavailable",
       "unit": "m",
-      "value": null
+      "value": null,
+      "view": "front view 2D (frontal plane image)"
     },
     "stance_width_m": {
       "label": "Sideways distance between the ankles",
       "reason": "The board's corners in the front camera look misplaced on this take, so positions on the floor are not measured; click the four deck corners to fix it.",
       "status": "unavailable",
       "unit": "m",
-      "value": null
+      "value": null,
+      "view": "front view 2D (frontal plane image)"
+    },
+    "trunk_lean_change_deg": {
+      "label": "Trunk side lean change from set-up to release (+ towards throwing arm, front view 2D)",
+      "reason": null,
+      "status": "measured",
+      "unit": "\u00b0",
+      "value": 9.8,
+      "view": "front view 2D (frontal plane image)"
     },
     "trunk_side_lean_deg": {
       "label": "Trunk side lean at release (+ towards throwing arm)",
       "reason": null,
       "status": "measured",
       "unit": "\u00b0",
-      "value": 8.441512242613506
+      "value": 8.7660316422733,
+      "view": "front view 2D (frontal plane image)"
     }
   },
   "heading": {
@@ -5067,7 +5569,7 @@
     "rest": {
       "on": "board",
       "status": "estimated",
-      "x_in": 5.979832862255422,
+      "x_in": 5.985833176033859,
       "y_in": 46.81737927799169,
       "y_source": "side camera"
     },
@@ -5075,10 +5577,10 @@
     "where": "board",
     "x_source": "front camera deck homography"
   },
-  "method_version": "two_view_v5_knocked_confirm",
+  "method_version": "two_view_v8_front_body",
   "miss": {
-    "distance_in": 9.86680450512493,
-    "left_right_in": -6.020167137744578,
+    "distance_in": 9.863144598071594,
+    "left_right_in": -6.014166823966141,
     "short_long_in": 7.817379277991691,
     "status": "estimated"
   },
@@ -5096,7 +5598,6 @@
   "schema_version": 1,
   "side_to_front_frames": [
     1,
-    1,
     2,
     2,
     3,
@@ -5355,6 +5856,7 @@
     129,
     130,
     130,
+    131,
     131,
     132,
     132,
