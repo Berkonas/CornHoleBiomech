@@ -43,7 +43,7 @@ struct ReplayDocument: Decodable {
 
     /// Release-frame pixels → pixels of `frame` (identity for a fixed camera).
     func toFrame(_ x: Double, _ y: Double, frame: Int) -> CGPoint {
-        guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m[0].count == 3 else {
+        guard let m = release_to_frame?[String(frame)] ?? nearestTransform(frame), m.count == 2, m.allSatisfy({ $0.count == 3 }) else {
             return CGPoint(x: x, y: y)
         }
         return CGPoint(x: m[0][0] * x + m[0][1] * y + m[0][2], y: m[1][0] * x + m[1][1] * y + m[1][2])

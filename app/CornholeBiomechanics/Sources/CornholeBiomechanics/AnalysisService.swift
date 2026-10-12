@@ -533,7 +533,8 @@ final class AnalysisService: ObservableObject {
                 arguments += ["--calibration", calibration.path]
             }
             _ = try await run(arguments, diagnosticURL: output.appendingPathComponent("analysis-worker.log"))
-            if let outcome = trial.outcome {
+            // The current outcome, not the one when the job started: a person may have answered meanwhile.
+            if let outcome = store.project?.trials.first(where: { $0.id == trial.id })?.outcome ?? trial.outcome {
                 try await summarizeOutcome(outcome, analysisURL: output)
             }
             try store.markAnalysisComplete(trialID: trial.id, relativePath: relativeOutput)
@@ -542,9 +543,9 @@ final class AnalysisService: ObservableObject {
             if let current = store.project?.trials.first(where: { $0.id == trial.id }),
                current.outcome == nil || current.outcome?.isAutomatic == true,
                let data = try? Data(contentsOf: output.appendingPathComponent("two_view.json")),
-               let automatic = (try? JSONDecoder().decode(AutomaticOutcomeFile.self, from: data))?.auto_outcome,
-               automatic != current.outcome {
-                try? store.saveOutcome(automatic, for: current)
+               var automatic = (try? JSONDecoder().decode(AutomaticOutcomeFile.self, from: data))?.auto_outcome {
+                automatic.source = TrialOutcome.automaticSource
+                if automatic != current.outcome { try? store.saveOutcome(automatic, for: current) }
             }
             let dirty = output.appendingPathComponent("needs_reanalysis.json")
             if FileManager.default.fileExists(atPath: dirty.path) { try FileManager.default.removeItem(at: dirty) }

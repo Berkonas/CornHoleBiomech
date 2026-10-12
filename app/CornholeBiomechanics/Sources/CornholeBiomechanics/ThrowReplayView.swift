@@ -319,7 +319,8 @@ struct ThrowReplayView: View {
     // MARK: playback
     private var displayedFrame: Int {
         guard playing, mode != .animation else { return currentFrame }
-        return min(max(0, Int((player.currentTime().seconds * replay.fps).rounded())), replay.frame_count - 1)
+        let frame = player.currentTime().seconds * replay.fps
+        return frame.isFinite ? min(max(0, Int(frame.rounded())), replay.frame_count - 1) : 0
     }
     private var currentEventKey: String? {
         replay.orderedEvents.min { abs($0.event.frame - currentFrame) < abs($1.event.frame - currentFrame) }
@@ -362,7 +363,8 @@ struct ThrowReplayView: View {
         let fps = replay.fps, last = replay.frame_count - 1
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
             guard playing, mode != .animation else { return }
-            currentFrame = min(max(0, Int((time.seconds * fps).rounded())), last)
+            let frame = time.seconds * fps
+            if frame.isFinite { currentFrame = min(max(0, Int(frame.rounded())), last) }
             if currentFrame >= last { playing = false; frontPlayer.pause() }
             // Keep the front clip on the side clip's clock (two players drift apart slowly).
             if let front, let target = frontFrame(currentFrame) {

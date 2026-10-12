@@ -150,8 +150,14 @@ final class ProjectStore: ObservableObject {
         var outcome = previous ?? TrialOutcome(intendedPoint: BoardPoint(xInches: 12, yInches: 39))
         outcome.scoreCategory = score
         outcome.notes = note
+        outcome.source = TrialOutcome.confirmedByEyeSource
         if outcome.firstContactPoint == nil { outcome.firstContactPoint = contact }
-        if outcome.finalRestingPoint == nil, score != .offBoard { outcome.finalRestingPoint = rest }
+        if score == .offBoard {
+            // A camera's on-deck rest point contradicts the person's "Off".
+            outcome.finalRestingPoint = nil
+        } else if outcome.finalRestingPoint == nil {
+            outcome.finalRestingPoint = rest
+        }
         try saveOutcome(outcome, for: current)
         return OutcomeUndo(trialID: trialID, previous: previous, recorded: score)
     }
@@ -660,7 +666,7 @@ final class ProjectStore: ObservableObject {
             added.append(trial)
         }
         project = value
-        selectedAthleteID = athleteID
+        // No selection change here: preparation finishes minutes later, and showImportedTake decides navigation.
         try save()
         return added
     }
@@ -703,6 +709,7 @@ final class ProjectStore: ObservableObject {
     func setScore(_ score: ScoreCategory?, for trial: Trial) throws {
         var outcome = trial.outcome ?? TrialOutcome(intendedPoint: BoardPoint(xInches: 12, yInches: 39))
         outcome.scoreCategory = score
+        outcome.source = TrialOutcome.personSource
         try saveOutcome(outcome, for: trial)
     }
 

@@ -80,8 +80,12 @@ struct TrialOutcome: Codable, Equatable, Hashable {
     var intendedPoint: BoardPoint?
     var firstContactPoint: BoardPoint?
     var finalRestingPoint: BoardPoint?
+    /// Who recorded the result: `automatic` (the front camera), `person`, or `confirmed_by_eye` (a person's
+    /// answer to an unsure result). nil in libraries saved before 2026-10-11, where the notes prefix decides.
+    var source: String? = nil
 
     enum CodingKeys: String, CodingKey {
+        case source
         case intendedTarget = "intended_target"
         case scoreCategory = "score_category"
         case throwType = "throw_type"
@@ -951,8 +955,13 @@ extension TrialOutcome {
     /// Notes written when a person confirms an unsure result in "Needs your eye" (or on the Take screen).
     static let confirmedByEyeNote = "Confirmed by eye: the front camera was not sure."
 
-    /// Recorded by the app, not by a person (reversible: a person's entry replaces it).
-    var isAutomatic: Bool { notes.hasPrefix(Self.automaticNotePrefix) }
+    static let automaticSource = "automatic"
+    static let personSource = "person"
+    static let confirmedByEyeSource = "confirmed_by_eye"
+
+    /// Recorded by the app, not by a person (reversible: a person's entry replaces it). Older libraries have
+    /// no `source`, so the notes prefix decides there.
+    var isAutomatic: Bool { source.map { $0 == Self.automaticSource } ?? notes.hasPrefix(Self.automaticNotePrefix) }
 }
 
 extension ScoreCategory {
