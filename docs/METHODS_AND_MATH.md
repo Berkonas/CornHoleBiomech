@@ -964,6 +964,75 @@ angles are corrected for camera roll, measured from the board's level back edge.
 | Follow-through | the same, 0.15 s after release | shown only |
 | Release offset | release hand's sideways distance from the centre line (ray ∩ release plane) | 0.03 m |
 | Stance offset / width | ankle rays ∩ floor (7 cm ankle height), 1 s before release | shown only |
+| Hand path range | max − min of the hand-across series over the forward swing (below) | 0.05 shoulder widths |
+| Trunk lean change | trunk lean at release − median set-up lean (below) | 1.5° |
+
+All of these are **front view 2D (frontal plane image)** measures (every item carries `view`); none is a 3D angle.
+The throwing arm swings towards this camera (out of the image plane), so **no elbow or shoulder joint angle is
+computed from the front view**; only sideways positions and the trunk's in-image tilt are used.
+
+**Frontal-plane body over the throw** (`front_view.front_kinematics`, `two_view.json → front_kinematics`).
+*Definition.* Three time series, $t = (f - f_\text{release,front})/f_s$ from −1.4 s to +0.4 s, time 0 = the side
+camera's release frame mapped to the front clip (§5.1 sync, ±17.5 ms): (1) `wrist_across_sw`, the throwing wrist's
+sideways image position minus the throwing shoulder's, + towards the midline (the convention of the hand-across
+measure); (2) `trunk_lean_deg`, hip centre → shoulder centre against image vertical, + towards the throwing arm;
+(3) `hip_sway_sw`, the hip centre's sideways displacement from its set-up position, + towards the throwing arm.
+*Anatomical meaning.* (1) whether the hand path stays in the throw plane (pendulum) or crosses the body; (2) lateral
+trunk flexion / weight lean over the throwing side; (3) lateral weight shift of the pelvis.
+*Calculation.* Joints with confidence ≥ 0.3 are rotated by −roll (board back edge) and low-passed with the side
+pipeline's zero-phase 4th-order Butterworth at 6 Hz (§3.6, `filtering.lowpass_zero_phase`) on each finite run long
+enough to filter; shorter runs stay raw (counted in `filter.short_runs_left_raw`); gaps are never interpolated, so a
+frame without the joints is `null`. One ruler for the whole series: the median shoulder width in the set-up window
+−1.4 to −1.2 s (else over the window, `scale_source`); per-frame widths would mix trunk rotation into the positions
+(the projected shoulder width changes by ±15 % over the throw). Set-up = the median over that window: on all 92
+library throws the hips are still there (per-athlete SD ≤ 0.01 shoulder widths at −1.4 s) and the side camera's
+motion start is later on most throws (median −0.97 s). *Units* s, shoulder widths (≈ 0.4 m; 30–38 px in this
+collection), degrees. *Sign*: the image is mirrored (thrower's right = image left); a left-hander's mirrored throw
+gives identical signed values (test). The values at time 0 agree with the release measures (hand across: within-athlete
+means 0.125/0.029/−0.461/−0.111 vs 0.124/0.021/−0.422/−0.132; trunk lean within 0.1°); they differ slightly
+because of the set-up ruler and the filter.
+
+*Swing measures* (in `frontal`, to the athlete rows as `front_hand_path_range_sw`, `front_trunk_lean_change_deg`):
+- `hand_path_range_sw` — max − min of `wrist_across_sw` from the forward-swing start to release. The forward swing
+  starts at the side camera's `peak_backswing` mapped with `two_view.side_to_front_frame` (all 92 throws; −0.27 to
+  −0.60 s), else 0.5 s before release; `forward_swing_source` says which. Needs the wrist in ≥ 80 % of those frames
+  (a range over fewer frames under-reads). When > 20 % of them have wrist confidence < 0.5 the value is `estimated`:
+  behind the body the model still places the wrist on the hip line at confidence 0.35–0.45 (Player 3), while a
+  visible wrist scores 0.6–0.85.
+- `trunk_lean_change_deg` — trunk lean at release minus the set-up lean.
+
+*Reliability evidence* (92 cached front-camera throws, 4 right-handed athletes with 20–28 throws each; pooled
+within-athlete SD vs SD of the athlete means; ICC(1,1), one-way; kept when ICC ≥ 0.75, "good" in Koo & Li 2016,
+J Chiropr Med 15:155–163):
+
+| Candidate | Within-athlete SD | Between-athlete SD | ICC | Decision |
+|---|---|---|---|---|
+| Hand path range (peak-backswing start) | 0.146 sw (0.042 without Player 3) | 0.437 sw | 0.89 | kept |
+| — same, only throws not flagged estimated | 0.078 sw | 0.314 sw | 0.83 | |
+| — same, fixed 0.5 s start (comparison) | 0.134 sw | 0.442 sw | 0.91 | |
+| Trunk lean change set-up → release | 1.5° | 2.7° | 0.77 (0.80 without Player 3) | kept |
+| Hip sway set-up → release | 0.066 sw (≈ 2.6 cm) | 0.093 sw | 0.66 | **dropped** |
+| (reference) hand across at release | 0.045 sw | 0.237 sw | 0.96 | existing |
+| (reference) trunk lean at release | 1.0° | 3.2° | 0.90 | existing |
+
+Athlete means (SD): hand path range 0.23 (0.05), 0.08 (0.03), 1.02 (0.30, mostly `estimated`), 0.14 (0.05) sw;
+trunk lean change 11.7 (1.4), 6.6 (1.8), 5.9 (1.5), 6.6 (1.5)°. The hand-path range separates athletes mainly through
+Player 3, whose hand comes from behind the body (clearly-seen frames only: 0.54 ± 0.12 sw, still far above the
+others); between the other three it is moderate (ICC 0.74). **Hip sway at release is dropped as a scalar**: its
+within-athlete spread is two thirds of the between-athlete spread and of the order of the errors it carries (the
+front camera's sideways drift, median 0.3 px and 90th percentile 1 px ≈ 0.03 sw over the window, not corrected;
+the forward step changes the image scale by ~5–7 %). It stays in the time series for viewing. Its peak
+|sway| over −1.2…0 s was more reproducible (ICC 0.85) but was not a pre-specified candidate; it is left for when
+more throws per athlete exist. The noise floors in the table above are the within-athlete SDs of the clearly seen
+throws (an upper bound on measurement noise).
+
+*Limitations.* 2D image measures in the frontal plane: trunk rotation, the forward step and the arm moving towards
+the camera all project into them; the athlete is ~8 m away (shoulders 30–38 px), so 1 px ≈ 0.03 sw. The front
+camera runs at 30 fps (one frame = 33 ms); the release mapping is ±1 front frame. Four athletes only, all
+right-handed (the left-handed path is checked on mirrored synthetic data). *Relevance to cornhole.* A hand path that
+crosses the body or a trunk that leans more at release than at set-up are candidate sources of left/right misses
+(§5.5 attributes misses to release position and aim); they are athlete-level associations under the evidence gate,
+not per-throw causes, and are not used in the coach sentence.
 
 ### 5.3 Combined result: where it ended and why
 

@@ -1786,6 +1786,8 @@ TWO_VIEW_ROW_KEYS = {
     "front_shoulder_tilt_deg": ("frontal", "shoulder_tilt_deg"),
     "front_release_offset_m": ("frontal", "release_point_offset_m"),
     "front_stance_offset_m": ("frontal", "stance_offset_m"),
+    "front_hand_path_range_sw": ("frontal", "hand_path_range_sw"),
+    "front_trunk_lean_change_deg": ("frontal", "trunk_lean_change_deg"),
 }
 
 

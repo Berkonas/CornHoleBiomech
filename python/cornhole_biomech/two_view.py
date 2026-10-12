@@ -38,7 +38,7 @@ from . import front_view as fv
 from .regulation import INCH_M, Board
 from .serialization import json_ready, write_json
 
-TWO_VIEW_VERSION = "two_view_v7_front_contact"   # bump when the front landing / tracking / sentence logic changes
+TWO_VIEW_VERSION = "two_view_v8_front_body"   # bump when the front landing / tracking / sentence logic changes
 TAKE_LINK_FILENAME = "take_link.json"
 LATERAL_ON_LINE_IN = 3.0          # within ±3 in of the hole centre line sideways = "on line" (the hole radius)
 DISTANCE_ON_TARGET_IN = 3.0
@@ -404,10 +404,19 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
                                "where the athlete stood and the aim are not measured on this take; left/right on the "
                                "board is approximate. Click the four deck corners to fix it.")
     if pose_frames and release_front is not None:
+        roll = fv.camera_roll_deg(at_release)
         record["frontal"] = fv.frontal_metrics(pose_frames, release_front, front_fps, throwing_side, camera, release_distance,
-                                               roll_deg=fv.camera_roll_deg(at_release))
+                                               roll_deg=roll)
+        # Frontal-plane time series around release (time 0 = release_front) and the swing measures built on it; the
+        # forward swing starts at the side camera's peak backswing mapped to the front clip (§5.2).
+        swing_front = side_to_front_frame(events.get("peak_backswing"), side_fps, link)
+        record["front_kinematics"] = fv.front_kinematics(pose_frames, release_front, front_fps, throwing_side,
+                                                         roll_deg=roll, forward_swing_frame=swing_front)
+        record["frontal"].update(fv.swing_measures(record["front_kinematics"]))
     else:
         record["frontal"] = {}
+        record["front_kinematics"] = {"status": "unavailable", "view": fv.FRONT_VIEW_LABEL,
+                                      "reason": "Needs the front camera's body tracking and the release frame."}
         record["notes"].append("Frontal-plane body measures need the front camera's body tracking at release.")
     # 3. Fuse the landing; 4. heading; 5. result and miss; 6. sync check; 7. replay path.
     final_camera = camera
@@ -737,7 +746,7 @@ FRONT_LAG_MAX_S = 0.10         # 3 front frames: beyond that it is not exposure/
 FRONT_LAG_MAX_IQR_S = 0.07     # about 2 front frames of spread between throws
 LAG_COMPATIBLE_VERSIONS = {"two_view_v2", "two_view_v3_front_lag", "two_view_v4_landing_guards",
                            "two_view_v5_knocked_confirm", "two_view_v6_attribution",
-                           "two_view_v7_front_contact"}   # same front tracker
+                           "two_view_v7_front_contact", "two_view_v8_front_body"}   # same front tracker
 # (v4 only leaves the hole interior out of the deck track and bags out of the deck alignment; the first on-deck
 # frame used for the lag is unchanged on the library: see METHODS_AND_MATH §5.1; v6 only adds the attribution)
 

@@ -152,7 +152,14 @@ thrower's frame: + = thrower's right. Noise floors are the smallest differences 
 | `front_arm_across_body_sw` | Throwing wrist sideways from the throwing shoulder at release, + towards the midline | shoulder widths | 0.15 | 2D landmark noise ~4 px over a ~60–80 px shoulder width |
 | `front_trunk_side_lean_deg` | Hip centre → shoulder centre vs vertical (roll-corrected), + towards the throwing arm | ° | 6 | same landmark noise over a ~120 px trunk, plus ±1° roll |
 | `front_release_offset_m` | Release hand's sideways distance from the board centre line | m | 0.03 | ray through the wrist at the side camera's release distance; ±2.5° field of view |
+| `front_hand_path_range_sw` | Sideways range of the throwing wrist (relative to the throwing shoulder) from the side camera's peak backswing (mapped; else 0.5 s before release) to release; front view 2D (frontal plane image). `estimated` when > 20 % of those frames have the wrist hidden (confidence < 0.5) | shoulder widths | 0.05 | within-athlete SD 0.04 on clearly seen throws; ICC 0.89 over 92 throws (§5.2) |
+| `front_trunk_lean_change_deg` | Trunk side lean at release minus the median set-up lean (−1.4 to −1.2 s), + towards the throwing arm; front view 2D | ° | 1.5 | within-athlete SD 1.5°, between-athlete 2.7°, ICC 0.77 (§5.2) |
 | `left_right_in`, `short_long_in` | Signed miss at rest from the hole centre | in | 0.5 / side-camera board phase | deck homography resolution at mid-deck |
+
+`front_kinematics` in two_view.json holds the frontal time series (−1.4 to +0.4 s, time 0 = release): `wrist_across_sw`,
+`trunk_lean_deg`, `hip_sway_sw` (hip centre from set-up, + towards the throwing arm); missing frames are `null`.
+Hip sway at release was tested as a scalar and dropped (ICC 0.66, mostly noise; §5.2). No elbow or shoulder joint
+angles come from the front camera: the arm swings towards it.
 
 Lateral "on line" is within 3 in (the hole radius). Since `two_view_v6_attribution` the coach sentence no longer names
 frontal body measures per throw (hand across the body, stance, trunk lean); it is built from the miss attribution
