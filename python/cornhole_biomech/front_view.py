@@ -788,6 +788,19 @@ def track_bag_on_deck(frames: Sequence[np.ndarray], homographies: Sequence[np.nd
     return path
 
 
+def slide_turned_on_deck(path: list[dict[str, Any]]) -> bool:
+    """A sharp turn (front_track ``turn``) while the bag is sliding on the deck: the sign that the track passed to a
+    knocked bag. The landing itself (falling, then sliding) and a bag dropping off the deck's edge also turn, so the
+    heading window must lie wholly after the front camera's first contact (points tagged "deck") and the next three
+    points must still be on the deck. On the library this kept the one real knock of four flags and cleared three
+    bags that landed and slid off the side (checked on the frames, VALIDATION_PLAN.md)."""
+    from .front_track import DECK_TURN_SPAN
+    return any(p.get("turn") and i >= DECK_TURN_SPAN
+               and all(q.get("phase") == "deck" for q in path[i - DECK_TURN_SPAN:i + DECK_TURN_SPAN + 1])
+               and len(path[i + 1:i + 4]) == 3 and all(point_in_deck(q["deck_in"], 0.0) for q in path[i + 1:i + 4])
+               for i, p in enumerate(path))
+
+
 def tag_path_phases(path: list[dict[str, Any]], contact_frame: int | None) -> None:
     """Mark each deck-track point ``phase``: "air" before the front camera's first-contact frame, "deck" from it.
     Without a measured contact the points are left untagged (the replay then cannot split them)."""
@@ -1076,7 +1089,7 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
     # Two new bags on the deck, or a tracked slide that turns sharply while another bag moved: the track may have
     # passed from the thrown bag to the one it knocked (it stops, the other slides on), so the rest, an "off" or a
     # "hole" read from it could describe the wrong bag. Flagged for a person rather than chosen silently.
-    turned = path_starts_at_contact and any(p.get("turn") for p in path)
+    turned = path_starts_at_contact and slide_turned_on_deck(path)
     if not result.get("ambiguous") and (len(on_deck) >= 2 or (turned and (removed or len(on_deck) + len(in_under) + len(elsewhere) >= 2))):
         result["ambiguous"] = True
         result["identity_unsure"] = "two_new_bags_on_deck" if len(on_deck) >= 2 else "tracked_slide_turned"

@@ -38,6 +38,22 @@ athlete as well as pooled, because throws are nested in athletes.
 - Only after these pass are the coaching associations (scored vs missed) reported to the client, with the sample
   sizes stated.
 
+## Preliminary visual check (2026-10-12)
+
+Not the blinded validation above: one reviewer (Claude, looking at the saved front-clip frames), no hand-marked
+coordinates, no second rater. It is a sanity check that decided one rule change.
+
+- **Knocked-bag flags (all 4 `tracked_slide_turned` throws).** 1 was a real knock (Player 1 take 3 throw 3: the bag
+  landed on the pile by the hole and a bag ended under the board). 3 were false: the bag landed and slid off the
+  side (Player 2 take 4 throw 4, Player 3 take 4 throw 2, Player 3 take 3 throw 4). The turn came from the landing
+  itself and from the bag dropping off the edge, so the rule now only counts turns whose heading window lies wholly
+  after first contact and whose next three points are still on the deck (`front_view.slide_turned_on_deck`); on the
+  stored tracks this keeps the real knock and clears the three false flags.
+- **Random sample of 8 throws (seeded shuffle).** The hole / board / off result matched what the frames show on 8 of 8
+  (2 board, 1 hole, 5 off; one off throw left the front camera's view and was correctly not placed). On the 7 throws
+  with a front contact frame, the bag was on or touching the deck in that frame and in the air one frame earlier on
+  every throw (±1 frame at 30 fps; the exact touching frame is hard to call at this resolution).
+
 ## Known limits that validation cannot remove
 
 Two 2D cameras without a shared calibration: side measures are in the throw plane, front measures are image-plane

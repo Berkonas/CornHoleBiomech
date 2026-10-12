@@ -516,3 +516,20 @@ def test_front_kinematics_removes_camera_roll():
     corrected = fv.front_kinematics(rolled, RELEASE, FPS, "right", roll_deg=roll)
     for key in ("wrist_across_sw", "trunk_lean_deg", "hip_sway_sw"):
         assert corrected[key] == pytest.approx(level[key], abs=2e-3 if key != "trunk_lean_deg" else 0.11)
+
+
+def test_landing_and_sliding_off_the_edge_is_not_a_knock_but_a_turn_on_the_deck_is():
+    def pt(frame, phase, on, turn=False):
+        p = {"frame": frame, "phase": phase, "deck_in": [12.0, 30.0] if on else [12.0, 80.0]}
+        if turn:
+            p["turn"] = True
+        return p
+    landing = [pt(1, "air", False), pt(2, "air", False), pt(3, "deck", True), pt(4, "deck", True, turn=True),
+               pt(5, "deck", True), pt(6, "deck", True), pt(7, "deck", True), pt(8, "deck", True)]
+    assert not fv.slide_turned_on_deck(landing)                     # window reaches back into the air
+    off_edge = [pt(f, "deck", True) for f in range(1, 5)] + [pt(5, "deck", True, turn=True)] + \
+        [pt(f, "deck", f < 7) for f in range(6, 10)]
+    assert not fv.slide_turned_on_deck(off_edge)                    # falls off the deck after the turn
+    knock = [pt(f, "deck", True) for f in range(1, 5)] + [pt(5, "deck", True, turn=True)] + \
+        [pt(f, "deck", True) for f in range(6, 10)]
+    assert fv.slide_turned_on_deck(knock)
