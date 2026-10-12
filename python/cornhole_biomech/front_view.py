@@ -788,6 +788,15 @@ def track_bag_on_deck(frames: Sequence[np.ndarray], homographies: Sequence[np.nd
     return path
 
 
+def tag_path_phases(path: list[dict[str, Any]], contact_frame: int | None) -> None:
+    """Mark each deck-track point ``phase``: "air" before the front camera's first-contact frame, "deck" from it.
+    Without a measured contact the points are left untagged (the replay then cannot split them)."""
+    if contact_frame is None:
+        return
+    for point in path:
+        point["phase"] = "air" if point["frame"] < contact_frame else "deck"
+
+
 UNDER_BOARD_FROM_M = 0.45      # floor under the deck from 0.45 m behind the front edge ...
 UNDER_BOARD_TO_BACK_M = 0.03   # ... to 3 cm short of the back edge (the hole's centre is 23 cm short of it)
 
@@ -965,6 +974,11 @@ def landing_from_front(frames: Sequence[np.ndarray], fps: float, corners_per_fra
             contact = near
     result["contact"] = None if contact is None else {"frame": contact["frame"], "x_in": contact["deck_in"][0],
                                                       "y_in_front": contact["deck_in"][1], "px": contact["px"]}
+    # The deck track starts ~0.15 s before the side camera's contact to catch the last flight steps, so its first
+    # 1–4 points are the bag still in the air (85 of 86 library throws). Each point says which it is, so the replay
+    # draws the slide only from the front camera's own first contact (drawn from the track's start, the slide
+    # colour appeared 67–100 ms before the bag touched the deck).
+    tag_path_phases(path, None if contact is None else contact["frame"])
     under_path = under.reshape(-1, 1, 2).astype(np.float32)
     floor_gate = _floor_gate(c_after, (w, h), hfov_deg)
     deck_cx = float(c_after[:, 0].mean())

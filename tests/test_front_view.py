@@ -347,3 +347,14 @@ def test_withheld_camera_gives_the_true_reason_for_missing_positions():
     m = fv.frontal_metrics([frame] * 40, 30, 30.0, "right", camera_record, 6.0)
     for key in ("release_point_offset_m", "stance_offset_m", "stance_width_m"):
         assert m[key]["value"] is None and m[key]["reason"] == "The board's corners look misplaced."
+
+
+def test_deck_track_points_before_first_contact_are_marked_in_the_air():
+    """The deck track starts ~0.15 s before the side camera's contact; the replay must not draw those points as
+    the slide (it did, 2–3 frames early on 76 of 86 library throws)."""
+    path = [{"frame": f} for f in range(120, 127)]
+    fv.tag_path_phases(path, 123)
+    assert [p["phase"] for p in path] == ["air"] * 3 + ["deck"] * 4
+    untagged = [{"frame": 1}]
+    fv.tag_path_phases(untagged, None)
+    assert "phase" not in untagged[0]

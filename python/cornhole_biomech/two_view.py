@@ -38,7 +38,7 @@ from . import front_view as fv
 from .regulation import INCH_M, Board
 from .serialization import json_ready, write_json
 
-TWO_VIEW_VERSION = "two_view_v6_attribution"   # bump when the front landing / tracking / sentence logic changes
+TWO_VIEW_VERSION = "two_view_v7_front_contact"   # bump when the front landing / tracking / sentence logic changes
 TAKE_LINK_FILENAME = "take_link.json"
 LATERAL_ON_LINE_IN = 3.0          # within ±3 in of the hole centre line sideways = "on line" (the hole radius)
 DISTANCE_ON_TARGET_IN = 3.0
@@ -338,8 +338,16 @@ def analyze_two_view(analysis_dir: str | Path, *, throwing_side: str, progress: 
     landing = fv.landing_from_front(frames, front_fps, corners, release_front, contact_front, reference,
                                     hfov_deg=link.get("front_hfov_pooled"))
     landing = resolve_knocked_bag(landing, phase)
+    # The front camera's own first-contact frame: the side contact mapped to the front clip is the nearest front
+    # frame in time, which on a 30 fps camera can still show the bag in the air (observed − mapped: +1 frame on
+    # 34 of 86 library throws). Front-view events and the front path end use the observed frame.
+    observed = (landing.get("contact") or {}).get("frame") if isinstance(landing.get("contact"), dict) else None
+    record["frames"]["contact_front_mapped"] = contact_front_from_side
+    if observed is not None:
+        record["frames"]["contact_front"] = contact_front = int(observed)
+    record["frames"]["contact_front_source"] = "front camera" if observed is not None else "side camera mapped"
     record["front_landing"] = landing
-    if contact_front is None and (landing.get("contact") or {}).get("frame") is not None:
+    if contact_front_from_side is None and (landing.get("contact") or {}).get("frame") is not None:
         # First contact found by the front camera only: express it in side frames for the replay too.
         contact_front = int(landing["contact"]["frame"])
         side_count = int((link.get("side_clip") or {}).get("frame_count") or 0)
@@ -728,7 +736,8 @@ FRONT_LAG_MIN_THROWS = 8       # throws with both contacts seen before a set-up'
 FRONT_LAG_MAX_S = 0.10         # 3 front frames: beyond that it is not exposure/readout lag but a sync or tracking fault
 FRONT_LAG_MAX_IQR_S = 0.07     # about 2 front frames of spread between throws
 LAG_COMPATIBLE_VERSIONS = {"two_view_v2", "two_view_v3_front_lag", "two_view_v4_landing_guards",
-                           "two_view_v5_knocked_confirm", "two_view_v6_attribution"}   # same front tracker
+                           "two_view_v5_knocked_confirm", "two_view_v6_attribution",
+                           "two_view_v7_front_contact"}   # same front tracker
 # (v4 only leaves the hole interior out of the deck track and bags out of the deck alignment; the first on-deck
 # frame used for the lag is unchanged on the library: see METHODS_AND_MATH §5.1; v6 only adds the attribution)
 

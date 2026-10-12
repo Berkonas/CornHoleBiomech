@@ -927,6 +927,8 @@ earlier test library) follow the bag from the hand to the deck, 1.1–1.8 s per 
 found; the path is for display and no number is computed from it. When the 3D flight (§5.4) is fitted, its
 projection replaces this path in the replay (`front_path_source`).
 
+**Front-view contact timing (two_view_v7).** The front camera's first contact is its own observed frame (the first tracked deck point on the deck), stored as `frames.contact_front` with `contact_front_mapped` (the side contact mapped to the nearest front frame) and `contact_front_source`. On a 30 fps front camera the nearest frame to the side's first-contact instant can still show the bag in the air: observed − mapped was +1 frame on 34 of 86 library throws (Player 1 take 2 throw 2: frame 122 airborne, 123 on the deck, checked on the clip's frames). The deck track starts ~0.15 s before contact to catch the last flight steps, so its first 1–4 points are airborne; each point now carries `phase` (`air`/`deck`) and the replay draws the slide colour only from the observed contact (it had started 67–100 ms early on 76 of 86 throws). Playback overlays use the front player's own displayed frame, and every seek goes to the middle of the target frame (`FrameClock`), so the overlay and the picture are the same frame. Tests: `test_deck_track_points_before_first_contact_are_marked_in_the_air`, `FrontContactTimingTests`.
+
 **First contact across the board.** The moving bag near the deck is tracked from just before the side
 camera's contact time with the same colour and motion test (blobs with ≥ 15 % moving pixels; a bag at rest
 ends the track), linked by the best chain through all frames (+1 per frame, minus (step ÷ 90 px)², minus

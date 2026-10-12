@@ -47,7 +47,8 @@ struct TwoViewDocument: Decodable, Equatable {
         var ambiguous: Bool?; var notes: [String]?; var reason: String?
         enum CodingKeys: String, CodingKey { case status, outcome = "where", path, contact, rest, ambiguous, notes, reason }
     }
-    struct FrontPathPoint: Decodable, Equatable { var frame: Int; var px: [Double]; var deck_in: [Double]? }
+    /// `phase`: "air" before the front camera's own first contact, "deck" from it (engine ≥ two_view_v7).
+    struct FrontPathPoint: Decodable, Equatable { var frame: Int; var px: [Double]; var deck_in: [Double]?; var phase: String? }
     /// two_view.json → flight_3d (python `flight3d.reconstruct_flight`, METHODS_AND_MATH §5.4). World frame: x along the
     /// throw from the release point, y sideways from the board's centre line (+ thrower's right), z height above the
     /// floor (m); t from release (s, side camera clock). Numbers are present only when `status` is measured or estimated.
@@ -800,10 +801,17 @@ struct FrontReplayOverlay: View {
                                style: StrokeStyle(lineWidth: 2, dash: seenNow ? [] : [3, 3]))
             }
             drawLegend(context, rect: rect, isModel: source.isModel, hasPath: !source.points.isEmpty)
-            let slide = (document.front_landing?.path ?? []).filter { $0.frame <= frontFrame && $0.px.count == 2 }
-            if slide.count > 1 {
+            let shown = (document.front_landing?.path ?? []).filter { $0.frame <= frontFrame && $0.px.count == 2 }
+            let split = Self.splitAtContact(shown, contactFrame: document.front_landing?.contact?.frame)
+            // The deck track's first points are the bag still in the air (tracked from before contact): drawn as flight.
+            if split.air.count > 1 {
                 var line = Path()
-                line.addLines(slide.map { screen($0.px[0], $0.px[1]) })
+                line.addLines(split.air.map { screen($0.px[0], $0.px[1]) })
+                context.stroke(line, with: .color(measuredInk), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            }
+            if split.deck.count > 1 {
+                var line = Path()
+                line.addLines(split.deck.map { screen($0.px[0], $0.px[1]) })
                 context.stroke(line, with: .color(slideInk), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
             }
             if let contact = document.front_landing?.contact, let f = contact.frame, f <= frontFrame, let px = contact.px, px.count == 2 {
@@ -819,6 +827,21 @@ struct FrontReplayOverlay: View {
             context.draw(side("Thrower's left →"), at: CGPoint(x: rect.maxX - 8, y: rect.maxY - 8), anchor: .bottomTrailing)
         }
         .allowsHitTesting(false)
+    }
+
+    /// The deck track split at the front camera's first contact: `air` up to and including the contact point (so the
+    /// two lines join), `deck` from it. Uses each point's `phase` when the engine wrote it, else the contact frame; with
+    /// neither, everything is `deck` (the older drawing).
+    static func splitAtContact(_ path: [TwoViewDocument.FrontPathPoint], contactFrame: Int?)
+        -> (air: [TwoViewDocument.FrontPathPoint], deck: [TwoViewDocument.FrontPathPoint]) {
+        func inAir(_ p: TwoViewDocument.FrontPathPoint) -> Bool? {
+            if let phase = p.phase { return phase == "air" }
+            return contactFrame.map { p.frame < $0 }
+        }
+        guard path.contains(where: { inAir($0) != nil }) else { return ([], path) }
+        let air = path.filter { inAir($0) == true }
+        let deck = path.filter { inAir($0) != true }
+        return (deck.first.map { air + [$0] } ?? air, deck)
     }
 
     /// What the path is, top left: the 3D flight (solid seen / dashed model), the older tracker, or why there is none.

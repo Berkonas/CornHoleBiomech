@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import SwiftUI
 
@@ -254,5 +255,21 @@ func formatValue(_ value: Double?, unit: String) -> String {
     case "arm lengths/s": return "\(number(value, digits: 1)) arm lengths/s"
     case "": return number(value, digits: 2)
     default: return "\(number(value, digits: 2)) \(unit)"
+    }
+}
+
+
+/// Frame ↔ time for constant-rate clips (the engine writes every clip at a constant rate). Frame k is on screen from
+/// k/fps to (k+1)/fps: a time maps to the frame it falls in (floor), and a seek goes to the frame's middle so that
+/// rounding in CMTime can never land on the frame before (seeking to exactly k/fps sometimes showed k − 1).
+enum FrameClock {
+    static func time(of frame: Int, fps: Double) -> CMTime {
+        CMTime(seconds: (Double(max(0, frame)) + 0.5) / max(fps, 1), preferredTimescale: 600_000)
+    }
+
+    static func frame(at seconds: Double, fps: Double, count: Int) -> Int? {
+        let value = seconds * fps
+        guard value.isFinite, fps > 0, count > 0 else { return nil }
+        return min(max(0, Int(value.rounded(.down))), count - 1)
     }
 }

@@ -67,6 +67,13 @@ struct ThrowReplayView: View {
 
     /// Front-clip frame showing the same instant as side frame `frame`.
     private func frontFrame(_ frame: Int) -> Int? { front?.document.frontFrame(forSide: frame) }
+    /// The front frame on screen: while playing, the front player's own frame (the two players may be a frame apart
+    /// between corrections, and the overlay must match the picture it is drawn on); when paused, the seeked frame.
+    private func shownFrontFrame(_ front: FrontReplaySource) -> Int? {
+        guard playing, mode != .animation else { return frontFrame(currentFrame) }
+        return FrameClock.frame(at: frontPlayer.currentTime().seconds, fps: front.document.frontFPS, count: Int.max)
+            ?? frontFrame(displayedFrame)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
@@ -176,7 +183,7 @@ struct ThrowReplayView: View {
                 Color.black
                 NativeVideoPlayer(player: frontPlayer, showsControls: false)
                 TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
-                    FrontReplayOverlay(document: front.document, frontFrame: frontFrame(displayedFrame) ?? 0, size: geometry.size,
+                    FrontReplayOverlay(document: front.document, frontFrame: shownFrontFrame(front) ?? 0, size: geometry.size,
                                        seenFrames: front.seenFrames)
                 }.allowsHitTesting(false)
                 viewLabel("Front camera (behind the board)")
@@ -319,8 +326,7 @@ struct ThrowReplayView: View {
     // MARK: playback
     private var displayedFrame: Int {
         guard playing, mode != .animation else { return currentFrame }
-        let frame = player.currentTime().seconds * replay.fps
-        return frame.isFinite ? min(max(0, Int(frame.rounded())), replay.frame_count - 1) : 0
+        return FrameClock.frame(at: player.currentTime().seconds, fps: replay.fps, count: replay.frame_count) ?? 0
     }
     private var currentEventKey: String? {
         replay.orderedEvents.min { abs($0.event.frame - currentFrame) < abs($1.event.frame - currentFrame) }
@@ -336,14 +342,14 @@ struct ThrowReplayView: View {
         pause()
         currentFrame = min(max(0, frame), replay.frame_count - 1)
         if videoURL != nil {
-            player.seek(to: CMTime(seconds: Double(currentFrame) / replay.fps, preferredTimescale: 60000), toleranceBefore: .zero, toleranceAfter: .zero)
+            player.seek(to: FrameClock.time(of: currentFrame, fps: replay.fps), toleranceBefore: .zero, toleranceAfter: .zero)
         }
         seekFront(currentFrame)
     }
     /// Put the front clip on the same instant as side frame `frame`.
     private func seekFront(_ frame: Int) {
         guard let front, let target = frontFrame(frame) else { return }
-        frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+        frontPlayer.seek(to: FrameClock.time(of: target, fps: front.document.frontFPS),
                          toleranceBefore: .zero, toleranceAfter: .zero)
     }
     private func step(_ amount: Int) { seek(to: currentFrame + amount) }
@@ -363,14 +369,13 @@ struct ThrowReplayView: View {
         let fps = replay.fps, last = replay.frame_count - 1
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1 / max(1, fps), preferredTimescale: 60000), queue: .main) { time in
             guard playing, mode != .animation else { return }
-            let frame = time.seconds * fps
-            if frame.isFinite { currentFrame = min(max(0, Int(frame.rounded())), last) }
+            if let frame = FrameClock.frame(at: time.seconds, fps: fps, count: last + 1) { currentFrame = frame }
             if currentFrame >= last { playing = false; frontPlayer.pause() }
             // Keep the front clip on the side clip's clock (two players drift apart slowly).
             if let front, let target = frontFrame(currentFrame) {
-                let frontNow = frontPlayer.currentTime().seconds * front.document.frontFPS
-                if abs(frontNow - Double(target)) > 2 {
-                    frontPlayer.seek(to: CMTime(seconds: Double(target) / front.document.frontFPS, preferredTimescale: 60000),
+                let frontNow = FrameClock.frame(at: frontPlayer.currentTime().seconds, fps: front.document.frontFPS, count: Int.max)
+                if frontNow.map({ abs($0 - target) > 1 }) ?? true {
+                    frontPlayer.seek(to: FrameClock.time(of: target, fps: front.document.frontFPS),
                                      toleranceBefore: .zero, toleranceAfter: .zero)
                 }
             }
