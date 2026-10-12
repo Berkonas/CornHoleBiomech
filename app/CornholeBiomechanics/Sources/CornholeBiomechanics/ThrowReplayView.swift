@@ -184,7 +184,7 @@ struct ThrowReplayView: View {
                 NativeVideoPlayer(player: frontPlayer, showsControls: false)
                 TimelineView(.animation(minimumInterval: nil, paused: !playing)) { _ in
                     FrontReplayOverlay(document: front.document, frontFrame: shownFrontFrame(front) ?? 0, size: geometry.size,
-                                       seenFrames: front.seenFrames)
+                                       seenFrames: front.seenFrames, pose: front.pose, showsSkeleton: showSkeleton)
                 }.allowsHitTesting(false)
                 viewLabel("Front camera (behind the board)")
             }

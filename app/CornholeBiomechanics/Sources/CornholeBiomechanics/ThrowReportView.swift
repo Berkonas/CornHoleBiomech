@@ -71,6 +71,7 @@ struct ThrowReportData {
     var frontVideoURL: URL?
     /// Front frames where the bag was found on the 3D path (flight3d.json), for the front-video overlay.
     var seenFrames: Set<Int>?
+    var frontPose: PoseDocument?
     /// This athlete's two-camera throws (launch direction, slide, rest) for the strips and the board ghost.
     var twoViewHistory: [TwoViewHistoryEntry] = []
 
@@ -464,6 +465,9 @@ struct ThrowReportView: View {
         next.boardPhase = BoardPhase.load(results: resultsURL)
         next.twoView = TwoViewDocument.load(url)
         next.seenFrames = Flight3DFile.seenFrames(url)
+        if let data = try? Data(contentsOf: url.appendingPathComponent("front_pose_raw.json")) {
+            next.frontPose = try? JSONDecoder().decode(PoseDocument.self, from: data)
+        }
         next.twoViewHistory = report.twoViewHistory
         if let front = trial.frontVideoRelativePath.flatMap(store.url(for:)), FileManager.default.fileExists(atPath: front.path) {
             next.frontVideoURL = front
@@ -804,7 +808,7 @@ struct ThrowReportContent: View {
     /// The front clip for the replay, when this throw came from a synchronised two-camera take.
     private var frontSource: FrontReplaySource? {
         guard let url = data.frontVideoURL, let document = data.twoView, document.side_to_front_frames?.isEmpty == false else { return nil }
-        return FrontReplaySource(url: url, document: document, seenFrames: data.seenFrames)
+        return FrontReplaySource(url: url, document: document, seenFrames: data.seenFrames, pose: data.frontPose)
     }
 
     // MARK: Key numbers

@@ -1,3 +1,4 @@
+import Charts
 import AVFoundation
 import SwiftUI
 
@@ -116,6 +117,17 @@ struct TwoViewDocument: Decodable, Equatable {
     /// by a newer engine that does not match these types never hides the rest of the front camera's analysis.
     var flight_3d: Flight3D? = nil
     var attribution: ThrowAttribution? = nil
+    var front_kinematics: FrontKinematics? = nil
+
+    /// two_view.json → front_kinematics (front_view.front_kinematics): front view 2D series around release.
+    struct FrontKinematics: Decodable, Equatable {
+        var status: String?
+        var reason: String?
+        var t_s: [Double]?
+        var wrist_across_sw: [Double?]?
+        var trunk_lean_deg: [Double?]?
+        var forward_swing_start_s: Double?
+    }
 
     enum CodingKeys: String, CodingKey {
         case status, reason, take, throw_in_take, sync, sync_check, camera, alignment, frames, heading, result, miss
@@ -128,6 +140,8 @@ struct TwoViewDocument: Decodable, Equatable {
         guard var document = try? JSONDecoder().decode(TwoViewDocument.self, from: data) else { return nil }
         struct FlightBox: Decodable { var flight_3d: Flight3D? }
         struct AttributionBox: Decodable { var attribution: ThrowAttribution? }
+        struct FrontBodyBox: Decodable { var front_kinematics: FrontKinematics? }
+        document.front_kinematics = (try? JSONDecoder().decode(FrontBodyBox.self, from: data))?.front_kinematics
         document.flight_3d = (try? JSONDecoder().decode(FlightBox.self, from: data))?.flight_3d
         document.attribution = (try? JSONDecoder().decode(AttributionBox.self, from: data))?.attribution
         return document
@@ -181,6 +195,10 @@ struct TwoViewDocument: Decodable, Equatable {
          "How far the hand released the bag from the board's centre line (+ to the thrower's right)."),
         ("stance_offset_m", "Stance offset",
          "Feet midpoint from the board's centre line one second before release (+ to the thrower's right)."),
+        ("hand_path_range_sw", "Hand path sideways range",
+         "How far the throwing hand moved sideways during the forward swing, in shoulder widths (front view 2D). A planar pendulum swing gives ≈ 0. Mostly describes how this athlete throws (reproducible, ICC 0.89)."),
+        ("trunk_lean_change_deg", "Trunk lean change",
+         "Change in trunk side lean from set-up to release (front view 2D), + towards the throwing arm."),
     ]
 }
 
@@ -211,6 +229,9 @@ struct TwoViewDetailsCard: View {
              subtitle: "Body seen from the front, camera sync and the 3D flight fit.") {
             if document.isMeasured {
                 frontalGrid
+                if let series = document.front_kinematics, series.status == "measured" {
+                    FrontBodyChart(series: series)
+                }
                 Text("Frontal angles are 2D image angles at release: plausibility checks, not causes of this throw's result.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Text(Self.trustText(document))
@@ -751,6 +772,9 @@ struct FrontReplayOverlay: View {
     let size: CGSize
     /// Front frames where the bag was found on the 3D path; nil when not known (the whole path is then dashed).
     var seenFrames: Set<Int>? = nil
+    /// Front-camera pose for the skeleton (front view 2D); joints below 0.3 confidence are not drawn.
+    var pose: PoseDocument? = nil
+    var showsSkeleton = true
 
     /// The path drawn and whether it is the projected 3D flight.
     private var flightPath: (points: [TwoViewDocument.PathPoint], isModel: Bool) {
@@ -763,6 +787,23 @@ struct FrontReplayOverlay: View {
             let rect = videoRect
             func screen(_ x: Double, _ y: Double) -> CGPoint {
                 CGPoint(x: rect.minX + rect.width * x / document.frontWidth, y: rect.minY + rect.height * y / document.frontHeight)
+            }
+            if showsSkeleton, let pose, frontFrame >= 0, frontFrame < pose.frames.count {
+                let joints = pose.frames[frontFrame].landmarks
+                func point(_ name: String) -> CGPoint? {
+                    guard let p = joints[name], p.confidence >= 0.3, let x = p.x, let y = p.y else { return nil }
+                    return screen(x, y)
+                }
+                let bones = [("left_shoulder", "right_shoulder"), ("left_hip", "right_hip"), ("left_shoulder", "left_hip"),
+                             ("right_shoulder", "right_hip"), ("left_shoulder", "left_elbow"), ("left_elbow", "left_wrist"),
+                             ("right_shoulder", "right_elbow"), ("right_elbow", "right_wrist"), ("left_hip", "left_knee"),
+                             ("left_knee", "left_ankle"), ("right_hip", "right_knee"), ("right_knee", "right_ankle")]
+                var skeleton = Path()
+                for (a, b) in bones {
+                    if let pa = point(a), let pb = point(b) { skeleton.move(to: pa); skeleton.addLine(to: pb) }
+                }
+                context.stroke(skeleton, with: .color(.black.opacity(0.4)), style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                context.stroke(skeleton, with: .color(.cyan.opacity(0.9)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
             }
             if let quad = document.corners(frontFrame: frontFrame) {
                 var deck = Path(); deck.addLines(quad.map { screen($0.x, $0.y) }); deck.closeSubpath()
@@ -894,6 +935,12 @@ struct FrontReplaySource: Equatable {
     var document: TwoViewDocument
     /// Front frames where the bag was found on the 3D path (flight3d.json → detections); nil when not saved.
     var seenFrames: Set<Int>? = nil
+    /// The front camera's Sports2D pose (front_pose_raw.json), drawn as a skeleton over the front video.
+    var pose: PoseDocument? = nil
+
+    static func == (a: FrontReplaySource, b: FrontReplaySource) -> Bool {
+        a.url == b.url && a.document == b.document && a.seenFrames == b.seenFrames && (a.pose == nil) == (b.pose == nil)
+    }
 }
 
 /// flight3d.json read for what two_view.json leaves out: the front frames where the bag was found on the 3D path.
@@ -1019,5 +1066,62 @@ struct DotStrip: View {
             context.draw(caption("← \(lowLabel)"), at: CGPoint(x: 6, y: size.height), anchor: .bottomLeading)
             context.draw(caption("\(highLabel) →"), at: CGPoint(x: size.width - 6, y: size.height), anchor: .bottomTrailing)
         }
+    }
+}
+
+
+/// The front camera's frontal-plane series around release (front view 2D): where the hand was sideways relative to the
+/// throwing shoulder, and the trunk's side lean. Gaps are frames the pose model did not see clearly; they are not
+/// filled. Time 0 is the side camera's release.
+struct FrontBodyChart: View {
+    let series: TwoViewDocument.FrontKinematics
+
+    private struct Sample: Identifiable { let id: Int; let t: Double; let value: Double; let run: Int }
+
+    private func samples(_ values: [Double?]?) -> [Sample] {
+        guard let t = series.t_s, let values else { return [] }
+        var out: [Sample] = [], run = 0, wasGap = true
+        for (i, value) in values.enumerated() where i < t.count {
+            guard let value else { wasGap = true; continue }
+            if wasGap { run += 1; wasGap = false }
+            out.append(Sample(id: i, t: t[i], value: value, run: run))
+        }
+        return out
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text("Body from the front over the throw").font(.headline)
+            HStack(alignment: .top, spacing: Space.m) {
+                chart(samples(series.wrist_across_sw), title: "Hand across the body", unit: "shoulder widths",
+                      sign: "+ towards the midline")
+                chart(samples(series.trunk_lean_deg), title: "Trunk side lean", unit: "°", sign: "+ towards the throwing arm")
+            }
+            Text("Front view 2D (frontal plane image). Time from release (s); dashed line: start of the forward swing. Gaps: frames where the joints were not seen clearly.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func chart(_ points: [Sample], title: String, unit: String, sign: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(title) (\(unit))").font(.caption.weight(.semibold))
+            Chart {
+                ForEach(points) { p in
+                    LineMark(x: .value("Time from release (s)", p.t), y: .value(unit, p.value), series: .value("run", p.run))
+                        .foregroundStyle(measuredInk).interpolationMethod(.linear)
+                }
+                RuleMark(x: .value("Release", 0.0)).foregroundStyle(eventColor("release"))
+                    .annotation(position: .top, alignment: .leading) { Text("Release").font(.caption2) }
+                if let start = series.forward_swing_start_s {
+                    RuleMark(x: .value("Forward swing", start)).foregroundStyle(.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
+            }
+            .chartXAxisLabel("Time from release (s)")
+            .frame(minWidth: 220, minHeight: 130)
+            Text(sign).font(.caption2).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(points.count) frames, front view")
     }
 }
