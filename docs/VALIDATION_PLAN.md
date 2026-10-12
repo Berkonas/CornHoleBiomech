@@ -50,7 +50,7 @@ coordinates, no second rater. It is a sanity check that decided one rule change.
   after first contact and whose next three points are still on the deck (`front_view.slide_turned_on_deck`); on the
   stored tracks this keeps the real knock and clears the three false flags.
 - **Random sample of 8 throws (seeded shuffle).** The hole / board / off result matched what the frames show on 8 of 8
-  (2 board, 1 hole, 5 off; one off throw left the front camera's view and was correctly not placed). On the 7 throws
+  (3 board, 1 hole, 4 off; one off throw left the front camera's view and was correctly not placed). On the 7 throws
   with a front contact frame, the bag was on or touching the deck in that frame and in the air one frame earlier on
   every throw (±1 frame at 30 fps; the exact touching frame is hard to call at this resolution).
 
