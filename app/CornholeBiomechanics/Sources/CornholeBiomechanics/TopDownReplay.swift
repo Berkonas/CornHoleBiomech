@@ -105,6 +105,7 @@ struct TopDownScene: Equatable {
             launchDeg = launch.deg
             launchSource = launch.source
             launchEstimated = launch.status != "measured"
+            if launchEstimated { notes.append("The launch direction is an estimate on this throw: its line is dashed.") }
             releaseRight = launch.releaseRightM.map { $0 / Self.inch }
             if releaseRight == nil { notes.append("The release point's sideways position was not measured, so the launch line is not drawn.") }
         } else {
@@ -340,12 +341,19 @@ extension TopDownScene {
             context.fill(wedge, with: .color(Color.accentColor.opacity(0.2)))
             var toHole = Path(); toHole.move(to: release); toHole.addLine(to: holePoint)
             context.stroke(toHole, with: .color(.primary.opacity(0.45)), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            // An estimated launch direction (estimated 3D flight or heading) is dashed, like every estimate in the app.
+            let launchDash: [CGFloat] = launchEstimated ? [6, 4] : []
             var line = Path(); line.move(to: release); line.addLine(to: end)
-            context.stroke(line, with: .color(measuredInk.opacity(frame == nil ? 0.9 : 0.35)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            context.stroke(line, with: .color(measuredInk.opacity(frame == nil ? 0.9 : 0.35)),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: launchDash))
             if let frame, let r0f = releaseFrame, frame >= r0f {
                 let reach = reachedContact ? endA : (bag(at: frame, sideAlong: sideAlong)?.a ?? 0)
                 var travelled = Path(); travelled.move(to: release); travelled.addLine(to: map.point(reach, r0 + slope * reach))
-                context.stroke(travelled, with: .color(measuredInk), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                // Without the side camera's measured distance along the throw the bag's place on the line is even-pace
+                // interpolation: dashed.
+                let interpolated = !reachedContact && sideAlong == nil
+                context.stroke(travelled, with: .color(measuredInk),
+                               style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: launchEstimated || interpolated ? [6, 4] : []))
             }
             context.fill(Path(ellipseIn: CGRect(x: release.x - 4, y: release.y - 4, width: 8, height: 8)), with: .color(eventColor("release")))
             if detail < 0.5 {
