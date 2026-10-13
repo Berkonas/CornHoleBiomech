@@ -1267,6 +1267,16 @@ one made after landing (the slide). Front-view body differences are evidence onl
 model links them to where the bag went. The comparison baseline is the athlete's other throws of the same method
 version; without a usual group the statement says so.
 
+**What to change (fix targets).** For a missed throw (`attribution.fix`): the target first contact is this throw's
+contact moved by the miss (the same slide then ends in the hole), or on the centre line when the bag slid ≥ 3 in
+sideways (a landing problem that aiming off line would not fix). The release change is the carry needed divided by
+this throw's drag-free sensitivity (`carry_sensitivity`; speed in m/s, and the angle only where it moves contact ≥ 2 cm
+per degree and the change is ≤ 6°); the launch change is atan(sideways change / release→contact distance). Body
+targets are the medians of the athlete's same-method throws that went in (≥ 3; else hole + board, ≥ 5) for the side
+coach body metrics and the front-camera measures; up to four are shown, marked when the difference exceeds the noise
+floor. These are model-based targets and associations to try, not causes: the slide and the body–release link vary
+from throw to throw.
+
 **Bandwidth gate.** The athlete's usual centre and spread are the median and the robust SD ($1.4826 \times$ MAD) of where
 their other throws stopped (holes at 0, 0; ≥ 8 located throws). A miss within 1 SD of the centre on both axes names
 nothing and gets "Normal spread: keep the same throw." A cue is given only when the sentence's axis is outside the

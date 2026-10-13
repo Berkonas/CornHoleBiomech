@@ -89,6 +89,28 @@ struct ThrowAttribution: Decodable, Equatable {
     var tier: String?
     /// The explanation in four separate statements (attribution_v2; nil in older analyses).
     var explanation: FourPart?
+    /// What would have put this bag in (attribution.fix_targets); nil for made throws and older analyses.
+    var fix: Fix?
+
+    struct Fix: Decodable, Equatable {
+        struct Point: Decodable, Equatable { var x_in: Double?; var y_in: Double? }
+        struct BodyChange: Decodable, Equatable, Identifiable {
+            var key: String; var label: String; var unit: String
+            var value: Double?; var target: Double?; var change: Double?; var noise: Double?; var camera: String?
+            var beyond_noise: Bool?
+            var id: String { key }
+        }
+        struct Basis: Decodable, Equatable {
+            var throwCount: Int?; var kind: String?
+            enum CodingKeys: String, CodingKey { case throwCount = "throws", kind }
+        }
+        var target_contact: Point?
+        var speed_change_m_s: Double?
+        var angle_change_deg: Double?
+        var launch_change_deg: Double?
+        var body: [BodyChange]?
+        var body_basis: Basis?
+    }
 
     struct FourPart: Decodable, Equatable {
         var observed: String?

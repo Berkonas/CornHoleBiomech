@@ -28,6 +28,8 @@ struct MissStory: Equatable {
     var launchVsHoleDeg: Double?
     var headline: String
     var reasons: [Reason]
+    /// Where the bag would have had to land (same slide, moved by the miss) to finish in the hole; nil when unknown.
+    var target: (x: Double, y: Double)? = nil
 
     static func == (a: MissStory, b: MissStory) -> Bool {
         a.made == b.made && a.offBoard == b.offBoard && a.headline == b.headline && a.reasons == b.reasons
@@ -109,6 +111,11 @@ struct MissStory: Equatable {
         return number(half, digits: half == half.rounded() ? 0 : 1)
     }
 
+    init(document: TwoViewDocument, launchVsHoleDeg: Double?, target: (x: Double, y: Double)?) {
+        self.init(document: document, launchVsHoleDeg: launchVsHoleDeg)
+        self.target = made ? nil : target
+    }
+
     init(document: TwoViewDocument, launchVsHoleDeg: Double?) {
         let landing = document.landing
         func point(_ p: TwoViewDocument.LandingPoint?) -> (x: Double, y: Double)? {
@@ -129,6 +136,8 @@ struct WhyItMissedCard: View {
     let suggested: ScoreCategory?
     var releaseSpeed: Double?
     var releaseAngle: Double?
+    /// What would have put it in (release and body changes), from the attribution's fix targets.
+    var fix: ThrowAttribution.Fix? = nil
     var canEdit = true
     var accept: (ScoreCategory) -> Void = { _ in }
 
@@ -173,17 +182,74 @@ struct WhyItMissedCard: View {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(story.reasons, id: \.part.rawValue) { reason in
                                 Label(reason.fix, systemImage: "arrow.right.circle.fill").fixedSize(horizontal: false, vertical: true)
-                                    .symbolRenderingMode(.hierarchical).foregroundStyle(.primary)
+                                    .symbolRenderingMode(.hierarchical).foregroundStyle(Self.target)
+                            }
+                            ForEach(releaseChanges, id: \.self) { line in
+                                Label(line, systemImage: "scope").fixedSize(horizontal: false, vertical: true).foregroundStyle(Self.target)
                             }
                         }
                     }
                 }
                 .font(.body)
+                bodyChanges
             }
             if let speed = releaseSpeed, let angle = releaseAngle {
                 Text("Release: \(number(speed, digits: 1)) m/s at \(number(angle, digits: 0))° (side camera).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    static let target = Color(red: 0.13, green: 0.62, blue: 0.30)
+
+    /// The release changes that would have moved first contact onto the green target (drag-free flight from this
+    /// throw's release; launch direction from the release-to-board geometry).
+    private var releaseChanges: [String] {
+        guard let fix else { return [] }
+        var lines: [String] = []
+        if let dv = fix.speed_change_m_s, abs(dv) >= 0.02 {
+            let percent = releaseSpeed.map { " (about \(number(abs(dv) / $0 * 100, digits: 0)) %)" } ?? ""
+            var line = "Release about \(number(abs(dv), digits: 2)) m/s \(dv > 0 ? "faster" : "slower")\(percent)"
+            if let da = fix.angle_change_deg { line += ", or about \(number(abs(da), digits: 1))° \(da > 0 ? "higher" : "flatter")" }
+            lines.append(line + ".")
+        }
+        if let dpsi = fix.launch_change_deg, abs(dpsi) >= 0.25 {
+            lines.append("Launch about \(number(abs(dpsi), digits: 1))° further \(dpsi < 0 ? "left" : "right").")
+        }
+        return lines
+    }
+
+    /// Body measures on this throw against the athlete's made throws (association, not a proven cause).
+    @ViewBuilder private var bodyChanges: some View {
+        if let fix, let body = fix.body, !body.isEmpty {
+            let basis = fix.body_basis
+            let made = basis?.kind == "made" ? "throws that went in" : "throws that scored"
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("Body: this throw vs your \(basis?.throwCount.map(String.init) ?? "") \(made)").font(.headline)
+                ForEach(body) { change in
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                        Image(systemName: change.beyond_noise == true ? "figure.walk.motion" : "circle.dotted")
+                            .foregroundStyle(change.beyond_noise == true ? Self.target : .secondary)
+                        Text(change.label).fontWeight(change.beyond_noise == true ? .semibold : .regular)
+                        Text("\(Self.value(change.value, change.unit)) → ").foregroundStyle(.secondary)
+                            + Text(Self.value(change.target, change.unit)).foregroundStyle(Self.target).bold()
+                        Text(change.beyond_noise == true ? "(\(change.camera ?? ""))" : "(within measurement noise)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text("Green = what this athlete did on throws that went in. An association to try, not a proven cause.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    static func value(_ v: Double?, _ unit: String) -> String {
+        guard let v else { return "—" }
+        switch unit {
+        case "°": return number(v, digits: 0) + "°"
+        case "s": return number(v, digits: 2) + " s"
+        case "ms": return number(v, digits: 0) + " ms"
+        default: return number(v, digits: 2) + " " + unit
         }
     }
 
@@ -268,6 +334,18 @@ struct SideMissDrawing: View {
                         .foregroundStyle(.red), at: CGPoint(x: (hc.x + r.x) / 2, y: y + 5), anchor: .top)
                 }
             }
+            if let target = story.target {
+                // Where it needed to land to slide into the hole (same slide), green.
+                let t = deck(min(max(target.y, -6), 54)), hc = deck(MissStory.holeY)
+                var ideal = Path()
+                ideal.move(to: CGPoint(x: t.x - 60, y: t.y - 70))
+                ideal.addQuadCurve(to: t, control: CGPoint(x: t.x - 18, y: t.y - 70))
+                ideal.move(to: CGPoint(x: t.x, y: t.y - 5)); ideal.addLine(to: CGPoint(x: hc.x, y: hc.y - 5))
+                context.stroke(ideal, with: .color(WhyItMissedCard.target), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+                drawTarget(context, at: t)
+                context.draw(Text("land here").font(.caption2.weight(.semibold)).foregroundStyle(WhyItMissedCard.target),
+                             at: CGPoint(x: t.x, y: t.y + 9), anchor: .top)
+            }
             drawRing(context, at: c)
             context.draw(Text("landed").font(.caption2.weight(.semibold)).foregroundStyle(eventColor("first_contact")),
                          at: CGPoint(x: c.x, y: c.y - 14), anchor: .bottom)
@@ -296,8 +374,8 @@ struct FrontMissDrawing: View {
             let hole = pt(MissStory.holeX, MissStory.holeY), hr = 3 * scale
             context.fill(Path(ellipseIn: CGRect(x: hole.x - hr, y: hole.y - hr, width: 2 * hr, height: 2 * hr)), with: .color(.black.opacity(0.85)))
             context.draw(Text("thrower ↓").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: 6, y: h - 4), anchor: .bottomLeading)
-            context.draw(Text("left").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: rect.minX - 6, y: rect.midY), anchor: .trailing)
-            context.draw(Text("right").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: rect.maxX + 6, y: rect.midY), anchor: .leading)
+            context.draw(Text("← left").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: 8, y: 6), anchor: .topLeading)
+            context.draw(Text("right →").font(.caption2).foregroundStyle(.secondary), at: CGPoint(x: w - 8, y: 6), anchor: .topTrailing)
             let clampX = { (x: Double) in min(max(x, -10), 34) }, clampY = { (y: Double) in min(max(y, -6), 54) }
             if let contact = story.contact, let rest = story.rest {
                 var slide = Path(); slide.move(to: pt(clampX(contact.x), clampY(contact.y))); slide.addLine(to: pt(clampX(rest.x), clampY(rest.y)))
@@ -314,6 +392,12 @@ struct FrontMissDrawing: View {
                         .foregroundStyle(.red), at: CGPoint(x: (hole.x + pt(clampX(rest.x), 0).x) / 2, y: y - 3), anchor: .bottom)
                 }
             }
+            if let target = story.target {
+                let t = pt(clampX(target.x), clampY(target.y))
+                var ideal = Path(); ideal.move(to: t); ideal.addLine(to: hole)
+                context.stroke(ideal, with: .color(WhyItMissedCard.target), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 3]))
+                drawTarget(context, at: t)
+            }
             if let contact = story.contact { drawRing(context, at: pt(clampX(contact.x), clampY(contact.y))) }
         }
         .accessibilityElement().accessibilityLabel("The board from behind the thrower: where the bag landed and stopped across the board")
@@ -325,6 +409,14 @@ private func drawBag(_ context: GraphicsContext, at p: CGPoint, color: Color) {
     let bag = Path(roundedRect: CGRect(x: p.x - s / 2, y: p.y - s / 2, width: s, height: s), cornerRadius: 3)
     context.fill(bag, with: .color(color))
     context.stroke(bag, with: .color(.white), lineWidth: 1.5)
+}
+
+private func drawTarget(_ context: GraphicsContext, at p: CGPoint) {
+    let r: CGFloat = 8
+    let ring = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
+    context.fill(ring, with: .color(WhyItMissedCard.target.opacity(0.25)))
+    context.stroke(ring, with: .color(WhyItMissedCard.target), lineWidth: 2.2)
+    context.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)), with: .color(WhyItMissedCard.target))
 }
 
 private func drawRing(_ context: GraphicsContext, at p: CGPoint) {

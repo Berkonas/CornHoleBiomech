@@ -489,3 +489,23 @@ def test_offsetting_release_changes_are_reported_not_called_unchanged():
     assert "did not differ beyond their noise" not in e["possible_explanation"]
     assert att["cue"] is None and "harder" not in att["sentence"]
     assert e["observed_detail"].startswith("First contact")
+
+
+def test_fix_targets_give_the_release_change_and_body_differences_against_made_throws():
+    siblings = _siblings()
+    for record, results in siblings:
+        record["result"] = {"category": "throughHole"}
+        results["coach_metrics"]["swing_forward_duration_s"] = {"value": 0.47, "status": "reliable"}
+    me_results = _results(speed=8.0)
+    me_results["coach_metrics"]["swing_forward_duration_s"] = {"value": 0.56, "status": "reliable"}
+    me_results["summaries"]["bag_release_height_m"] = 1.0
+    me_results["coach_metrics"]["bag_release_height_m"] = {"value": 1.0, "status": "reliable"}
+    att = at.attribute(_record(contact=(12.0, 18.0), rest=(12.0, 27.0)), me_results, siblings=siblings,
+                       release_distance_m=RELEASE_M)
+    fix = att["fix"]
+    assert fix["target_contact"] == {"x_in": 12.0, "y_in": 30.0}           # same slide, 12 in further up
+    assert fix["speed_change_m_s"] > 0                                      # short: throw faster
+    swing = next(b for b in fix["body"] if b["key"] == "swing_forward_duration_s")
+    assert swing["beyond_noise"] and swing["change"] == -0.09 and fix["body_basis"] == {"throws": 12, "kind": "made"}
+    made = at.attribute(_record(category="throughHole", contact=(12, 36), rest=(12, 39)), _results(), siblings=siblings)
+    assert made["fix"] is None

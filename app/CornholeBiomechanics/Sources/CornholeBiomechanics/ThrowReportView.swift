@@ -554,10 +554,13 @@ struct ThrowReportContent: View {
                         // One throw only (user review 2026-10-13): what happened, why it missed and what to fix from
                         // both cameras, then the board and the replay. The comparisons with the athlete's other throws
                         // (miss breakdown against the usual, release strips) are under Details.
-                        WhyItMissedCard(story: MissStory(document: twoView, launchVsHoleDeg: planScene?.wedgeDeg),
+                        WhyItMissedCard(story: MissStory(document: twoView, launchVsHoleDeg: planScene?.wedgeDeg,
+                                                         target: twoView.attribution?.fix?.target_contact.flatMap { p in
+                                                             p.x_in.flatMap { x in p.y_in.map { (x, $0) } } }),
                                         recorded: trial.outcome?.scoreCategory, suggested: twoView.suggestedScore,
                                         releaseSpeed: data.value("bag_release_speed_m_s"),
                                         releaseAngle: data.value("bag_release_angle_deg"),
+                                        fix: twoView.attribution?.fix,
                                         canEdit: actions.canRecordResult, accept: { actions.setScore($0) })
                         bodyBlock(twoView)
                         boardBlock

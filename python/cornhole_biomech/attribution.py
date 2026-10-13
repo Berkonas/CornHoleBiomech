@@ -220,6 +220,7 @@ def throw_measures(record: dict[str, Any], results: dict[str, Any],
     height, _ = _release_value(results, "bag_release_height_m")
     distance = run0 if run0 is not None else _num((results.get("summaries") or {}).get("release_to_board_front_m"))
     frontal = record.get("frontal") if isinstance(record.get("frontal"), dict) else {}
+    m["frontal"] = frontal
     for key, *_ in BODY_EVIDENCE:
         item = frontal.get(key) if isinstance(frontal.get(key), dict) else {}
         m[f"body_{key}"] = _num(item.get("value")) if item.get("status") in ("measured", "estimated") else None
@@ -351,7 +352,7 @@ def attribute(record: dict[str, Any], results: dict[str, Any], *,
                   f"Fewer than {USUAL_MIN_THROWS} of this athlete's other analysed two-camera throws stopped at a "
                   f"measured place ({usual['located']}), so there is no usual group and no spread."},
         "within_usual_spread": None, "inside_spread": {"lateral": None, "depth": None},
-        "sentence": None, "cue": None, "tier": "geometry"}
+        "sentence": None, "cue": None, "tier": "geometry", "fix": None}
     if record.get("status") not in (None, "measured") or category is None:
         reason = ((record.get("result") or {}).get("reason") or record.get("reason")
                   or "There is no hole / board / off result for this throw yet.")
@@ -434,6 +435,7 @@ def attribute(record: dict[str, Any], results: dict[str, Any], *,
         c.update(named=True, share=_r(value / miss))
     out["drivers"] = _drivers(me, usual, lateral, depth, within=bool(within))
     out["body_evidence"] = _body_evidence(me, usual)
+    out["fix"] = fix_targets(me, results, siblings or [])
 
     # Status and tier.
     speed_named = any(d["key"] == "release_speed" and d["named"] for d in out["drivers"])
@@ -444,6 +446,88 @@ def attribute(record: dict[str, Any], results: dict[str, Any], *,
         out["status"] = "estimated"
     out["reason"] = " ".join(reasons) or None
     return _finish(out)
+
+
+# Body measures compared with the athlete's made throws for "what to change" (coach metrics from results.json and
+# front-camera measures from two_view.json; noise floors as in reliability.py / METRICS.md).
+FIX_BODY_FRONT = {"arm_across_body_sw": ("Hand across the body at release", 0.15, "shoulder widths"),
+                  "trunk_side_lean_deg": ("Trunk side lean at release", 6.0, "°"),
+                  "hand_path_range_sw": ("Hand path sideways range", 0.05, "shoulder widths"),
+                  "trunk_lean_change_deg": ("Trunk lean change", 1.5, "°")}
+FIX_MADE_MIN = 3          # made (hole) throws needed for a body target; else scored throws (hole + board), at least 5
+
+
+def _coach_value(results: dict[str, Any], key: str) -> float | None:
+    value, _ = _release_value(results, key)
+    return value
+
+
+def fix_targets(me: dict[str, Any], results: dict[str, Any],
+                siblings: list[tuple[dict[str, Any], dict[str, Any]]]) -> dict[str, Any] | None:
+    """What would have put this bag in: the target first contact (same slide, moved by the miss), the release change
+    that moves first contact that far in the drag-free flight (speed, or angle where it matters), the change of launch
+    direction that removes the sideways miss, and body measures that differ from this athlete's made throws by more
+    than their noise. Model-based targets, not guarantees: the slide and the body–release link vary from throw to
+    throw, so the body list is phrased as "on your made throws", an association."""
+    if me.get("category") in (None, "throughHole") or me.get("miss_x") is None or me.get("miss_y") is None:
+        return None
+    mx, my = me["miss_x"], me["miss_y"]
+    out: dict[str, Any] = {"target_contact": None, "speed_change_m_s": None, "angle_change_deg": None,
+                           "launch_change_deg": None, "body": [], "body_basis": None}
+    # Across: with a small sideways slide the landing moves by the miss; a large one (≥ 3 in) is a landing problem
+    # that aiming off line would not fix, so the target is then on the centre line and the aim change brings the
+    # landing there.
+    across_from_contact = None
+    if me.get("x_c") is not None and me.get("y_c") is not None:
+        drift = me["x_r"] - me["x_c"] if me.get("x_r") is not None else 0.0
+        target_x = HOLE_X_IN if abs(drift) >= SLIDE_DRIFT_NOISE_IN * 3 else me["x_c"] - mx
+        across_from_contact = target_x - me["x_c"]
+        out["target_contact"] = {"x_in": _r(target_x), "y_in": _r(me["y_c"] - my)}
+    sens = me.get("sensitivity") or {}
+    if abs(my) >= AXIS_MIN_MISS_IN:
+        carry_m = -my * INCH_M
+        if sens.get("m_per_m_s"):
+            out["speed_change_m_s"] = _r(carry_m / sens["m_per_m_s"], 2)
+        if sens.get("m_per_deg") and abs(sens["m_per_deg"]) >= 0.02:     # ≥ 2 cm per degree: the angle matters
+            change = carry_m / sens["m_per_deg"]
+            if abs(change) <= 6:                                        # a realistic adjustment, not a different throw
+                out["angle_change_deg"] = _r(change, 1)
+    sideways = across_from_contact if across_from_contact is not None else -mx
+    if abs(sideways) >= AXIS_MIN_MISS_IN and me.get("run_m"):
+        out["launch_change_deg"] = _r(math.degrees(math.atan2(sideways * INCH_M, me["run_m"])), 1)
+    # Body: this throw against the athlete's made throws (same method version: siblings are filtered already).
+    made = [(r, res) for r, res in siblings if (r.get("result") or {}).get("category") == "throughHole"]
+    basis = "made"
+    if len(made) < FIX_MADE_MIN:
+        made = [(r, res) for r, res in siblings if (r.get("result") or {}).get("category") in ("throughHole", "onBoard")]
+        basis = "scored"
+    if len(made) >= (FIX_MADE_MIN if basis == "made" else 5):
+        from .reliability import COACH_METRICS
+        items = []
+        for metric in COACH_METRICS:
+            if metric.source != "body" or metric.noise_floor is None:
+                continue
+            value = _coach_value(results, metric.key)
+            typical = _median_sd(_coach_value(res, metric.key) for _, res in made)[0]
+            items.append((metric.key, metric.label, metric.unit, metric.noise_floor, value, typical, "side camera"))
+        frontal = lambda rec, key: _num(((rec.get("frontal") or {}).get(key) or {}).get("value"))
+        record_frontal = me.get("frontal") or {}
+        for key, (label, noise, unit) in FIX_BODY_FRONT.items():
+            value = _num((record_frontal.get(key) or {}).get("value"))
+            typical = _median_sd(frontal(r, key) for r, _ in made)[0]
+            items.append((key, label, unit, noise, value, typical, "front camera"))
+        body = []
+        for key, label, unit, noise, value, typical, camera in items:
+            if value is None or typical is None or abs(value - typical) < 0.5 * noise:
+                continue
+            # beyond_noise false: the closest differences, shown as "within noise" so the coach sees the body was
+            # close to the made throws rather than an empty list.
+            body.append({"key": key, "label": label, "unit": unit, "value": _r(value, 3), "target": _r(typical, 3),
+                         "change": _r(typical - value, 3), "noise": noise, "camera": camera,
+                         "ratio": _r(abs(value - typical) / noise, 2), "beyond_noise": abs(value - typical) >= noise})
+        out["body"] = sorted(body, key=lambda b: -b["ratio"])[:4]
+        out["body_basis"] = {"throws": len(made), "kind": basis}
+    return out
 
 
 def _body_evidence(me: dict[str, Any], usual: dict[str, Any]) -> list[dict[str, Any]]:
