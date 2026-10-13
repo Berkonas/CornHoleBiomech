@@ -559,6 +559,7 @@ struct ThrowReportContent: View {
                                         releaseSpeed: data.value("bag_release_speed_m_s"),
                                         releaseAngle: data.value("bag_release_angle_deg"),
                                         canEdit: actions.canRecordResult, accept: { actions.setScore($0) })
+                        bodyBlock(twoView)
                         boardBlock
                         replayCard
                         detailsSection
@@ -752,6 +753,51 @@ struct ThrowReportContent: View {
                 tiles(Array(Self.releaseKeys.prefix(2)), group: "Release")
                 Text(releaseCaption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// How the body moved on this throw (biomechanics, this throw only): the side camera's joint angles and wrist
+    /// speed with release marked, its per-throw body measures, and the front camera's frontal-plane measures and series.
+    private func bodyBlock(_ twoView: TwoViewDocument) -> some View {
+        let timeline = data.timeline
+        let seek: (Int) -> Void = { seekRequest = $0 }
+        let sideKeys: [(key: String, label: String, unit: String)] = [
+            ("swing_backswing_angle_deg", "Backswing", "°"), ("swing_forward_duration_s", "Forward swing time", "s"),
+            ("swing_tempo_ratio", "Tempo", "back ÷ forward"), ("wrist_peak_speed_arm_lengths_s", "Peak wrist speed", "arm lengths/s"),
+            ("swing_release_arm_angle_deg", "Arm angle at release", "°"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°")]
+        return Card("How the body moved", symbol: "figure.disc.sports",
+                    subtitle: "This throw's biomechanics: the side camera sees the swing (sagittal plane), the front camera the sideways movement (frontal plane).") {
+            Text("Side camera · sagittal plane").font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Space.s, alignment: .top)], spacing: Space.s) {
+                ForEach(sideKeys, id: \.key) { spec in
+                    let row = data.coach?.coach_metrics[spec.key]
+                    FrontalTile(label: spec.label, help: row?.definition ?? spec.label,
+                                metric: TwoViewDocument.Metric(value: row?.usableValue, unit: spec.unit, label: spec.label,
+                                                               status: row?.usableValue == nil ? "unavailable" : (row?.status == "caution" ? "estimated" : "measured"),
+                                                               reason: row?.usableValue == nil ? "Not measured reliably on this throw." : nil))
+                }
+            }
+            HStack(alignment: .top, spacing: Space.m) {
+                if !data.jointAngles.points.isEmpty {
+                    JointAngleChart(series: data.jointAngles, timeline: timeline, currentFrame: currentFrame, seek: seek)
+                        .frame(maxWidth: .infinity)
+                }
+                if let speed = data.coach?.wrist_speed_arm_lengths_s, timeline.release != nil {
+                    WristSpeedChart(speed: speed, fps: timeline.fps, events: timeline.frames, currentFrame: currentFrame, seek: seek)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            Divider()
+            Text("Front camera · frontal plane").font(.headline)
+            let frontal = twoView.frontal ?? [:]
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Space.s, alignment: .top)], spacing: Space.s) {
+                ForEach(TwoViewDocument.frontalKeys, id: \.key) { item in
+                    FrontalTile(label: item.label, help: item.help, metric: frontal[item.key])
+                }
+            }
+            if let series = twoView.front_kinematics, series.status == "measured" { FrontBodyChart(series: series) }
+            Text("Angles are 2D, as each camera sees them. Click a point on a chart to jump the replay to that moment.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
