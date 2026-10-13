@@ -361,6 +361,9 @@ struct FrontalTile: View {
         switch metric?.unit {
         case "m": return (value >= 0 ? "+" : "−") + number(abs(value) * 100, digits: 0)
         case "°": return (value >= 0 ? "+" : "−") + number(abs(value), digits: 0) + "°"
+        case "s", "back ÷ forward", "arm lengths/s":
+            // Durations, ratios and speeds have no direction: no sign.
+            return number(value, digits: 2)
         default: return (value >= 0 ? "+" : "−") + number(abs(value), digits: 2)
         }
     }

@@ -98,3 +98,33 @@ final class InboxClipWindowTests: XCTestCase {
         XCTAssertNil(ReviewInboxView.clipWindow(fps: 30, frameCount: 175, release: nil, contact: nil, rest: nil).start)
     }
 }
+
+final class MissStoryTests: XCTestCase {
+    func testShortThrowThatLandedEarlyIsAFlightMiss() {
+        let s = MissStory(contact: (12, 21), rest: (12, 23), made: false, offBoard: false, launchVsHoleDeg: nil)
+        XCTAssertEqual(s.headline, "16 in short, on line")
+        XCTAssertEqual(s.reasons.map(\.part), [.flightDistance])
+        XCTAssertTrue(s.reasons[0].why.contains("landed 18 in before the hole and slid only 2 in"))
+        XCTAssertTrue(s.reasons[0].fix.contains("16 in further up the board"))
+    }
+
+    func testLongThrowThatSlidPastIsASlideMissAndSidewaysAimIsNamed() {
+        let s = MissStory(contact: (19, 30), rest: (19, 47), made: false, offBoard: false, launchVsHoleDeg: 1.5)
+        XCTAssertEqual(s.reasons.map(\.part), [.slideDistance, .aim])          // 8 in long, 7 in right
+        XCTAssertTrue(s.reasons[1].why.contains("launched 1.5° right of the line to the hole"))
+        XCTAssertTrue(s.reasons[1].fix.contains("further left"))
+    }
+
+    func testSidewaysSlideAfterLandingOnLineIsNotCalledAim() {
+        let s = MissStory(contact: (12, 36), rest: (18, 38), made: false, offBoard: false, launchVsHoleDeg: 0)
+        XCTAssertEqual(s.reasons.map(\.part), [.sideSlide])
+    }
+
+    func testMadeAndUnmeasuredThrowsNameNothing() {
+        XCTAssertTrue(MissStory(contact: (12, 33), rest: nil, made: true, offBoard: false, launchVsHoleDeg: nil).reasons.isEmpty)
+        let unknown = MissStory(contact: nil, rest: nil, made: false, offBoard: true, launchVsHoleDeg: nil)
+        XCTAssertEqual(unknown.headline, "Off the board")
+        XCTAssertTrue(unknown.reasons.isEmpty)
+        XCTAssertTrue(MissStory(contact: (13, 37), rest: (13, 40), made: false, offBoard: false, launchVsHoleDeg: nil).reasons.isEmpty)
+    }
+}

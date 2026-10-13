@@ -550,14 +550,26 @@ struct ThrowReportContent: View {
                 } else {
                     // Council §1: result and sentence → board from above → miss breakdown → release vs usual →
                     // replay; everything else under Details (collapsed).
-                    summaryBlock
-                    boardBlock
-                    if let attribution = data.twoView?.attribution, data.twoView?.isMeasured == true, !attribution.isHole {
-                        MissBreakdownCard(attribution: attribution)
+                    if let twoView = data.twoView, twoView.isMeasured {
+                        // One throw only (user review 2026-10-13): what happened, why it missed and what to fix from
+                        // both cameras, then the board and the replay. The comparisons with the athlete's other throws
+                        // (miss breakdown against the usual, release strips) are under Details.
+                        WhyItMissedCard(story: MissStory(document: twoView, launchVsHoleDeg: planScene?.wedgeDeg),
+                                        recorded: trial.outcome?.scoreCategory, suggested: twoView.suggestedScore,
+                                        releaseSpeed: data.value("bag_release_speed_m_s"),
+                                        releaseAngle: data.value("bag_release_angle_deg"),
+                                        canEdit: actions.canRecordResult, accept: { actions.setScore($0) })
+                        bodyBlock(twoView)
+                        boardBlock
+                        replayCard
+                        detailsSection
+                    } else {
+                        summaryBlock
+                        boardBlock
+                        releaseBlock
+                        replayCard
+                        detailsSection
                     }
-                    releaseBlock
-                    replayCard
-                    detailsSection
                 }
             }
         }
@@ -704,10 +716,10 @@ struct ThrowReportContent: View {
     /// The throw from above (two-camera throws with a measured landing), shared by the board hero and the replay.
     private var planScene: TopDownScene? {
         guard let twoView = data.twoView else { return nil }
-        let others = data.twoViewHistory.filter { $0.id != trial.id }.compactMap(\.rest)
+        // This throw only: no other throws' rests and no usual group on the board.
         return TopDownScene(document: twoView, phase: data.boardPhase,
                             releaseToBoardM: data.results?.summaries["release_to_board_front_m"] ?? nil,
-                            releaseFrame: data.replay?.events["release"]?.frame, others: others)
+                            releaseFrame: data.replay?.events["release"]?.frame, others: [], showsUsual: false)
     }
 
     /// 2. The board from above as the hero; the side camera's board view for side-only throws.
@@ -744,6 +756,51 @@ struct ThrowReportContent: View {
         }
     }
 
+    /// How the body moved on this throw (biomechanics, this throw only): the side camera's joint angles and wrist
+    /// speed with release marked, its per-throw body measures, and the front camera's frontal-plane measures and series.
+    private func bodyBlock(_ twoView: TwoViewDocument) -> some View {
+        let timeline = data.timeline
+        let seek: (Int) -> Void = { seekRequest = $0 }
+        let sideKeys: [(key: String, label: String, unit: String)] = [
+            ("swing_backswing_angle_deg", "Backswing", "°"), ("swing_forward_duration_s", "Forward swing time", "s"),
+            ("swing_tempo_ratio", "Tempo", "back ÷ forward"), ("wrist_peak_speed_arm_lengths_s", "Peak wrist speed", "arm lengths/s"),
+            ("swing_release_arm_angle_deg", "Arm angle at release", "°"), ("trunk_inclination_deg_at_release", "Trunk lean at release", "°")]
+        return Card("How the body moved", symbol: "figure.disc.sports",
+                    subtitle: "This throw's biomechanics: the side camera sees the swing (sagittal plane), the front camera the sideways movement (frontal plane).") {
+            Text("Side camera · sagittal plane").font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Space.s, alignment: .top)], spacing: Space.s) {
+                ForEach(sideKeys, id: \.key) { spec in
+                    let row = data.coach?.coach_metrics[spec.key]
+                    FrontalTile(label: spec.label, help: row?.definition ?? spec.label,
+                                metric: TwoViewDocument.Metric(value: row?.usableValue, unit: spec.unit, label: spec.label,
+                                                               status: row?.usableValue == nil ? "unavailable" : (row?.status == "caution" ? "estimated" : "measured"),
+                                                               reason: row?.usableValue == nil ? "Not measured reliably on this throw." : nil))
+                }
+            }
+            HStack(alignment: .top, spacing: Space.m) {
+                if !data.jointAngles.points.isEmpty {
+                    JointAngleChart(series: data.jointAngles, timeline: timeline, currentFrame: currentFrame, seek: seek)
+                        .frame(maxWidth: .infinity)
+                }
+                if let speed = data.coach?.wrist_speed_arm_lengths_s, timeline.release != nil {
+                    WristSpeedChart(speed: speed, fps: timeline.fps, events: timeline.frames, currentFrame: currentFrame, seek: seek)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            Divider()
+            Text("Front camera · frontal plane").font(.headline)
+            let frontal = twoView.frontal ?? [:]
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Space.s, alignment: .top)], spacing: Space.s) {
+                ForEach(TwoViewDocument.frontalKeys, id: \.key) { item in
+                    FrontalTile(label: item.label, help: item.help, metric: frontal[item.key])
+                }
+            }
+            if let series = twoView.front_kinematics, series.status == "measured" { FrontBodyChart(series: series) }
+            Text("Angles are 2D, as each camera sees them. Click a point on a chart to jump the replay to that moment.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: Details
 
     /// Everything that supports the five blocks, collapsed by default (council §1 "Details").
@@ -751,6 +808,12 @@ struct ThrowReportContent: View {
         DisclosureGroup(isExpanded: $showsDetails) {
             VStack(alignment: .leading, spacing: Space.xl) {
                 if let twoView = data.twoView {
+                    // Against this athlete's other throws, for the analyst.
+                    summaryBlock
+                    if let attribution = twoView.attribution, twoView.isMeasured, !attribution.isHole {
+                        MissBreakdownCard(attribution: attribution)
+                    }
+                    if twoView.isMeasured { releaseBlock }
                     verdictCard
                     TwoViewDetailsCard(document: twoView)
                 }

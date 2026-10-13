@@ -79,7 +79,9 @@ struct TopDownScene: Equatable {
     /// - Parameters:
     ///   - releaseToBoardM: release → board front (m, side camera), the same distance the side panel uses.
     ///   - others: rest points of the athlete's other throws.
-    init?(document: TwoViewDocument, phase: BoardPhase?, releaseToBoardM: Double?, releaseFrame: Int?, others: [PlanPoint] = []) {
+    ///   - showsUsual: false draws this throw only (no usual landing line or group).
+    init?(document: TwoViewDocument, phase: BoardPhase?, releaseToBoardM: Double?, releaseFrame: Int?, others: [PlanPoint] = [],
+          showsUsual: Bool = true) {
         guard document.isMeasured, let landing = document.landing else { return nil }
         var notes: [String] = []
         var contact: PlanPoint?
@@ -122,9 +124,11 @@ struct TopDownScene: Equatable {
         // other throws' rests loaded by the report.
         let attribution = document.attribution
         var usualContactV: Double?
-        if let carry = attribution?.depthComponent("carry"), let usual = carry.usual_in { usualContactV = 39 + usual }
+        if showsUsual, let carry = attribution?.depthComponent("carry"), let usual = carry.usual_in { usualContactV = 39 + usual }
         var group: UsualGroup?
-        if let usual = attribution?.usual, let n = usual.throwCount, n >= 8, let sa = usual.spread_depth_in, let sr = usual.spread_lateral_in {
+        if !showsUsual {
+            group = nil
+        } else if let usual = attribution?.usual, let n = usual.throwCount, n >= 8, let sa = usual.spread_depth_in, let sr = usual.spread_lateral_in {
             group = UsualGroup(centre: PlanPoint(v: 39 + (usual.centre_depth_in ?? 0), right: usual.centre_lateral_in ?? 0),
                                spreadAlong: sa, spreadAcross: sr, throwCount: n)
         } else if others.count >= 8, let along = MedianSD.of(others.map(\.v)), let across = MedianSD.of(others.map(\.right)),
