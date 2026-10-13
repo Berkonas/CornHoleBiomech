@@ -1277,6 +1277,13 @@ coach body metrics and the front-camera measures; up to four are shown, marked w
 floor. These are model-based targets and associations to try, not causes: the slide and the body–release link vary
 from throw to throw.
 
+**Body cues.** Each body difference is turned into a plain biomechanical reason and fix (`BodyCue.swift`): forward
+swing time, backswing and hand speed act through release speed (so they "fit" a short miss when they lower speed and a
+long one when they raise it); hand direction and arm angle at release act through the launch angle (they fit only when
+the drag-free flight says a higher or flatter launch would have fixed the distance); hand across the body, hand-path
+range and trunk side lean act through the sideways line (they fit a left/right miss). Tempo, elbow and trunk lean are
+shown without a "fits" claim. Wording stays associational.
+
 **Bandwidth gate.** The athlete's usual centre and spread are the median and the robust SD ($1.4826 \times$ MAD) of where
 their other throws stopped (holes at 0, 0; ≥ 8 located throws). A miss within 1 SD of the centre on both axes names
 nothing and gets "Normal spread: keep the same throw." A cue is given only when the sentence's axis is outside the
