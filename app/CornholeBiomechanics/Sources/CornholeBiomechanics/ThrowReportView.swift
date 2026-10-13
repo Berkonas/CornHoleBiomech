@@ -550,14 +550,25 @@ struct ThrowReportContent: View {
                 } else {
                     // Council §1: result and sentence → board from above → miss breakdown → release vs usual →
                     // replay; everything else under Details (collapsed).
-                    summaryBlock
-                    boardBlock
-                    if let attribution = data.twoView?.attribution, data.twoView?.isMeasured == true, !attribution.isHole {
-                        MissBreakdownCard(attribution: attribution)
+                    if let twoView = data.twoView, twoView.isMeasured {
+                        // One throw only (user review 2026-10-13): what happened, why it missed and what to fix from
+                        // both cameras, then the board and the replay. The comparisons with the athlete's other throws
+                        // (miss breakdown against the usual, release strips) are under Details.
+                        WhyItMissedCard(story: MissStory(document: twoView, launchVsHoleDeg: planScene?.wedgeDeg),
+                                        recorded: trial.outcome?.scoreCategory, suggested: twoView.suggestedScore,
+                                        releaseSpeed: data.value("bag_release_speed_m_s"),
+                                        releaseAngle: data.value("bag_release_angle_deg"),
+                                        canEdit: actions.canRecordResult, accept: { actions.setScore($0) })
+                        boardBlock
+                        replayCard
+                        detailsSection
+                    } else {
+                        summaryBlock
+                        boardBlock
+                        releaseBlock
+                        replayCard
+                        detailsSection
                     }
-                    releaseBlock
-                    replayCard
-                    detailsSection
                 }
             }
         }
@@ -704,10 +715,10 @@ struct ThrowReportContent: View {
     /// The throw from above (two-camera throws with a measured landing), shared by the board hero and the replay.
     private var planScene: TopDownScene? {
         guard let twoView = data.twoView else { return nil }
-        let others = data.twoViewHistory.filter { $0.id != trial.id }.compactMap(\.rest)
+        // This throw only: no other throws' rests and no usual group on the board.
         return TopDownScene(document: twoView, phase: data.boardPhase,
                             releaseToBoardM: data.results?.summaries["release_to_board_front_m"] ?? nil,
-                            releaseFrame: data.replay?.events["release"]?.frame, others: others)
+                            releaseFrame: data.replay?.events["release"]?.frame, others: [], showsUsual: false)
     }
 
     /// 2. The board from above as the hero; the side camera's board view for side-only throws.
@@ -751,6 +762,12 @@ struct ThrowReportContent: View {
         DisclosureGroup(isExpanded: $showsDetails) {
             VStack(alignment: .leading, spacing: Space.xl) {
                 if let twoView = data.twoView {
+                    // Against this athlete's other throws, for the analyst.
+                    summaryBlock
+                    if let attribution = twoView.attribution, twoView.isMeasured, !attribution.isHole {
+                        MissBreakdownCard(attribution: attribution)
+                    }
+                    if twoView.isMeasured { releaseBlock }
                     verdictCard
                     TwoViewDetailsCard(document: twoView)
                 }
