@@ -128,3 +128,24 @@ final class MissStoryTests: XCTestCase {
         XCTAssertTrue(MissStory(contact: (13, 37), rest: (13, 40), made: false, offBoard: false, launchVsHoleDeg: nil).reasons.isEmpty)
     }
 }
+
+final class BodyCueTests: XCTestCase {
+    typealias Change = ThrowAttribution.Fix.BodyChange
+    func testSlowerSwingOnAShortThrowFitsTheMiss() {
+        let c = Change(key: "swing_forward_duration_s", label: "Forward swing time", unit: "s", value: 0.57, target: 0.48,
+                       change: -0.09, noise: 0.035, camera: "side camera", beyond_noise: true)
+        let cue = BodyCue.make(c, missAlong: -13, missAcross: 0)!
+        XCTAssertTrue(cue.reason.contains("slower arm swing gives less release speed"))
+        XCTAssertTrue(cue.fix.contains("quicker"))
+        XCTAssertTrue(cue.fitsMiss)
+        XCTAssertFalse(BodyCue.make(c, missAlong: 13, missAcross: 0)!.fitsMiss)    // a slower swing does not explain long
+    }
+
+    func testHandAcrossTheBodyFitsOnlyASidewaysMiss() {
+        let c = Change(key: "arm_across_body_sw", label: "Hand across the body", unit: "shoulder widths", value: 0.4,
+                       target: 0.1, change: -0.3, noise: 0.15, camera: "front camera", beyond_noise: true)
+        XCTAssertTrue(BodyCue.make(c, missAlong: 0, missAcross: 8)!.fitsMiss)
+        XCTAssertFalse(BodyCue.make(c, missAlong: -10, missAcross: 1)!.fitsMiss)
+        XCTAssertTrue(BodyCue.make(c, missAlong: 0, missAcross: 8)!.fix.contains("straight at the hole"))
+    }
+}

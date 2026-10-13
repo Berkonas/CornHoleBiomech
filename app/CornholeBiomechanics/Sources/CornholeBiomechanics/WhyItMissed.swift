@@ -219,26 +219,40 @@ struct WhyItMissedCard: View {
         return lines
     }
 
-    /// Body measures on this throw against the athlete's made throws (association, not a proven cause).
+    /// Body measures on this throw against the athlete's throws that went in, as biomechanical reasons and fixes.
     @ViewBuilder private var bodyChanges: some View {
         if let fix, let body = fix.body, !body.isEmpty {
             let basis = fix.body_basis
             let made = basis?.kind == "made" ? "throws that went in" : "throws that scored"
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text("Body: this throw vs your \(basis?.throwCount.map(String.init) ?? "") \(made)").font(.headline)
-                ForEach(body) { change in
-                    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                        Image(systemName: change.beyond_noise == true ? "figure.walk.motion" : "circle.dotted")
-                            .foregroundStyle(change.beyond_noise == true ? Self.target : .secondary)
-                        Text(change.label).fontWeight(change.beyond_noise == true ? .semibold : .regular)
-                        Text("\(Self.value(change.value, change.unit)) → ").foregroundStyle(.secondary)
-                            + Text(Self.value(change.target, change.unit)).foregroundStyle(Self.target).bold()
-                        Text(change.beyond_noise == true ? "(\(change.camera ?? ""))" : "(within measurement noise)")
-                            .font(.caption).foregroundStyle(.secondary)
+            let cues = body.compactMap { change in
+                BodyCue.make(change, missAlong: story.missAlong, missAcross: story.missAcross, angleChange: fix.angle_change_deg).map { (change, $0) }
+            }.sorted { ($0.1.fitsMiss && $0.0.beyond_noise == true ? 0 : 1) < ($1.1.fitsMiss && $1.0.beyond_noise == true ? 0 : 1) }
+            VStack(alignment: .leading, spacing: Space.s) {
+                Text("Body: why it may have missed, and what to change").font(.headline)
+                ForEach(cues, id: \.0.key) { change, cue in
+                    let clear = change.beyond_noise == true
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                            Image(systemName: clear ? "figure.walk.motion" : "circle.dotted")
+                                .foregroundStyle(clear ? Self.target : .secondary)
+                            Text(cue.reason).fixedSize(horizontal: false, vertical: true)
+                                .foregroundStyle(clear ? .primary : .secondary)
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                            Image(systemName: "arrow.turn.down.right").foregroundStyle(Self.target).font(.caption)
+                            Text(cue.fix).bold().foregroundStyle(Self.target).fixedSize(horizontal: false, vertical: true)
+                            if clear && cue.fitsMiss {
+                                Text("fits this miss").font(.caption.weight(.semibold)).padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(Self.target.opacity(0.15), in: Capsule()).foregroundStyle(Self.target)
+                            } else if !clear {
+                                Text("within measurement noise").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.leading, 22)
                     }
                 }
-                Text("Green = what this athlete did on throws that went in. An association to try, not a proven cause.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("Compared with your \(basis?.throwCount.map(String.init) ?? "") \(made). \"Fits this miss\": the difference is the kind that would push the bag the way it missed. Associations to try, not proven causes.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
